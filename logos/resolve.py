@@ -147,6 +147,35 @@ def program(roots: list[Node]) -> list[Module]:
     return [resolve(root, loader, root.file) for root in roots]
 
 
+def reachable(modules: list[Module]) -> list[Module]:
+    """Every module ``modules`` and their imports reach, each once, stable order.
+
+    The result starts with the roots in the order given, then each root's
+    imports depth first in source order. One name is one module, so a diamond
+    — two modules importing the same third — is one entry here: a build set
+    lowers its functions once, and a second copy would be a second definition
+    of the same symbol.
+
+    This is the import closure a build set is lowered from. It lives here
+    because it is a fact about the resolved graph, not about the driver, and
+    a later build path reuses it unchanged.
+    """
+    seen: dict[str, Module] = {}
+    order: list[Module] = []
+
+    def walk(current: Module) -> None:
+        if current.name in seen:
+            return
+        seen[current.name] = current
+        order.append(current)
+        for imported in current.imports.values():
+            walk(imported)
+
+    for module in modules:
+        walk(module)
+    return order
+
+
 def _set_loader(table: dict[str, Node]) -> Loader:
     """A loader that answers from ``table``, then from the asker's directory."""
 

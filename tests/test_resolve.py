@@ -11,7 +11,7 @@ from pathlib import Path
 
 from logos.diag import LogosError
 from logos.parser import parse
-from logos.resolve import Module, resolve
+from logos.resolve import Module, reachable, resolve
 
 PARSE = Path(__file__).parent / "parse"
 
@@ -257,6 +257,28 @@ class CycleTest(unittest.TestCase):
                 {"b": "(mod b)(use c)", "c": "(mod c)(use b)"},
             )
         self.assertIn("b -> c -> b", caught.exception.message)
+
+
+class ReachableTest(unittest.TestCase):
+    """The import closure a build set lowers, root first and each name once."""
+
+    def test_a_root_and_a_two_hop_chain_are_each_answered_once(self):
+        root = resolve_src(
+            "(mod a)(use b)(fn fa :i64 () (ret 1))",
+            {
+                "b": "(mod b)(use c)(fn fb :i64 () (ret 2))",
+                "c": "(mod c)(fn fc :i64 () (ret 3))",
+            },
+        )
+        modules = reachable([root])
+        self.assertEqual([module.name for module in modules], ["a", "b", "c"])
+        self.assertEqual(len(modules), len({module.name for module in modules}))
+
+    def test_two_roots_share_one_answer_for_a_diamond(self):
+        left = resolve_src("(mod left)(use base)", {"base": "(mod base)"})
+        right = resolve_src("(mod right)(use base)", {"base": "(mod base)"})
+        modules = reachable([left, right])
+        self.assertEqual([module.name for module in modules], ["left", "base", "right"])
 
 
 class UnknownNodeTest(unittest.TestCase):

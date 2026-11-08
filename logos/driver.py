@@ -30,7 +30,7 @@ from logos.check import CheckedModule, check_module, check_program
 from logos.ir import TRIPLE, IrModule
 from logos.nodes import Node
 from logos.parser import parse
-from logos.resolve import Module, resolve, program as resolve_program
+from logos.resolve import Module, reachable, resolve, program as resolve_program
 
 #: The C compiler that turns IR text plus the runtime into an ELF.
 CLANG = "clang"
@@ -116,29 +116,7 @@ def checked_program(src_path: str) -> list[CheckedModule]:
     """
     path = Path(src_path)
     root = parse(_read(path), str(path))
-    return check_program(reachable(resolve_program([root])[0]))
-
-
-def reachable(module: Module) -> list[Module]:
-    """``module`` and every module it imports, each once, in source order.
-
-    One name is one module, so a diamond — two modules importing the same
-    third — is one entry here: the unit defines its functions once, and a
-    second copy would be a second definition of the same symbol.
-    """
-    seen: dict[str, Module] = {}
-    order: list[Module] = []
-
-    def walk(current: Module) -> None:
-        if current.name in seen:
-            return
-        seen[current.name] = current
-        order.append(current)
-        for imported in current.imports.values():
-            walk(imported)
-
-    walk(module)
-    return order
+    return check_program(reachable(resolve_program([root])))
 
 
 def test_ir_path(src_path: str, test_name: str) -> Path:
