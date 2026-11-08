@@ -28,6 +28,8 @@ from logos.types import Prim
 ROOT = Path(__file__).resolve().parents[1]
 HELLO = ROOT / "examples" / "hello.logos"
 EXEC_HELLO = ROOT / "tests" / "exec" / "hello.logos"
+VEC = ROOT / "tests" / "exec" / "vec.logos"
+GOLDEN_VEC = ROOT / "tests" / "golden" / "vec.ll"
 
 
 def checked(source: str) -> CheckedModule:
@@ -739,6 +741,23 @@ class IRNameTest(unittest.TestCase):
             ],
         )
         self.assertIn('define i32 @"lg.a?b.f"()', llvm.emit(m))
+
+
+class GoldenIRTest(unittest.TestCase):
+    """The whole single-module IR text of ``vec.logos``, pinned byte for byte.
+
+    ``tests/golden/vec.ll`` is a deliberate snapshot of the emitter's output
+    for one module. It is regenerated only when the IR format changes, by
+    running the lowering below and writing the text to the file; a failure
+    here means the format moved, so read the diff before regenerating.
+    """
+
+    def test_the_single_module_ir_text_is_unchanged(self):
+        module = lower.lower_module(check_module(driver.load(str(VEC))))
+        emitted = llvm.emit(module)
+        self.assertEqual(
+            emitted, GOLDEN_VEC.read_text(encoding="utf-8"), "IR text drifted"
+        )
 
 
 class I64MainTest(unittest.TestCase):
