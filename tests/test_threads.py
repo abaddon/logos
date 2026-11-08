@@ -42,7 +42,7 @@ BUILD = ROOT / "build"
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -55,7 +55,7 @@ def lowered(source: str) -> ir.IrModule:
 def checked_importing(sources: dict[str, str], source: str) -> CheckedModule:
     """Check ``source`` with ``sources`` answering its ``(use ...)`` forms."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         if name not in sources:
             raise FileNotFoundError(name)
         return parse(sources[name], f"{name}.logos")
@@ -411,8 +411,7 @@ class ThreadTypeTest(unittest.TestCase):
             )
         except LogosError as error:
             self.assertEqual(error.code, "E0103")
-            self.assertIn("imported", error.message)
-            self.assertIn("not lowered yet", error.message)
+            self.assertIn("not part of this build", error.message)
         else:
             self.fail("spawning an imported function was accepted")
 

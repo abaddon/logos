@@ -38,7 +38,7 @@ Build set
 ---------
 ``program`` resolves several files as one build: the modules named on the
 command line answer each other's ``use`` before the file system is asked, and
-a name in no set falls back to a ``<name>.logos`` beside the root that asked.
+a name in no set falls back to a ``<name>.logos`` beside the file that asked.
 Two roots that declare one module name are E0003 at the second, because one
 name cannot be two files.
 """
@@ -54,8 +54,12 @@ from logos.lexer import ATOM, Token
 from logos.nodes import Node
 from logos.parser import parse
 
-#: ``loader(name)`` returns the parsed tree of another module.
-Loader = Callable[[str], Node]
+#: ``loader(name, asker)`` returns the parsed tree of another module.
+#:
+#: ``asker`` is the path of the file that wrote the ``use``, so a loader can
+#: answer from that file's own directory rather than from the build's roots;
+#: it is ``""`` when the tree that asked has no source path.
+Loader = Callable[[str, str], Node]
 
 
 @dataclass(slots=True)
@@ -86,7 +90,8 @@ class Module:
 def resolve(root: Node, loader: Loader, file: str = "") -> Module:
     """Resolve ``root`` and everything it imports.
 
-    ``loader`` supplies the parsed tree of another module and is called at most
+    ``loader`` supplies the parsed tree of another module, given the module
+    name and the path of the file that asked for it, and is called at most
     once per module name. A name it cannot supply raises E0005; a parse
     diagnostic raised by it propagates unchanged.
 
@@ -108,8 +113,10 @@ def program(roots: list[Node]) -> list[Module]:
 
     The set answers every ``use`` before the file system does: a module named
     on the command line is loaded from its root, not from a sibling file. A
-    name in no set falls back to ``<name>.logos`` beside the asking root, which
-    is the single-file rule; a name nobody can supply is E0005 at the ``use``.
+    name in no set is looked for as ``<name>.logos`` beside the file that
+    asked for it, which is the single-file rule; a name nobody can supply is
+    E0005 at the ``use``. Because the loader is told which file asked, one
+    root's directory never answers another root's import.
 
     Two roots that declare one module name are E0003 at the second, naming
     both files: one name cannot answer for two trees.
@@ -136,45 +143,22 @@ def program(roots: list[Node]) -> list[Module]:
         table[name] = root
         origins[name] = root.file
 
-    directories: list[Path] = []
-    for root in roots:
-        if root.file:
-            parent = Path(root.file).parent
-            if parent not in directories:
-                directories.append(parent)
-
-    modules: list[Module] = []
-    for root in roots:
-        loader = _set_loader(table, _search_order(root, directories))
-        modules.append(resolve(root, loader, root.file))
-    return modules
+    loader = _set_loader(table)
+    return [resolve(root, loader, root.file) for root in roots]
 
 
-def _search_order(root: Node, directories: list[Path]) -> list[Path]:
-    """The directories to try for a name outside the set, nearest first.
+def _set_loader(table: dict[str, Node]) -> Loader:
+    """A loader that answers from ``table``, then from the asker's directory."""
 
-    The asking root's directory comes first. The set's other directories
-    follow, because a root may be reached again through a sibling's ``use``;
-    every file an import names lives beside the file that named it, so trying
-    the root directories is enough to find a chain's second hop.
-    """
-    if not root.file:
-        return list(directories)
-    own = Path(root.file).parent
-    return [own] + [directory for directory in directories if directory != own]
-
-
-def _set_loader(table: dict[str, Node], order: list[Path]) -> Loader:
-    """A loader that answers from ``table``, then from files in ``order``."""
-
-    def loader(name: str) -> Node:
+    def loader(name: str, asker: str) -> Node:
         tree = table.get(name)
         if tree is not None:
             return tree
-        for directory in order:
-            sibling = directory / f"{name}.logos"
-            if sibling.is_file():
-                return parse(sibling.read_text(encoding="utf-8"), str(sibling))
+        if not asker:
+            raise FileNotFoundError(name)
+        sibling = Path(asker).parent / f"{name}.logos"
+        if sibling.is_file():
+            return parse(sibling.read_text(encoding="utf-8"), str(sibling))
         raise FileNotFoundError(name)
 
     return loader
@@ -260,7 +244,7 @@ class _Resolver:
         imported = self.done.get(name)
         if imported is None:
             try:
-                root = self.loader(name)
+                root = self.loader(name, module.root.file)
             except (KeyError, OSError):
                 raise diag(NOT_FOUND, node.path, f"unknown module '{name}'") from None
             if not isinstance(root, Node):

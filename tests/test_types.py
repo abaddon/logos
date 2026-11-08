@@ -58,7 +58,7 @@ def resolve_src(src: str, files: dict[str, str] | None = None) -> Module:
     """Resolve ``src`` with ``files`` as the loader's store."""
     sources = dict(files or {})
 
-    def loader(module: str):
+    def loader(module: str, _asker: str):
         if module not in sources:
             raise FileNotFoundError(module)
         return parse(sources[module], f"{module}.logos")

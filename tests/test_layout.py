@@ -37,7 +37,7 @@ PAIR = (
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -338,7 +338,9 @@ class StructCheckTest(unittest.TestCase):
         cm = check_module(
             resolve(
                 parse("(mod a)(use b)(fn f :i64 ((p point)) (ret (get p x)))", "a.logos"),
-                lambda name: parse("(mod b)(type point (struct (x :i64)))", "b.logos"),
+                lambda name, _asker: parse(
+                    "(mod b)(type point (struct (x :i64)))", "b.logos"
+                ),
             )
         )
         self.assertEqual(cm.expr_types[path_of(cm, "get")], Prim("i64"))

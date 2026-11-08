@@ -26,7 +26,7 @@ def resolve_src(src: str, files: dict[str, str] | None = None) -> Module:
     """
     sources = dict(files or {})
 
-    def loader(module: str):
+    def loader(module: str, _asker: str):
         if module not in sources:
             raise FileNotFoundError(module)
         return parse(sources[module], f"{module}.logos")
@@ -76,7 +76,7 @@ class ModuleTest(unittest.TestCase):
     def test_a_missing_module_form_without_a_file_name_has_no_location(self):
         # Backward compatibility: the two-argument call is still supported and
         # simply has no source to point at.
-        def loader(name: str):
+        def loader(name: str, _asker: str):
             raise FileNotFoundError(name)
 
         with self.assertRaises(LogosError) as caught:
@@ -178,7 +178,7 @@ class ImportTest(unittest.TestCase):
             "d": "(mod d)(fn h :i64 () (ret 0))",
         }
 
-        def loader(name: str):
+        def loader(name: str, _asker: str):
             loaded.append(name)
             return parse(sources[name], f"{name}.logos")
 

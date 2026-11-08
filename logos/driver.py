@@ -84,7 +84,13 @@ def load(src_path: str) -> Module:
     path = Path(src_path)
     root = parse(_read(path), str(path))
 
-    def loader(name: str) -> Node:
+    def loader(name: str, asker: str) -> Node:
+        """Answer ``name`` from the loading file's directory.
+
+        ``asker`` is accepted because the resolver always names the file that
+        wrote the ``use``; ``load`` resolves one root, and every import in
+        its graph is answered beside that one file.
+        """
         sibling = path.parent / f"{name}.logos"
         if not sibling.is_file():
             raise FileNotFoundError(name)

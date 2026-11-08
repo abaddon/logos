@@ -33,7 +33,7 @@ EXEC_HELLO = ROOT / "tests" / "exec" / "hello.logos"
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -673,7 +673,7 @@ class CallResolutionTest(unittest.TestCase):
             "(mod main)\n\n(use other)\n\n(fn main :i64 ()\n  (ret (helper)))\n",
             "main.logos",
         )
-        module = resolve(root, lambda name: other, "main.logos")
+        module = resolve(root, lambda name, _asker: other, "main.logos")
         with self.assertRaises(LogosError) as caught:
             check_module(module)
         self.assertEqual(caught.exception.code, "E0103")
