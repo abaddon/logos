@@ -184,7 +184,9 @@ make clean   # remove build output and caches
 Read `AGENTS.md` first if you are an AI agent, or `CONTRIBUTING.md` if you are a
 person; `tools/pr_gate.sh` runs every gate a pull request must pass. The
 repository accepts pull requests from humans and from AI agents acting through
-their operator's account.
+their operator's account. Every commit must carry a `Signed-off-by` trailer that
+matches its author: `tools/pr_gate.sh` checks that first, and stops before any
+gate if it fails.
 
 ## Layout
 

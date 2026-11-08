@@ -22,6 +22,10 @@ python3 -m logos guide --check
 python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
 ```
 
+Before any of them, every commit on your branch must carry a `Signed-off-by`
+trailer matching its author. `tools/pr_gate.sh` runs `bash tools/check_dco.sh`
+first and stops if it fails. See `CONTRIBUTING.md`.
+
 `bash tools/pr_gate.sh` runs exactly this list, prints PASS or FAIL for each
 gate, and exits non-zero if any failed. Run it before you open a pull request.
 Do not weaken a gate, skip a gate, or change its expected result to make a

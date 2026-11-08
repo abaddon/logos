@@ -57,6 +57,22 @@ def stripped_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def fenced_block(path: Path) -> list[str]:
+    """The non-empty lines of the first ```sh block in a document."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    try:
+        start = lines.index("```sh")
+    except ValueError:
+        return []
+    block = []
+    for line in lines[start + 1 :]:
+        if line.strip() == "```":
+            break
+        if line.strip():
+            block.append(line.strip())
+    return block
+
+
 class ContributorFilesTest(unittest.TestCase):
     """Every document a contributor is told to read or fill in exists."""
 
@@ -111,12 +127,23 @@ class GateListAgreementTest(unittest.TestCase):
                 positions.append(lines.index(command))
         self.assertEqual(positions, sorted(positions), "AGENTS.md gates are out of order")
 
-    def test_agents_documents_five_gates_and_no_sign_off_gate(self):
+    def test_agents_documents_five_gates_and_the_sign_off_precondition(self):
         text = AGENTS.read_text(encoding="utf-8")
         self.assertIn("five commands", text)
         self.assertNotIn("six gates", text)
         self.assertNotIn("six commands", text)
-        self.assertNotIn(SIGN_OFF_COMMAND, text, "sign-off is a precondition, not a gate")
+        self.assertEqual(
+            fenced_block(AGENTS),
+            GATES,
+            "the command block in AGENTS.md must hold exactly the five gates",
+        )
+        self.assertIn("Signed-off-by", text, "AGENTS.md must state the sign-off precondition")
+        self.assertIn(SIGN_OFF_COMMAND, text, "AGENTS.md must name the sign-off check")
+        self.assertNotIn(
+            SIGN_OFF_COMMAND,
+            fenced_block(AGENTS),
+            "sign-off is a precondition, not a gate",
+        )
 
     def test_pr_gate_runs_the_five_gates(self):
         lines = stripped_lines(PR_GATE)
