@@ -103,6 +103,40 @@ class ResolveProgramTest(unittest.TestCase):
         self.assertEqual(modules[0].imports["x"].root.file, x.file)
 
 
+class LoadProgramTest(unittest.TestCase):
+    """The driver's build-set entry points keep the resolver's refusals."""
+
+    def test_a_use_of_a_module_outside_the_build_set_still_fails(self):
+        directory = Path(tempfile.mkdtemp())
+        _parse("(mod loads)\n(use absent)\n", "loads", directory)
+        with self.assertRaises(LogosError) as caught:
+            driver.load_program([str(directory / "loads.logos")])
+        self.assertEqual(caught.exception.code, "E0005")
+
+    def test_build_program_builds_every_file_in_the_set(self):
+        directory = Path(tempfile.mkdtemp())
+        (directory / "util.logos").write_text(UTIL, encoding="utf-8")
+        program = directory / "program.logos"
+        program.write_text(
+            "(mod program)\n(use util)\n(fn main :void ()\n"
+            "  (println (twice 21)))\n",
+            encoding="utf-8",
+        )
+        out = str(Path(tempfile.mkdtemp()) / "prog")
+        self.assertEqual(
+            driver.build_program(
+                [str(program), str(directory / "util.logos")], out
+            ),
+            out,
+        )
+        done = subprocess.run([out], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "42\n")
+        # The IR is named after the first source, which is the file the
+        # command line names first.
+        self.assertTrue(driver.ir_path(str(program)).is_file())
+
+
 class ImportedGenericTest(unittest.TestCase):
     # A generic is instantiated from the definition it was declared in. An
     # imported generic therefore never runs in the caller's namespace, where

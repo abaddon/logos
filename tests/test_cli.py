@@ -9,6 +9,7 @@ The project is standard library only and runs its tests with
 
 import io
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -52,11 +53,83 @@ class CliFlagParsingTest(unittest.TestCase):
         self.assertIn("PASS exec/hello/hello", out.getvalue())
 
     def test_build_defaults_to_the_drivers_optimisation_level(self):
-        """The CLI default and ``driver.build``'s default are the same -O2."""
-        with patch("logos.cli.driver.build") as build:
+        """The CLI default and ``driver.build_program``'s default are one -O2."""
+        with patch("logos.cli.driver.build_program") as build:
             code = main(["build", "x.logos"])
         self.assertEqual(code, 0)
-        build.assert_called_once_with("x.logos", None, opt="-O2", keep_ir=True)
+        build.assert_called_once_with(["x.logos"], None, opt="-O2", keep_ir=True)
+
+    def test_build_parses_its_options_after_several_files(self):
+        """``nargs="+"`` must not swallow ``-o`` or ``--opt`` after the files."""
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = main(
+                ["build", "a.logos", "b.logos", "-o", "/tmp/o", "--opt", "-O0"]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("a.logos", err.getvalue())
+
+
+class CliBuildTest(unittest.TestCase):
+    """``build`` compiles every source named on the command line as one program."""
+
+    UTIL = "(mod util)\n\n(fn twice :i64 ((x :i64))\n  (ret (* x 2)))\n"
+
+    def _write(self, tmp, name, text):
+        path = pathlib.Path(tmp, name)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_build_accepts_two_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            util = self._write(tmp, "util.logos", self.UTIL)
+            main_file = self._write(
+                tmp,
+                "main.logos",
+                "(mod main)\n\n(use util)\n\n(fn main :void ()\n"
+                "  (println (twice 21)))\n",
+            )
+            out = pathlib.Path(tmp, "prog")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(["build", str(util), str(main_file), "-o", str(out)])
+            self.assertEqual(code, 0, err.getvalue())
+            done = subprocess.run([str(out)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(done.stdout, "42\n")
+
+    def test_build_reports_a_set_without_main(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._write(tmp, "util.logos", self.UTIL)
+            second = self._write(
+                tmp,
+                "other.logos",
+                "(mod other)\n\n(fn one :i64 () (ret 1))\n",
+            )
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(
+                    ["build", str(first), str(second), "-o", str(pathlib.Path(tmp, "prog"))]
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("no 'main' function to build", err.getvalue())
+
+    def test_build_reports_two_mains_as_the_checkers_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._write(
+                tmp, "a.logos", "(mod a)\n\n(fn main :i64 () (ret 1))\n"
+            )
+            second = self._write(
+                tmp, "b.logos", "(mod b)\n\n(fn main :i64 () (ret 2))\n"
+            )
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(
+                    ["build", str(first), str(second), "-o", str(pathlib.Path(tmp, "prog"))]
+                )
+            self.assertEqual(code, 1)
+            self.assertIn("E0003", err.getvalue())
+            self.assertIn("main", err.getvalue())
 
 
 class CliFmtTest(unittest.TestCase):
