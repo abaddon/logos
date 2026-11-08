@@ -403,6 +403,15 @@ source -> lex -> parse (sexpr tree, path assigned) -> resolve names
 The IR is text, in LLVM's own form. An AI can read it when debugging the
 compiler itself. No LLVM bindings, no C++ toolchain beyond clang.
 
+Every float constant in that text is written as its bit pattern: `0x` and the
+sixteen hexadecimal digits of the double's bits, at both `:f32` and `:f64`
+(`1.5` is `0x3FF8000000000000`, `0.1` is `0x3FB999999999999A`). A decimal
+spelling has to be re-read and rounded by whoever consumes the IR, so the
+number the compiler held and the number the assembler builds can differ; naming
+the bits leaves no decimal for either direction to round, and an `:f32`
+constant is rounded to single precision once, at compile time, before its bits
+are written.
+
 Diagnostics carry: path, a code (`E0421`), one sentence, and the minimal
 subtree. No advice, no prose.
 

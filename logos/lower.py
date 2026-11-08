@@ -3006,7 +3006,7 @@ class _Fn:
         if token.kind == NUMBER:
             if "." in token.value or "e" in token.value or "E" in token.value:
                 # The checker recorded the width this literal was checked at;
-                # an ``:f32`` needs single-precision spelling (see below).
+                # an ``:f32`` is rounded to single precision before spelling.
                 return _float_text(
                     token.value, where, self.record.literal_types.get(token)
                 )
@@ -4249,22 +4249,21 @@ def _path_of(item: Node | Token, where: str) -> str:
 
 
 def _float_text(text: str, where: str, widened: Ty | None = None) -> str:
-    """Spell a float literal the way LLVM reads an operand of its width.
+    """Spell a float literal as its bit pattern, which LLVM reads exactly.
 
-    LLVM's decimal form needs a digit, a dot and then whatever exponent the
-    value has, so ``2.0`` stays ``2.0`` and ``1e300`` becomes ``1.0e+300``.
-    Python's ``repr`` is the shortest text that reads back as the same double,
-    which is also what the runtime prints, so a literal and the value it
-    formats agree.
+    ``0x`` plus the sixteen hex digits of the double's bits names one number,
+    so nothing between the compiler and the assembler can round it: a decimal
+    is re-read and rounded by whoever consumes the IR, and Python's ``repr`` is
+    the shortest text that round-trips as a *double*, not necessarily the text
+    LLVM turns back into the same bits. The error had both directions at once
+    — a decimal could land one ulp away, and a decimal written for a ``float``
+    operand that is not exactly single precision is refused outright as
+    "floating point constant invalid for type" (``0.1`` at ``:f32``).
 
-    One decimal cannot serve both widths. LLVM accepts a decimal constant for a
-    ``float`` only when the value is exactly single precision, so ``0.1`` at
-    ``:f32`` is refused as "floating point constant invalid for type". The
-    checker records the width each literal was checked at, and a value the
-    ``float`` cannot hold exactly is spelled in hexadecimal: the bits of the
-    double that *is* the single-precision value, a form LLVM reads at either
-    width because it names an exact number. The rounding happens here once, at
-    compile time, instead of being left for LLVM to reject.
+    The checker records the width each literal was checked at. An ``:f32``
+    literal is rounded to single precision here, once, at compile time, and
+    then spelled as the bits of the double that holds that value; LLVM reads
+    that constant at either width because it names an exact number.
     """
     value = float(text)
     if value != value or value in (float("inf"), float("-inf")):
@@ -4272,18 +4271,8 @@ def _float_text(text: str, where: str, widened: Ty | None = None) -> str:
             LITERAL_RANGE, where, f"float literal '{text}' is not a finite :f64"
         )
     if isinstance(widened, Prim) and widened.name == "f32":
-        single = _single(value)
-        if single != value:
-            return _hex_float(single)
-    spelled = repr(value)
-    if "e" in spelled or "E" in spelled:
-        mantissa, _, exponent = spelled.partition("e")
-        if "." not in mantissa:
-            mantissa += ".0"
-        return f"{mantissa}e{exponent}"
-    if "." not in spelled:
-        return spelled + ".0"
-    return spelled
+        return _hex_float(_single(value))
+    return _hex_float(value)
 
 
 def _single(value: float) -> float:

@@ -306,6 +306,17 @@ class EmitterTest(unittest.TestCase):
             text.index("define i32 @main()"),
         )
 
+    def test_a_float_constant_is_hexadecimal(self):
+        # A decimal spelling has to be re-read and rounded by the assembler;
+        # the bit pattern names one exact number at either width.
+        text = llvm.emit(
+            lower.lower_module(
+                checked("(mod m)\n(fn main :i64 () (println 1.5) (ret 0))\n")
+            )
+        )
+        self.assertIn("double 0x3FF8000000000000", text)
+        self.assertNotIn("double 1.5", text)
+
     def test_an_unknown_instruction_is_a_loud_failure(self):
         m = ir.IrModule(
             ir.TRIPLE,
