@@ -1,8 +1,9 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from logos import check, llvm, lower, parser, resolve
+from logos import check, driver, llvm, lower, parser, resolve
 from logos.diag import LogosError
 
 
@@ -253,6 +254,139 @@ class ProgramLoweringTest(unittest.TestCase):
         # The runtime is handed the thunk, and the thunk the owner's symbol.
         main = next(fn for fn in ir.functions if fn.name == "main")
         self.assertIn(thunk.symbol, _addresses(main))
+
+
+class ExternAcrossModulesTest(unittest.TestCase):
+    """Every module of the unit carries its own ``extern`` declarations."""
+
+    UTIL = (
+        "(mod util)\n"
+        "(extern fn getpid :i64 ())\n"
+        "(fn pid :i64 () (ret (getpid)))\n"
+    )
+    MID = "(mod mid)\n(use util)\n(fn midpid :i64 () (ret (pid)))\n"
+    PROGRAM = "(mod program)\n(use mid)\n(fn main :i64 () (ret (midpid)))\n"
+
+    def test_a_module_two_hops_down_calls_its_own_extern(self):
+        directory = Path(tempfile.mkdtemp())
+        _parse(self.UTIL, "util", directory)
+        _parse(self.MID, "mid", directory)
+        _parse(self.PROGRAM, "program", directory)
+        ir = lower.lower_program(
+            driver.checked_program(str(directory / "program.logos"))
+        )
+        text = llvm.emit(ir)
+        self.assertIn("declare i64 @getpid()", text)
+        self.assertIn("call i64 @getpid()", text)
+
+    def test_a_second_root_calls_its_own_extern(self):
+        first = _parse(
+            "(mod a)\n(extern fn getpid :i64 ())"
+            "(fn pa :i64 () (ret (getpid)))\n",
+            "a",
+        )
+        second = _parse(
+            "(mod b)\n(extern fn getppid :i64 ())"
+            "(fn pb :i64 () (ret (getppid)))\n",
+            "b",
+        )
+        ir = lower.lower_program(
+            check.check_program(resolve.program([first, second]))
+        )
+        text = llvm.emit(ir)
+        self.assertIn("declare i64 @getpid()", text)
+        self.assertIn("declare i64 @getppid()", text)
+        self.assertIn("call i64 @getppid()", text)
+
+
+class ImportedTypeOutsideTheUnitTest(unittest.TestCase):
+    """A type's owner spells it, whichever module of the unit uses it."""
+
+    def _modules(self):
+        directory = Path(tempfile.mkdtemp())
+        _parse(
+            "(mod shapes)\n(type point (struct (x :i64) (y :i64)))\n",
+            "shapes",
+            directory,
+        )
+        first = _parse(
+            "(mod a)\n(use shapes)\n(use b)\n"
+            "(fn main :i64 ()\n"
+            "  (let p point (make point 3 4))\n"
+            "  (println (take p))\n"
+            "  (ret 0))\n",
+            "a",
+            directory,
+        )
+        second = _parse(
+            "(mod b)\n(use shapes)\n"
+            "(fn take :i64 ((p point))\n"
+            "  (ret (+ (get p x) (get p y))))\n",
+            "b",
+            directory,
+        )
+        return first, second
+
+    def test_the_declaring_module_names_the_type_for_every_root(self):
+        first, second = self._modules()
+        text = llvm.emit(
+            lower.lower_program(
+                check.check_program(resolve.program([first, second]))
+            )
+        )
+        self.assertEqual(text.count("%struct.shapes.point = type { i64, i64 }"), 1)
+        self.assertIn("define internal i64 @lg.b.take(%struct.shapes.point", text)
+        self.assertNotIn("%struct.a.point", text)
+        self.assertNotIn("%struct.b.point", text)
+
+    def test_a_cross_module_struct_value_links_and_prints_it(self):
+        first, second = self._modules()
+        ir = lower.lower_program(
+            check.check_program(resolve.program([first, second]))
+        )
+        ll = driver.BUILD_DIR / "test-shared-type.ll"
+        out = str(driver.BUILD_DIR / "test-shared-type")
+        driver._link(ir, ll, out, "-O2", True, debug=False)
+        done = subprocess.run([out], capture_output=True, text=True)
+        self.assertEqual(done.stdout, "7\n", done.stderr)
+        self.assertEqual(done.returncode, 0)
+
+
+class TestEntryMainTest(unittest.TestCase):
+    """A test build's entry is the test body: no module's ``main`` is callable."""
+
+    def test_a_test_build_never_calls_an_imported_main(self):
+        directory = Path(tempfile.mkdtemp())
+        _parse(
+            "(mod util)\n(fn twice :i64 ((x :i64)) (ret (* x 2)))\n",
+            "util",
+            directory,
+        )
+        _parse(
+            "(mod app)\n(use util)\n(fn main :i64 () (ret (twice 6)))\n",
+            "app",
+            directory,
+        )
+        _parse(
+            "(mod lib)\n(use app)\n(fn run :i64 () (ret (main)))\n",
+            "lib",
+            directory,
+        )
+        _parse(
+            "(mod root)\n(use lib)\n"
+            "(test t (expect (code 0)) (println (run)))\n",
+            "root",
+            directory,
+        )
+        checked = driver.checked_program(str(directory / "root.logos"))
+        # Before the guard, ``lib``'s import of ``app`` re-added ``main`` to
+        # its symbol map after ``forget_main``, so ``run`` emitted a call to
+        # the test entry itself: ``call i32 @main()``. There is no body to
+        # call, so the only correct answer is the missing-definition E0103.
+        with self.assertRaises(LogosError) as caught:
+            lower.lower_test_program(checked, "t")
+        self.assertEqual(caught.exception.code, "E0103")
+        self.assertIn("main", caught.exception.message)
 
 
 def _called(fn) -> list[str]:

@@ -875,12 +875,14 @@ class _Lower:
         #: Whether the entry point is a test body, and so no module's ``main``
         #: is lowered or callable.
         self._entry_is_test = False
-        #: Every visible C declaration, by name. A call to one is emitted as a
-        #: ``declare`` of the bare name: no mangle, no ``define``, and the
-        #: linker finds the symbol in libc. Kept apart from the symbol maps
-        #: because an extern has no body to lower and its name must not be
-        #: prefixed.
-        self.externs: dict[str, FnTy] = dict(cm.externs)
+        #: Every visible C declaration, by name, for the module whose bodies
+        #: are being lowered. A call to one is emitted as a ``declare`` of the
+        #: bare name: no mangle, no ``define``, and the linker finds the symbol
+        #: in libc. Kept apart from the symbol maps because an extern has no
+        #: body to lower and its name must not be prefixed. ``enter`` replaces
+        #: it with the current module's set, so a module at any import depth
+        #: can call what it declared.
+        self.externs: dict[str, FnTy] = {}
         #: The ``$lambda$<n>`` names closures have been given so far.
         self.lambdas = 0
         self.lambda_names: set[str] = set()
@@ -897,7 +899,9 @@ class _Lower:
         Its expression types, call targets and closures are what every body
         below reads, and its declarations are what :meth:`type_name` spells
         against, so a module's bodies are never lowered under another module's
-        record.
+        record. Its ``extern`` declarations are swapped in beside its body
+        record: an extern is module-local, and one module's set must not make
+        another's call fail as if it had never been declared.
         """
         self.cm = cm
         #: The type record shared by everything that is not a copy: the
@@ -909,6 +913,7 @@ class _Lower:
             cm.declared,
             cm.literal_types,
         )
+        self.externs = dict(cm.externs)
         self._enum_memo = {}
 
     def prepare(self, cm: CheckedModule) -> None:
@@ -932,6 +937,12 @@ class _Lower:
             if other.name not in self._unit:
                 continue
             for name in other.fns:
+                if name == "main" and self._entry_is_test:
+                    # The test body is the entry point; no module's ``main``
+                    # has a lowered body, so mapping it would re-add the one
+                    # symbol ``forget_main`` removed and emit a call to the
+                    # test entry itself.
+                    continue
                 sig = cm.fn_sigs.get(name)
                 if sig is None or _has_typevar(sig):
                     continue
@@ -1008,17 +1019,18 @@ class _Lower:
         """The module that declared the named type, as seen from the current one.
 
         A module sees its own declarations and its imports' — the resolver
-        refused a duplicate, so at most one of them declares ``name``. A type
-        whose module is outside the unit is materialised here instead: the
-        declaration's layout is in this module's record, and no other module in
-        the unit can define the same spelling.
+        refused a duplicate, so at most one of them declares ``name``. The
+        owner names the type even when it is outside the unit: a type name is
+        unique in the resolver's namespace, so every module that uses the type
+        must spell it the same way, or one root's value would be a different
+        LLVM type at another root's call site.
         """
         module = self.cm.module
         if name in module.types:
             return module.name
         for imported in module.imports.values():
             if name in imported.types:
-                return imported.name if imported.name in self._unit else module.name
+                return imported.name
         return module.name
 
     def qualify_type(self, ty: Ty) -> Ty:
