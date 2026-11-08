@@ -25,8 +25,9 @@ python3 -m logos guide --check
 python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
 ```
 
-`bash tools/pr_gate.sh` runs all five and prints one PASS or FAIL line per
-gate. A pull request must show all five passing.
+`bash tools/pr_gate.sh` runs the sign-off check first, then all five, and prints
+one PASS or FAIL line per gate. A pull request must show all five passing and
+every commit signed off.
 
 To run one unit test file:
 
@@ -91,6 +92,13 @@ Branch with a `feat/`, `fix/` or `docs/` prefix, keep one logical change per
 pull request, and fill in `.github/PULL_REQUEST_TEMPLATE.md`. Run
 `bash tools/pr_gate.sh` before you push and paste its result lines. Do not
 include unrelated reformatting.
+
+Every commit must carry a DCO sign-off whose email matches the commit author.
+`git commit --signoff` adds it. This is a precondition, not one of the gates:
+`bash tools/pr_gate.sh` checks it before the five gates and stops there if any
+commit is unsigned, and the CI job runs the same check before its gates. Run
+`bash tools/check_dco.sh` directly to inspect a branch; it prints the offending
+commit SHA and the exact trailer to add when one is missing.
 
 Bugs go through the issue form at `.github/ISSUE_TEMPLATE/bug.yml`; include the
 smallest program that reproduces the problem, the exact command, the expected

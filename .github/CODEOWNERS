@@ -1,0 +1,14 @@
+# Every path has an owner, so every pull request asks one.
+* @abaddon
+
+# High-risk paths: the checker, lowering and types decide whether an accepted
+# program is safe; the manual is generated ground truth; the corpus is the
+# contract; the runtime and CI define what "passing" means.
+/logos/check.py @abaddon
+/logos/lower.py @abaddon
+/logos/types.py @abaddon
+/docs/LOGOS.md @abaddon
+/docs/manual/ @abaddon
+/tests/regress/ @abaddon
+/logos/runtime/ @abaddon
+/.github/ @abaddon

@@ -48,6 +48,18 @@ jobs:
       - name: prepare main for the changed-file format gate
         run: |
           git rev-parse --verify --quiet main > /dev/null || git branch main origin/main
+      # Precondition, not a gate: it runs before any gate and stops the job when
+      # a commit is unsigned. Only for a pull request -- a push to main has no
+      # base to compare against and must not re-litigate commits already merged.
+      # The base and head SHAs come from the event, so the range is exactly this
+      # PR. The documented gate list in AGENTS.md stays at five commands.
+      - name: sign-off
+        if: github.event_name == 'pull_request'
+        env:
+          DCO_BASE: ${{ github.event.pull_request.base.sha }}
+          DCO_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bash tools/check_dco.sh
       - name: unit tests
         run: |
           make test

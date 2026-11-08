@@ -2,6 +2,13 @@
 
 <!-- One logical change, and why. Link the issue if there is one. -->
 
+## Sign-off
+
+Sign-off is a precondition, not one of the gates. Every commit must carry a
+`Signed-off-by:` trailer matching its author (`git commit --signoff`). Run
+`bash tools/check_dco.sh` first; `bash tools/pr_gate.sh` does it for you and
+stops before the gates if a commit is unsigned.
+
 ## Gates
 
 Run `bash tools/pr_gate.sh` and paste the result line for each gate. All five
@@ -33,4 +40,6 @@ must pass.
       hand-edited.
 - [ ] The branch is named `feat/…`, `fix/…` or `docs/…` and contains one
       logical change.
+- [ ] Every commit is signed off (`git commit --signoff`) and
+      `bash tools/check_dco.sh` passes.
 - [ ] There is no unrelated reformatting.
