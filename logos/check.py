@@ -165,10 +165,12 @@ and the functions of its direct imports therefore all have a type by the time a
 call is checked, which makes source order irrelevant: a function can call one
 defined later. Because imports are not merged into ``Module.fns``, walking
 ``Module.imports`` is what builds the visible namespace, and a caller sees the
-definitions of the modules it names, never the ones they name. Only this
-module's definitions are lowered, so a call to an imported function is
-**E0103**, ``imported functions are not lowered yet: 'name'``, at the call:
-the callee's symbol lives in an object file the program is not built with.
+definitions of the modules it names, never the ones they name. A call to an
+imported function is **E0103**, ``imported functions are not lowered yet:
+'name'``, at the call, unless the caller names the build set: ``check_program``
+checks every module against the union of the set's bodies, because those
+bodies share one object file. A module checked alone lowers only its own
+definitions, so its refusal keeps its text and its code.
 
 Reserved names
 --------------
@@ -589,9 +591,49 @@ def _escape_name(name: str) -> str:
     )
 
 
-def check_module(m: Module) -> CheckedModule:
-    """Check ``m`` and return its checked form, or raise ``LogosError``."""
-    return _Checker(m).run()
+def check_module(m: Module, *, bodies: dict[str, Node] | None = None) -> CheckedModule:
+    """Check ``m`` and return its checked form, or raise ``LogosError``.
+
+    ``bodies`` names every function of the build set that will have a symbol,
+    keyed by plain name; ``None`` means this module's own functions. A call to
+    a name in it is a call to a body the program emits, so it is not the
+    "imported functions are not lowered yet" refusal.
+    """
+    return _Checker(m, bodies).run()
+
+
+def check_program(modules: list[Module]) -> list[CheckedModule]:
+    """Check several modules as one build set, in the order given.
+
+    Every module is checked against the union of the set's functions, so a
+    call into a sibling module is legal. Two modules that define one plain
+    function name, or one type name, would emit two symbols with the same
+    spelling; that is E0003 at the second definition, naming both.
+    """
+    bodies = _shared_names(modules, "fns")
+    _shared_names(modules, "types")
+    return [check_module(module, bodies=bodies) for module in modules]
+
+
+def _shared_names(modules: list[Module], table: str) -> dict[str, Node]:
+    """One plain-name table over every module, refusing a repeated name.
+
+    ``table`` is the attribute of ``Module`` to read: ``fns`` for the bodies
+    the build emits, ``types`` for the type namespace the lowerer qualifies.
+    Diagnostics carry the path of the second definition and name both.
+    """
+    shared: dict[str, Node] = {}
+    for module in modules:
+        for name, node in getattr(module, table).items():
+            first = shared.get(name)
+            if first is not None:
+                raise diag(
+                    DUPLICATE,
+                    node.path,
+                    f"duplicate definition '{name}': {first.path} and {node.path}",
+                )
+            shared[name] = node
+    return shared
 
 
 def fn_shape(
@@ -1403,8 +1445,11 @@ _LET_SHAPE = "takes a name, an optional type and a value"
 
 
 class _Checker:
-    def __init__(self, module: Module) -> None:
+    def __init__(self, module: Module, bodies: dict[str, Node] | None = None) -> None:
         self.module = module
+        #: The build set's bodies when the caller named one; ``run`` falls back
+        #: to this module's own functions when it is ``None``.
+        self._given_bodies = bodies
         self.expr_types: dict[str, Ty] = {}
         self.call_targets: dict[str, str] = {}
         self.closures: dict[str, Closure] = {}
@@ -1428,9 +1473,11 @@ class _Checker:
             self.declared,
             self.literal_types,
         )
-        #: The source functions a call may instantiate. Only this module's own
-        #: definitions, because a copy's body is emitted from here; a generic
-        #: reached through an import has no body this module can lower.
+        #: The source functions a call may reach a body for. Normally this
+        #: module's own definitions; ``check_program`` widens it to every
+        #: function of the build set, because those bodies share one object
+        #: file. A generic is still instantiated from this module only:
+        #: ``_params`` is built from its own signatures.
         self._bodies: dict[str, Node] = {}
         #: Every visible name that is a C declaration rather than a body. A
         #: call to one is not the "imported functions are not lowered yet"
@@ -1457,7 +1504,11 @@ class _Checker:
                 # source can answer, so the ambiguity is reported where the
                 # constructor is used.
                 self._variants.setdefault(variant, []).append((enum_name, payload))
-        self._bodies = {name: node for name, node in self.module.fns.items()}
+        self._bodies = (
+            self._given_bodies
+            if self._given_bodies is not None
+            else {name: node for name, node in self.module.fns.items()}
+        )
         self._externs = dict(visible.externs)
         for node in self.module.fns.values():
             self._check_fn(node, visible.fns)
@@ -1934,9 +1985,9 @@ class _Checker:
                     )
                 if token.value not in self._bodies:
                     # The lowerer emits a ``$fnvalue`` wrapper beside the
-                    # definition it wraps. An imported (or test-local) name has
-                    # no definition in this module, so there is no wrapper to
-                    # call and lowering would fail with E0103 after checking.
+                    # definition it wraps. A name with no lowered definition —
+                    # a test-local helper, or an import from outside the build
+                    # set — has no wrapper to call, so lowering would fail.
                     raise diag(
                         UNKNOWN_FUNCTION,
                         where,
@@ -3315,10 +3366,9 @@ class _Checker:
         if name not in self._bodies:
             # Two different reasons share this rule. A test-local helper is
             # checked but not lowered: its symbol does not exist, so a thunk
-            # calling it could not link. An imported function is a module
-            # function, but in another module — this module lowers only its own
-            # definitions, so that symbol is not in this object file. Both are
-            # E0103, like a function value; the message says which.
+            # calling it could not link. A function imported from outside the
+            # build set is not lowered either. Both are E0103, like a
+            # function value; the message says which.
             if any(name in module.fns for module in self.module.imports.values()):
                 raise diag(
                     UNKNOWN_FUNCTION,
@@ -3991,9 +4041,10 @@ class _Checker:
             # the symbol in libc. The argument rules are a body's.
             return self._arguments(node, env, name, found)
         if name not in self._bodies:
-            # The signature is visible because the module imports it, but only
-            # this module's own definitions are lowered: the callee's symbol
-            # lives in another object file the program is not built with.
+            # The signature is visible because the module imports it, but no
+            # file in this build emits its symbol: a module checked alone
+            # lowers only its own definitions, and a build set would have
+            # named the body.
             raise diag(
                 UNKNOWN_FUNCTION,
                 node.path,

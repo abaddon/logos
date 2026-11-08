@@ -33,16 +33,26 @@ E0002 unknown node, E0003 duplicate definition, E0004 circular import,
 E0005 name not found. The last covers a module the loader cannot supply and a
 loaded module that declares a different name; the other codes the compiler
 uses live in :mod:`logos.diag`.
+
+Build set
+---------
+``program`` resolves several files as one build: the modules named on the
+command line answer each other's ``use`` before the file system is asked, and
+a name in no set falls back to a ``<name>.logos`` beside the root that asked.
+Two roots that declare one module name are E0003 at the second, because one
+name cannot be two files.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from logos.diag import CIRCULAR, DUPLICATE, NOT_FOUND, UNKNOWN_NODE, LogosError, diag
 from logos.lexer import ATOM, Token
 from logos.nodes import Node
+from logos.parser import parse
 
 #: ``loader(name)`` returns the parsed tree of another module.
 Loader = Callable[[str], Node]
@@ -91,6 +101,88 @@ def resolve(root: Node, loader: Loader, file: str = "") -> Module:
     so that diagnostic carries ``file:line:column`` instead of no location.
     """
     return _Resolver(loader, file).module(root, None, "")
+
+
+def program(roots: list[Node]) -> list[Module]:
+    """Resolve several parsed files as one build set, in the order given.
+
+    The set answers every ``use`` before the file system does: a module named
+    on the command line is loaded from its root, not from a sibling file. A
+    name in no set falls back to ``<name>.logos`` beside the asking root, which
+    is the single-file rule; a name nobody can supply is E0005 at the ``use``.
+
+    Two roots that declare one module name are E0003 at the second, naming
+    both files: one name cannot answer for two trees.
+    """
+    table: dict[str, Node] = {}
+    origins: dict[str, str] = {}
+    for root in roots:
+        form = _module_form(root)
+        if form is None:
+            # ``resolve`` reports the missing ``(mod ...)`` below.
+            continue
+        name = form.name
+        if name is None:
+            # ``resolve`` reports the nameless ``(mod ...)`` below.
+            continue
+        first = table.get(name)
+        if first is not None:
+            raise diag(
+                DUPLICATE,
+                form.path,
+                f"duplicate module '{name}': {_origin(first, origins[name])} "
+                f"and {_origin(root, root.file)}",
+            )
+        table[name] = root
+        origins[name] = root.file
+
+    directories: list[Path] = []
+    for root in roots:
+        if root.file:
+            parent = Path(root.file).parent
+            if parent not in directories:
+                directories.append(parent)
+
+    modules: list[Module] = []
+    for root in roots:
+        loader = _set_loader(table, _search_order(root, directories))
+        modules.append(resolve(root, loader, root.file))
+    return modules
+
+
+def _search_order(root: Node, directories: list[Path]) -> list[Path]:
+    """The directories to try for a name outside the set, nearest first.
+
+    The asking root's directory comes first. The set's other directories
+    follow, because a root may be reached again through a sibling's ``use``;
+    every file an import names lives beside the file that named it, so trying
+    the root directories is enough to find a chain's second hop.
+    """
+    if not root.file:
+        return list(directories)
+    own = Path(root.file).parent
+    return [own] + [directory for directory in directories if directory != own]
+
+
+def _set_loader(table: dict[str, Node], order: list[Path]) -> Loader:
+    """A loader that answers from ``table``, then from files in ``order``."""
+
+    def loader(name: str) -> Node:
+        tree = table.get(name)
+        if tree is not None:
+            return tree
+        for directory in order:
+            sibling = directory / f"{name}.logos"
+            if sibling.is_file():
+                return parse(sibling.read_text(encoding="utf-8"), str(sibling))
+        raise FileNotFoundError(name)
+
+    return loader
+
+
+def _origin(root: Node, file: str) -> str:
+    """Name a root in a duplicate-module message: its file, or its path."""
+    return file or root.path or "<unknown>"
 
 
 class _Resolver:
