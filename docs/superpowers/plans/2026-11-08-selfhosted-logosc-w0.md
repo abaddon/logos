@@ -229,7 +229,7 @@ A single-module build must produce byte-identical IR before and after this chang
 
 Call `llvm.reset_structs()` once, then `_Lower(checked[0])`, then for each remaining `CheckedModule` call `prepare(cm)`, `enter(cm)` and lower its functions. `close()` runs once, after every module, so there is one `ir`, one `strings` map and one counter for the whole unit.
 
-Struct and enum names become `"<module>.<name>"` where the module declared the type, so `%struct.util.point` cannot collide with `%struct.program.point`. `struct_llty` and `register_struct` take the qualified name. Two modules declaring one plain struct name are already `E0003` from Task 2, so the owner is unambiguous.
+Struct and enum names become `"<module>.<name>"` where the module declared the type, so `%struct.util.point` cannot collide with `%struct.program.point`; `struct_llty` and `register_struct` take the qualified name. Two roots may each declare a private `point` or a private `init`: only a duplicate `main` is refused (Task 2, ruling after review). Also lower a function value and a `spawn` target that name a sibling module's body through that module's map, so the thunk calls the owner's symbol.
 
 - [ ] **Step 5: Prove the regress case now runs**
 
