@@ -271,7 +271,13 @@ def struct_name(name: str) -> str:
 
 
 def reset_structs() -> None:
-    """Forget every registered layout, so the next module starts clean."""
+    """Forget every registered layout, so the next translation unit starts clean.
+
+    A unit holds one or several modules. The table is keyed by the name a type
+    is spelled by, which a unit of several modules qualifies with the module
+    that declared it; the caller resets once, before the unit's first module,
+    never between modules of one unit.
+    """
     _STRUCTS.clear()
     _ENUMS.clear()
 

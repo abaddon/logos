@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from logos import check, parser, resolve
+from logos import check, llvm, lower, parser, resolve
 from logos.diag import LogosError
 
 
@@ -153,6 +153,126 @@ class ImportOutsideTheSetTest(unittest.TestCase):
             check.check_program(modules)
         self.assertEqual(caught.exception.code, "E0103")
         self.assertIn("helper", caught.exception.message)
+
+
+SIBLINGS = (
+    "(mod util)"
+    "(fn twice :i64 ((x :i64)) (ret (* x 2)))"
+    "(fn apply :i64 ((f :(fn (:i64) :i64)) (x :i64)) (ret (f x)))"
+    "(fn work :void ((n :i64)) (println n))"
+)
+
+
+class ProgramLoweringTest(unittest.TestCase):
+    """One ``IrModule`` for a whole build set, with per-module symbols."""
+
+    def test_two_modules_lower_into_one_ir_module(self):
+        modules = resolve.program([_parse(PROGRAM, "program"), _parse(UTIL, "util")])
+        ir = lower.lower_program(check.check_program(modules))
+        self.assertEqual(len(ir.functions), 2)
+        self.assertEqual(len({fn.name for fn in ir.functions}), 2)
+
+    def test_an_imported_call_uses_the_owning_module_symbol(self):
+        modules = resolve.program([_parse(PROGRAM, "program"), _parse(UTIL, "util")])
+        text = llvm.emit(lower.lower_program(check.check_program(modules)))
+        self.assertIn("call i64 @lg.util.twice(", text)
+        self.assertNotIn("@lg.program.twice", text)
+
+    def test_a_diamond_import_emits_one_symbol(self):
+        base = _parse("(mod base)\n(fn id :i64 ((x :i64)) (ret x))\n", "base")
+        left = _parse("(mod left)\n(use base)\n(fn l :i64 () (ret (id 1)))\n", "left")
+        right = _parse("(mod right)\n(use base)\n(fn r :i64 () (ret (id 2)))\n", "right")
+        modules = resolve.program([base, left, right])
+        ir = lower.lower_program(check.check_program(modules))
+        self.assertEqual(len({fn.name for fn in ir.functions}), 3)
+
+    def test_private_types_of_one_name_keep_their_own_layout(self):
+        # Each root declares its own ``entry``; the qualified name is what
+        # keeps one definition from standing for both.
+        a = _parse(
+            "(mod a)(type entry (struct (x :i64)))"
+            "(fn main :i64 () (let p entry (make entry 1)) (ret (get p x)))",
+            "a",
+        )
+        b = _parse(
+            "(mod b)(type entry (struct (y :i64) (z :i64)))"
+            "(fn pair :i64 () (let q entry (make entry 1 2))"
+            " (ret (+ (get q y) (get q z))))",
+            "b",
+        )
+        text = llvm.emit(
+            lower.lower_program(check.check_program(resolve.program([a, b])))
+        )
+        self.assertIn("%struct.a.entry = type { i64 }", text)
+        self.assertIn("%struct.b.entry = type { i64, i64 }", text)
+
+    def test_private_enum_widths_do_not_leak_between_modules(self):
+        # The payload width is measured from the declarations of the module
+        # being lowered, so one name in two modules is two widths.
+        a = _parse(
+            "(mod a)(type tone (enum (quiet) (loud :i64)))"
+            "(fn show :i64 ((t tone)) (ret (match t ((quiet) 1) ((loud n) n))))",
+            "a",
+        )
+        b = _parse(
+            "(mod b)(type tone (enum (red) (green)))"
+            "(fn other :i64 ((t tone)) (ret (match t ((red) 1) ((green) 2))))",
+            "b",
+        )
+        text = llvm.emit(
+            lower.lower_program(check.check_program(resolve.program([a, b])))
+        )
+        self.assertIn("define internal i64 @lg.a.show({ i32, [1 x i64] }", text)
+        self.assertIn("define internal i64 @lg.b.other({ i32, [0 x i64] }", text)
+
+    def test_a_sibling_function_value_calls_the_owners_symbol(self):
+        # The thunk a function value becomes must call the module that owns
+        # the body, not the module that took the address.
+        program = _parse(
+            "(mod program)(use util)(fn main :i64 () (ret (apply twice 3)))",
+            "program",
+        )
+        ir = lower.lower_program(
+            check.check_program(resolve.program([program, _parse(SIBLINGS, "util")]))
+        )
+        thunk = next(fn for fn in ir.functions if fn.name.startswith("$fnvalue"))
+        self.assertEqual(_called(thunk), ["lg.util.twice"])
+        self.assertEqual(thunk.symbol, "lg.program." + thunk.name)
+
+    def test_a_sibling_spawn_calls_the_owners_symbol(self):
+        program = _parse(
+            "(mod program)(use util)"
+            "(fn main :i64 () (let t (spawn work 1)) (join t) (ret 0))",
+            "program",
+        )
+        ir = lower.lower_program(
+            check.check_program(resolve.program([program, _parse(SIBLINGS, "util")]))
+        )
+        thunk = next(fn for fn in ir.functions if fn.name.startswith("$spawn"))
+        self.assertEqual(_called(thunk), ["lg.util.work"])
+        # The runtime is handed the thunk, and the thunk the owner's symbol.
+        main = next(fn for fn in ir.functions if fn.name == "main")
+        self.assertIn(thunk.symbol, _addresses(main))
+
+
+def _called(fn) -> list[str]:
+    """Every symbol ``fn`` calls directly, in instruction order."""
+    return [
+        instr[2]
+        for block in fn.blocks
+        for instr in block.instrs
+        if instr[0] == "call" and instr[2]
+    ]
+
+
+def _addresses(fn) -> list[str]:
+    """Every symbol ``fn`` takes the address of, in instruction order."""
+    return [
+        instr[2]
+        for block in fn.blocks
+        for instr in block.instrs
+        if instr[0] == "faddr"
+    ]
 
 
 class SiblingValueTest(unittest.TestCase):

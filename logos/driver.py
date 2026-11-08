@@ -26,11 +26,11 @@ from importlib import resources
 from pathlib import Path
 
 from logos import llvm, lower
-from logos.check import check_module
+from logos.check import CheckedModule, check_module, check_program
 from logos.ir import TRIPLE, IrModule
 from logos.nodes import Node
 from logos.parser import parse
-from logos.resolve import Module, resolve
+from logos.resolve import Module, resolve, program as resolve_program
 
 #: The C compiler that turns IR text plus the runtime into an ELF.
 CLANG = "clang"
@@ -104,6 +104,43 @@ def ir_path(src_path: str) -> Path:
     return BUILD_DIR / f"{Path(src_path).stem}.ll"
 
 
+def checked_program(src_path: str) -> list[CheckedModule]:
+    """Parse and check ``src_path`` together with every module it imports.
+
+    A build set is the root and every module its ``use`` forms reach, each
+    once, by module name: the resolver answers an import from the asking
+    file's own directory, so a test or a build of one file still finds its
+    siblings exactly where a single-module load found them. The checker judges
+    the whole set, so a call into a sibling is legal and a call into anything
+    else stays E0103.
+    """
+    path = Path(src_path)
+    root = parse(_read(path), str(path))
+    return check_program(reachable(resolve_program([root])[0]))
+
+
+def reachable(module: Module) -> list[Module]:
+    """``module`` and every module it imports, each once, in source order.
+
+    One name is one module, so a diamond — two modules importing the same
+    third — is one entry here: the unit defines its functions once, and a
+    second copy would be a second definition of the same symbol.
+    """
+    seen: dict[str, Module] = {}
+    order: list[Module] = []
+
+    def walk(current: Module) -> None:
+        if current.name in seen:
+            return
+        seen[current.name] = current
+        order.append(current)
+        for imported in current.imports.values():
+            walk(imported)
+
+    walk(module)
+    return order
+
+
 def test_ir_path(src_path: str, test_name: str) -> Path:
     """Where :func:`run_test` writes its IR, beside the build's but not over it."""
     safe = test_name.replace("/", "_").replace("\\", "_")
@@ -153,11 +190,16 @@ def run_test(
     A test build is a debug build by default: its ``main`` reports every block
     still live at exit, which is what makes a leaked block visible to the
     runner instead of silently passing.
+
+    The file's imports are part of the build: a test body may call a sibling
+    module's function, and that body has to be in the binary for the call to
+    resolve.
     """
     ll = test_ir_path(src_path, test_name)
     try:
-        cm = check_module(load(src_path))
-        module = lower.lower_test(cm, test_name, debug=debug)
+        module = lower.lower_test_program(
+            checked_program(src_path), test_name, debug=debug
+        )
         return _link(module, ll, out, opt, True, debug=debug)
     except BaseException:
         _discard(ll, Path(out))
