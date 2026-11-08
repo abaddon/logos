@@ -193,18 +193,19 @@ Three rules make the merged module well defined, and all three land in W0:
 - **Exactly one module in a build may define `main`.** A second is a duplicate
   definition, `E0003`, reporting both paths.
 
-A unit of one module keeps bare type names, so a single-file build's IR is
-unchanged. A unit of several modules qualifies every named type with the module
-that declared it. Temporaries (`%t<n>`) are per function, which LLVM scopes
-correctly; the names that must be unique across the unit are globals and
-generated symbols (`@.str<n>`, `$lambda`, `$spawn`, `$fnvalue`), and they come
-from one counter.
+A unit of one module keeps bare type names for the types that module declares, so a
+self-contained single-file build's IR is unchanged. A type declared in another module
+is always qualified with the module that declared it, even when the unit holds one
+root, because that name is the only one every module can agree on. A unit of several
+modules qualifies every named type the same way. Temporaries (`%t<n>`) are per
+function, which LLVM scopes correctly; the names that must be unique across the unit
+are globals and generated symbols (`@.str<n>`, `$lambda`, `$spawn`, `$fnvalue`), and
+they come from one counter.
 
-A type's emitted spelling therefore depends on the shape of the build: the same
-type, built alone and built beside a sibling, is spelled differently. That cost
-is accepted — qualification exists only to keep one merged unit well defined,
-and a one-module build has nothing to disambiguate — and it means IR is not
-reusable between build shapes. A pinned single-module IR file is a snapshot of
+A type's emitted spelling therefore depends on the shape of the build: the same own
+type, built alone and built beside a sibling, is spelled differently. That cost is
+accepted — qualification exists to keep one merged unit well defined — and it means IR
+is not reusable between build shapes. A pinned single-module IR file is a snapshot of
 one shape and is regenerated deliberately when the format changes.
 
 
