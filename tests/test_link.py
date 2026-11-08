@@ -386,6 +386,55 @@ class ImportedTypeOutsideTheUnitTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0)
 
 
+class OneModuleTwoFilesTest(unittest.TestCase):
+    """C2: one module name may only ever be answered by one file."""
+
+    A = (
+        "(mod a)"
+        "(use util)"
+        "(use b)"
+        "(fn main :void () (println (answer)) (println (run)))"
+    )
+    B = "(mod b)(use util)(fn run :i64 () (ret (answer)))"
+    UTIL = "(mod util)(fn answer :i64 () (ret {value}))"
+
+    def _files(self) -> tuple[Path, Path]:
+        directory = Path(tempfile.mkdtemp())
+        first = directory / "dir1"
+        second = directory / "dir2"
+        first.mkdir()
+        second.mkdir()
+        (first / "util.logos").write_text(
+            self.UTIL.format(value=1), encoding="utf-8"
+        )
+        (first / "a.logos").write_text(self.A, encoding="utf-8")
+        (second / "b.logos").write_text(self.B, encoding="utf-8")
+        (second / "util.logos").write_text(
+            self.UTIL.format(value=2), encoding="utf-8"
+        )
+        return first, second
+
+    def test_a_name_answered_by_two_files_is_e0003_naming_both(self):
+        first, second = self._files()
+        with self.assertRaises(LogosError) as caught:
+            driver.load_program(
+                [str(first / "a.logos"), str(second / "b.logos")]
+            )
+        self.assertEqual(caught.exception.code, "E0003")
+        self.assertIn(str(first / "util.logos"), caught.exception.message)
+        self.assertIn(str(second / "util.logos"), caught.exception.message)
+
+    def test_the_refusal_does_not_depend_on_the_order_of_the_roots(self):
+        first, second = self._files()
+        with self.assertRaises(LogosError) as caught:
+            driver.load_program(
+                [str(second / "b.logos"), str(first / "a.logos")]
+            )
+        self.assertEqual(caught.exception.code, "E0003")
+        self.assertIn(str(first / "util.logos"), caught.exception.message)
+        self.assertIn(str(second / "util.logos"), caught.exception.message)
+
+
 class TestEntryMainTest(unittest.TestCase):
     """A test build's entry is the test body: no module's ``main`` is callable."""
 

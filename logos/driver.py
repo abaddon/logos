@@ -83,18 +83,27 @@ def load(src_path: str) -> Module:
     """
     path = Path(src_path)
     root = parse(_read(path), str(path))
+    trees: dict[str, Node] = {}
 
     def loader(name: str, asker: str) -> Node:
         """Answer ``name`` from the loading file's directory.
 
         ``asker`` is accepted because the resolver always names the file that
         wrote the ``use``; ``load`` resolves one root, and every import in
-        its graph is answered beside that one file.
+        its graph is answered beside that one file. A sibling is parsed once:
+        the resolver asks for a name every time it is imported, and a diamond
+        must not become two module nodes for one file.
         """
         sibling = path.parent / f"{name}.logos"
+        key = str(sibling)
+        cached = trees.get(key)
+        if cached is not None:
+            return cached
         if not sibling.is_file():
             raise FileNotFoundError(name)
-        return parse(_read(sibling), str(sibling))
+        tree = parse(_read(sibling), key)
+        trees[key] = tree
+        return tree
 
     return resolve(root, loader, str(path))
 

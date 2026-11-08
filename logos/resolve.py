@@ -144,7 +144,14 @@ def program(roots: list[Node]) -> list[Module]:
         origins[name] = root.file
 
     loader = _set_loader(table)
-    return [resolve(root, loader, root.file) for root in roots]
+    #: The file that answered each module name anywhere in this build. One
+    #: registry for every root, so a name answered by two files is refused
+    #: whichever root was listed first.
+    files: dict[str, str] = {}
+    return [
+        _Resolver(loader, root.file, files).module(root, None, "")
+        for root in roots
+    ]
 
 
 def reachable(modules: list[Module]) -> list[Module]:
@@ -177,7 +184,14 @@ def reachable(modules: list[Module]) -> list[Module]:
 
 
 def _set_loader(table: dict[str, Node]) -> Loader:
-    """A loader that answers from ``table``, then from the asker's directory."""
+    """A loader that answers from ``table``, then from the asker's directory.
+
+    A sibling file is parsed at most once: a diamond import asks for one name
+    twice, and both answers have to be the same tree, so the module graph holds
+    one node for one file.
+    """
+
+    trees: dict[str, Node] = {}
 
     def loader(name: str, asker: str) -> Node:
         tree = table.get(name)
@@ -186,11 +200,22 @@ def _set_loader(table: dict[str, Node]) -> Loader:
         if not asker:
             raise FileNotFoundError(name)
         sibling = Path(asker).parent / f"{name}.logos"
+        key = str(sibling)
+        cached = trees.get(key)
+        if cached is not None:
+            return cached
         if sibling.is_file():
-            return parse(sibling.read_text(encoding="utf-8"), str(sibling))
+            tree = parse(sibling.read_text(encoding="utf-8"), key)
+            trees[key] = tree
+            return tree
         raise FileNotFoundError(name)
 
     return loader
+
+
+def _same_file(first: str, second: str) -> bool:
+    """Whether two module origins name one file, by path rather than by name."""
+    return Path(first).resolve() == Path(second).resolve()
 
 
 def _origin(root: Node, file: str) -> str:
@@ -199,11 +224,23 @@ def _origin(root: Node, file: str) -> str:
 
 
 class _Resolver:
-    def __init__(self, loader: Loader, file: str = "") -> None:
+    def __init__(
+        self,
+        loader: Loader,
+        file: str = "",
+        files: dict[str, str] | None = None,
+    ) -> None:
         self.loader = loader
         self.file = file
         self.done: dict[str, Module] = {}
         self.active: list[str] = []
+        #: The tree each (module name, asking directory) was answered with, so
+        #: one import site is loaded once and two directories still get their
+        #: own answer.
+        self.asked: dict[tuple[str, str], Node] = {}
+        #: The file that answered each module name so far. ``program`` shares
+        #: one of these across its roots; a single load is a set of one.
+        self.files: dict[str, str] = files if files is not None else {}
 
     def module(self, root: Node, expected: str | None, origin: str) -> Module:
         """Resolve a parsed file, which must declare the expected name."""
@@ -225,6 +262,7 @@ class _Resolver:
                 origin,
                 f"module '{expected}' declares itself '{declared}'",
             )
+        self._claim(declared, form, root.file)
 
         self.active.append(declared)
         try:
@@ -233,6 +271,27 @@ class _Resolver:
             self.active.pop()
         self.done[declared] = module
         return module
+
+    def _claim(self, name: str, form: Node, file: str) -> None:
+        """Record the file that answers ``name``; a second one is E0003.
+
+        A module name is an address: ``(use util)`` has exactly one answer, and
+        a build where ``util`` is two files would lower one body under the
+        other file's name — silently, because both declare the same symbols.
+        The comparison is on the resolved path, so one file reached twice
+        through a diamond is the same module and not a duplicate.
+        """
+        first = self.files.get(name)
+        if first is None or not first:
+            self.files[name] = file
+            return
+        if not file or _same_file(first, file):
+            return
+        raise diag(
+            DUPLICATE,
+            form.path,
+            f"duplicate module '{name}': {first} and {file}",
+        )
 
     def _build(self, root: Node, form: Node, name: str) -> Module:
         module = Module(name, root, {}, {}, {}, {}, {})
@@ -270,14 +329,23 @@ class _Resolver:
         if name in self.active:
             raise diag(CIRCULAR, node.path, "circular import: " + _cycle(self.active, name))
 
-        imported = self.done.get(name)
-        if imported is None:
+        # The loader is asked once per (module name, asking directory), not
+        # once per name: two files in different directories may ask for one
+        # name and be answered by two different files, which is exactly the
+        # silent collapse ``_claim`` refuses. Reusing the first answer by name
+        # would hide it.
+        key = (name, str(Path(module.root.file).parent) if module.root.file else "")
+        root = self.asked.get(key)
+        if root is None:
             try:
                 root = self.loader(name, module.root.file)
             except (KeyError, OSError):
                 raise diag(NOT_FOUND, node.path, f"unknown module '{name}'") from None
             if not isinstance(root, Node):
                 raise diag(NOT_FOUND, node.path, f"unknown module '{name}'")
+            self.asked[key] = root
+        imported = self.done.get(name)
+        if imported is None or not _same_file(imported.root.file, root.file):
             imported = self.module(root, name, node.path)
 
         _merge(imported, defs, node.path)
