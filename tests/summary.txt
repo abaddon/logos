@@ -184,3 +184,4 @@ PASS regress/recursive-enum -
 PASS regress/reserved-name -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
 PASS regress/vec-place-copy -
+PASS regress/print-small-numbers/every-small-width -

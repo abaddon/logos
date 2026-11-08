@@ -3617,7 +3617,9 @@ class _Fn:
 
         The argument keeps its own type and picks the entry point that already
         knows how to spell it: ``rt_print_str`` for bytes and their length,
-        ``rt_print_i64``, ``rt_print_u64``, ``rt_print_f64``. A ``:bool`` is
+        ``rt_print_i64``, ``rt_print_u64``, ``rt_print_f64``. Narrow integers
+        are sign- or zero-extended according to their source type, and ``:f32``
+        is extended to ``:f64`` for the runtime call. A ``:bool`` is
         the one value with two spellings, so it branches on it and prints
         ``true`` or ``false`` — never its 0/1 representation, which is a fact
         about ``i1`` and not about the language.
@@ -3635,7 +3637,7 @@ class _Fn:
             raise diag(
                 TYPE_MISMATCH,
                 _path_of(arg, node.path),
-                f"'{node.kind}' takes one of :i64, :u64, :f64, :bool or :str, found {ty}",
+                f"'{node.kind}' takes a number, :bool or :str, found {ty}",
             )
         if ty.name == "str":
             self.print_string(arg, node.path)
@@ -3643,12 +3645,18 @@ class _Fn:
             self.print_bool(arg, node.path)
         else:
             decl = {
-                "i64": _RT_PRINT_I64,
-                "u64": _RT_PRINT_U64,
-                "f64": _RT_PRINT_F64,
-            }[ty.name]
+                "i": _RT_PRINT_I64,
+                "u": _RT_PRINT_U64,
+                "f": _RT_PRINT_F64,
+            }[ty.name[0]]
+            value = self.value(arg, node.path)
+            if ty != decl.params[0]:
+                op = {"i": "sext", "u": "zext", "f": "fpext"}[ty.name[0]]
+                widened = self.temp()
+                self.emit((op, widened, ty, decl.params[0], value))
+                value = widened
             self.lowering.declare(decl)
-            self.emit(("call", "", decl.name, (self.value(arg, node.path),)))
+            self.emit(("call", "", decl.name, (value,)))
         if node.kind == "println":
             self.lowering.declare(_RT_PRINTLN)
             self.emit(("call", "", "rt_println", ()))

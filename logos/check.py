@@ -1335,11 +1335,9 @@ DIRECTIVES = ("expect", "expect-leak")
 #: never be called.
 PRINTERS = ("print", "println")
 
-#: What a printer accepts. Exactly the widths the runtime has a formatter for:
-#: ``:i64``, ``:u64``, ``:f64``, ``:bool`` and the ``:str`` it already printed.
-#: A narrower integer needs an explicit cast, because there is no implicit
-#: conversion anywhere in the language and printing is no exception.
-PRINTABLE = ("i64", "u64", "f64", "bool", "str")
+#: Printers accept every numeric width. The argument keeps its own type;
+#: lowering widens only the runtime formatter's argument at the ABI boundary.
+PRINTABLE = INTEGERS + FLOATS + ("bool", "str")
 
 #: The forms that build and propagate a result or an optional: ``(ok v)``,
 #: ``(err e)``, ``(some v)``, ``(none)`` and ``(try e)``. Like the printers they
@@ -3935,9 +3933,8 @@ class _Checker:
         """``print``/``println`` of one scalar the runtime formats.
 
         Overloaded rather than converted: the argument keeps its own type and
-        the backend picks the entry point for it. A ``:i32`` is refused, not
-        widened, because the language has no implicit conversion — the day a
-        cast exists, the program says which width it means.
+        the backend picks the entry point for it, extending narrower numbers
+        only when it passes them to the runtime formatter.
         """
         name = node.kind
         args = node.items[1:]
@@ -3952,7 +3949,7 @@ class _Checker:
             raise diag(
                 TYPE_MISMATCH,
                 _at(args[0], node),
-                f"{name} takes one of :i64, :u64, :f64, :bool or :str, found {ty}",
+                f"{name} takes a number, :bool or :str, found {ty}",
             )
         return Prim("void")
 

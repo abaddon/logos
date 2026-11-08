@@ -340,12 +340,26 @@ class RunTestTest(unittest.TestCase):
 class BuiltinPrintTest(unittest.TestCase):
     """``print`` and ``println`` are checker builtins, not module functions."""
 
-    def test_println_of_a_narrow_integer_is_a_type_error(self):
-        # An integer is printable at its formatted widths; one that needs an
-        # explicit cast is refused rather than silently widened.
-        with self.assertRaises(LogosError) as caught:
-            checked("(mod m)\n(fn main :void ((n :i32)) (println n))\n")
-        self.assertEqual(caught.exception.code, "E0100")
+    def test_small_numbers_match_the_runtime_formatter_abi(self):
+        for ty, op, target, printer in (
+            ("i8", "sext", "i64", "rt_print_i64"),
+            ("i16", "sext", "i64", "rt_print_i64"),
+            ("i32", "sext", "i64", "rt_print_i64"),
+            ("u8", "zext", "u64", "rt_print_u64"),
+            ("u16", "zext", "u64", "rt_print_u64"),
+            ("u32", "zext", "u64", "rt_print_u64"),
+            ("f32", "fpext", "f64", "rt_print_f64"),
+        ):
+            with self.subTest(ty=ty):
+                module = lower.lower_module(checked(
+                    f"(mod m)(fn f :void ((n :{ty})) (println n))"
+                ))
+                fn = module.functions[0]
+                extensions = [instr for block in fn.blocks for instr in block.instrs
+                              if instr[0] == op]
+                self.assertEqual(len(extensions), 1)
+                self.assertEqual(extensions[0][2:4], (Prim(ty), Prim(target)))
+                self.assertIn(("call", "", printer, (extensions[0][1],)), calls(fn))
 
     def test_a_program_without_main_cannot_be_built(self):
         source = ROOT / "build" / "no-main.logos"

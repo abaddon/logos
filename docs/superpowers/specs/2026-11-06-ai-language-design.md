@@ -121,6 +121,15 @@ Structural equality for types. Named types are nominal. No implicit
 conversion anywhere, including int to int of a different width; `cast` is
 explicit and checked at compile time.
 
+### Printing
+
+`print` and `println` accept every integer and float width, plus `:bool` and
+`:str`. The argument retains its source type; no explicit cast is needed to
+format it. At the runtime boundary, signed integers narrower than 64 bits
+are sign-extended, unsigned integers are zero-extended, and `:f32` is extended
+to `:f64` for the existing formatters. `print` writes the value alone;
+`println` adds one newline. Other types are refused with E0100.
+
 ### Arithmetic, defined
 
 Nothing here is undefined behaviour, so a C oracle can check it:

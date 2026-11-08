@@ -612,33 +612,34 @@ class VectorOwnershipTest(unittest.TestCase):
 
 
 class PrinterCheckTest(unittest.TestCase):
-    """Every scalar the runtime formats, and nothing that needs a cast."""
+    """Every numeric width, boolean and string is printable in its own type."""
 
     def test_every_printable_scalar_is_accepted(self):
         for ty, value in (
+            (":i8", "-128"),
+            (":i16", "-32768"),
+            (":i32", "-2147483648"),
             (":i64", "1"),
+            (":u8", "255"),
+            (":u16", "65535"),
+            (":u32", "4294967295"),
             (":u64", "1"),
+            (":f32", "1.5"),
             (":f64", "1.5"),
             (":bool", "true"),
             (":str", '"x"'),
         ):
             with self.subTest(ty=ty):
-                cm = checked(f"(mod m)(fn f :void () (println {value}))")
+                cm = checked(f"(mod m)(fn f :void () (let n {ty} {value}) (println n))")
                 self.assertEqual(type_of(cm, "println"), Prim("void"))
 
-    def test_a_narrow_integer_needs_a_cast_of_its_own(self):
-        error = fail_on(
-            '(mod m)(fn f :void ((n :i32)) (println n))'
-        )
-        self.assertEqual(error.code, "E0100")
-        self.assertEqual(
-            error.message,
-            "println takes one of :i64, :u64, :f64, :bool or :str, found :i32",
-        )
+    def test_printing_a_narrow_integer_does_not_change_its_type(self):
+        cm = checked('(mod m)(fn f :i32 ((n :i32)) (println n) (ret n))')
+        self.assertEqual(type_of(cm, "println"), Prim("void"))
 
-    def test_f32_is_not_printed_by_the_f64_formatter(self):
-        error = fail_on('(mod m)(fn f :void ((n :f32)) (print n))')
-        self.assertEqual(error.code, "E0100")
+    def test_printing_f32_does_not_change_its_type(self):
+        cm = checked('(mod m)(fn f :f32 ((n :f32)) (print n) (ret n))')
+        self.assertEqual(type_of(cm, "print"), Prim("void"))
 
     def test_a_struct_is_not_printable(self):
         error = fail_on(
