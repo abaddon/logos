@@ -37,7 +37,7 @@
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the case every later task in this wave must keep green. Its name is `regress/multi-module/program`.
+- Produces: the case every later task in this wave must keep green. Its name is `regress/multi-module/program/program`: the file stem plus the `(test ...)` name.
 
 - [ ] **Step 1: Write the fixture pair**
 
@@ -67,7 +67,7 @@ A file with no `(test ...)` and no expected diagnostic declares no case, so `uti
 - [ ] **Step 2: Run it and record the failure**
 
 Run: `python3 -m logos test --only regress 2>&1 | grep multi-module`
-Expected: `FAIL regress/multi-module/program -` with `E0103 ... imported functions are not lowered yet: 'twice'`.
+Expected: `FAIL regress/multi-module/program/program -` with `E0103 ... imported functions are not lowered yet: 'twice'`.
 
 - [ ] **Step 3: Confirm the fixture is canonical**
 
@@ -228,25 +228,6 @@ A single-module build must produce byte-identical IR before and after this chang
 - [ ] **Step 4: Implement `lower_program`**
 
 Call `llvm.reset_structs()` once, then `_Lower(checked[0])`, then for each remaining `CheckedModule` call `prepare(cm)`, `enter(cm)` and lower its functions. `close()` runs once, after every module, so there is one `ir`, one `strings` map and one counter for the whole unit.
-
-Struct and enum names become `"<module>.<name>"` where the module declared the type, so `%struct.util.point` cannot collide with `%struct.program.point`. `struct_llty` and `register_struct` take the qualified name. Two modules declaring one plain struct name are already `E0003` from Task 2, so the owner is unambiguous.
-
-- [ ] **Step 5: Prove the regress case now runs**
-
-Run: `python3 -m logos test --only regress 2>&1 | grep multi-module`
-Expected: `PASS regress/multi-module/program/program -` (the id is the file stem plus the `(test ...)` name).
-
-- [ ] **Step 6: Run the suite**
-
-Run: `make test`
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add logos/lower.py logos/llvm.py tests/test_link.py
-git commit -s -m "feat: lower several modules into one translation unit"
-```
 
 Struct and enum names become `"<module>.<name>"` where the module declared the type, so `%struct.util.point` cannot collide with `%struct.program.point`. `struct_llty` and `register_struct` take the qualified name. Two modules declaring one plain struct name are already `E0003` from Task 2, so the owner is unambiguous.
 
