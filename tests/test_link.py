@@ -452,6 +452,62 @@ class ImportedStructFieldTypeTest(unittest.TestCase):
             self.assertEqual(_build_set(files, "program", level), "7\n42\n", level)
 
 
+class SiblingSignatureTypeTest(unittest.TestCase):
+    """A signature may name a type only the declaring module's chain sees.
+
+    ``shapes`` returns and takes ``deep``'s ``point``; ``program`` imports only
+    ``shapes``. The type is two hops from the module that holds the value, so
+    neither ``program`` nor ``shapes`` may be the namespace it is read in.
+    """
+
+    DEEP = (
+        "(mod deep)"
+        "(type point (struct (x :i64)))"
+        "(fn mk point () (ret (make point 7)))"
+    )
+    SHAPES = (
+        "(mod shapes)"
+        "(use deep)"
+        "(fn origin point () (ret (mk)))"
+        "(fn value :i64 ((p point)) (ret (get p x)))"
+    )
+    PROGRAM = (
+        "(mod program)"
+        "(use shapes)"
+        "(fn main :void () (let p (origin)) (println (value p)))"
+    )
+
+    def test_a_type_two_hops_down_lowers_and_runs(self):
+        # Before the fix this was ``E0002 program/main/2: point is not lowered
+        # yet`` at a ``let`` the author never wrote a type on.
+        files = {"deep": self.DEEP, "shapes": self.SHAPES, "program": self.PROGRAM}
+        for level in ("-O0", "-O2"):
+            self.assertEqual(_build_set(files, "program", level), "7\n", level)
+
+    def test_a_declaring_module_outside_the_build_is_named(self):
+        # ``deep`` is not a root, so it is not lowered with the set; the type
+        # still resolves to it, and the refusal has to say which module owns
+        # the type rather than blame the expression that mentioned it. The
+        # sibling here builds the value itself, so it needs no call into
+        # ``deep`` and the checker accepts the pair.
+        shapes = (
+            "(mod shapes)"
+            "(use deep)"
+            "(fn origin point () (ret (make point 7)))"
+            "(fn value :i64 ((p point)) (ret (get p x)))"
+        )
+        directory = Path(tempfile.mkdtemp())
+        _parse(self.DEEP, "deep", directory)
+        first = _parse(shapes, "shapes", directory)
+        program = _parse(self.PROGRAM, "program", directory)
+        checked = check.check_program(resolve.program([program, first]))
+        with self.assertRaises(LogosError) as caught:
+            lower.lower_program(checked)
+        self.assertEqual(caught.exception.code, "E0002")
+        self.assertIn("'point'", caught.exception.message)
+        self.assertIn("'deep'", caught.exception.message)
+
+
 class OneModuleTwoFilesTest(unittest.TestCase):
     """C2: one module name may only ever be answered by one file."""
 

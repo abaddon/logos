@@ -578,6 +578,21 @@ _RT_ATOMIC_STORE = IrDecl(
 )
 
 
+def _named_types(ty: Ty) -> Iterator[str]:
+    """Every struct or enum name one type spelling mentions, outermost first."""
+    if isinstance(ty, (StructRef, EnumRef)):
+        yield ty.name
+    elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        yield from _named_types(ty.elem)
+    elif isinstance(ty, Res):
+        yield from _named_types(ty.ok)
+        yield from _named_types(ty.err)
+    elif isinstance(ty, FnTy):
+        for param in ty.params:
+            yield from _named_types(param)
+        yield from _named_types(ty.ret)
+
+
 class _Layouts:
     """One namespace's struct or enum declarations, read by name.
 
@@ -1075,8 +1090,11 @@ class _Lower:
         """``(module, plain name, checked form)`` for one type spelling.
 
         A module sees its own types and its imports' — the resolver refused a
-        duplicate — so own declarations are checked first, then each direct
-        import's.
+        duplicate — so the search is a depth-first walk of ``owner``'s import
+        closure, own declarations first. That is also the chain a callee's
+        signature reaches a type through: ``program`` may call a function of
+        ``shapes`` whose signature names a type ``shapes`` imported from
+        ``deep``, and ``program`` never sees ``deep`` itself.
 
         A spelling this lowerer produced (``deep.inner``) resolves straight to
         the declaration it was made from, so a struct field's type can be
@@ -1085,7 +1103,9 @@ class _Lower:
 
         The checked form is ``None`` when the declaring module is not one this
         build lowers, because its field list — the layout — was computed by the
-        checker and only a checked module holds it.
+        checker and only a checked module holds it. A name no module of the
+        closure declares falls back to a unique declaration elsewhere in the
+        unit; two is ambiguous, and reported rather than guessed.
         """
         known = self._spelled.get(name)
         if known is not None:
@@ -1093,11 +1113,25 @@ class _Lower:
             return module, plain, self._checked.get(module)
         if owner is None:
             owner = self.cm
-        if name in owner.module.types:
-            return owner.module.name, name, owner
-        for imported in owner.module.imports.values():
-            if name in imported.types:
-                return imported.name, name, self._checked.get(imported.name)
+        declared = self._declares(owner.module, name, set())
+        if declared is not None:
+            return declared.name, name, self._checked.get(declared.name)
+        found = [cm for cm in self._checked.values() if name in cm.module.types]
+        if len(found) == 1:
+            return found[0].module.name, name, found[0]
+        return None
+
+    def _declares(self, module: Module, name: str, seen: set[str]) -> Module | None:
+        """The first module of ``module``'s import closure declaring ``name``."""
+        if module.name in seen:
+            return None
+        seen.add(module.name)
+        if name in module.types:
+            return module
+        for imported in module.imports.values():
+            found = self._declares(imported, name, seen)
+            if found is not None:
+                return found
         return None
 
     def _declaration(
@@ -1296,10 +1330,38 @@ class _Lower:
         written here, and every name inside it means what the sibling's module
         — or the module it imported that type from — says it means.
         """
+        self._refuse_unknown(ty, path, owner)
         self._register_enums(ty, owner=owner)
         structs, enums = self.layouts(owner)
         lowered_type(ty, path, structs, enums)
         self._collect(ty, owner=owner)
+
+    def _refuse_unknown(
+        self, ty: Ty, path: str, owner: CheckedModule | None = None
+    ) -> None:
+        """Report a named type this build cannot materialise.
+
+        The name is resolved in the namespace ``ty`` was written in, so the
+        message says which module declares it — even when that module is not
+        part of the build, which is the one case where a type a caller can
+        reach through a sibling's signature still has no layout here. Naming
+        the type alone would blame the expression that merely mentioned it.
+        """
+        for name in _named_types(ty):
+            found = self._declared(name, owner)
+            if found is None:
+                raise diag(
+                    UNKNOWN_NODE,
+                    path,
+                    f"type '{name}' is declared by no module of this build",
+                )
+            if self._declaration(name, owner) is None:
+                raise diag(
+                    UNKNOWN_NODE,
+                    path,
+                    f"type '{name}' is declared by module '{found[0]}', "
+                    "which this build does not lower",
+                )
 
     def _register_enums(
         self,
