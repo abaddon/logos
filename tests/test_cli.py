@@ -60,14 +60,45 @@ class CliFlagParsingTest(unittest.TestCase):
         build.assert_called_once_with(["x.logos"], None, opt="-O2", keep_ir=True)
 
     def test_build_parses_its_options_after_several_files(self):
-        """``nargs="+"`` must not swallow ``-o`` or ``--opt`` after the files."""
-        err = io.StringIO()
-        with redirect_stderr(err):
-            code = main(
-                ["build", "a.logos", "b.logos", "-o", "/tmp/o", "--opt", "-O0"]
+        """``nargs="+"`` must not swallow ``-o`` or ``--opt`` after the files.
+
+        Two real sources and an output path that does not exist yet: if ``-o``
+        were swallowed into the file list, the build would fail on a source
+        named ``-o`` (or write somewhere else), and the binary would not be at
+        the exact path asked for, so both the status and the artefact check
+        depend on the flag being read as a flag.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            util = pathlib.Path(tmp, "util.logos")
+            util.write_text(
+                "(mod util)\n\n(fn twice :i64 ((x :i64))\n  (ret (* x 2)))\n",
+                encoding="utf-8",
             )
-        self.assertEqual(code, 1)
-        self.assertIn("a.logos", err.getvalue())
+            main_file = pathlib.Path(tmp, "main.logos")
+            main_file.write_text(
+                "(mod main)\n\n(use util)\n\n(fn main :void ()\n"
+                "  (println (twice 21)))\n",
+                encoding="utf-8",
+            )
+            out = pathlib.Path(tmp, "prog")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                code = main(
+                    [
+                        "build",
+                        str(util),
+                        str(main_file),
+                        "-o",
+                        str(out),
+                        "--opt",
+                        "-O0",
+                    ]
+                )
+            self.assertEqual(code, 0, err.getvalue())
+            self.assertTrue(out.is_file(), f"no artefact at {out}: {err.getvalue()}")
+            done = subprocess.run([str(out)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(done.stdout, "42\n")
 
 
 class CliBuildTest(unittest.TestCase):
