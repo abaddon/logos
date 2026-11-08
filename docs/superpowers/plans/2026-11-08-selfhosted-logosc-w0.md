@@ -234,7 +234,7 @@ Struct and enum names become `"<module>.<name>"` where the module declared the t
 - [ ] **Step 5: Prove the regress case now runs**
 
 Run: `python3 -m logos test --only regress 2>&1 | grep multi-module`
-Expected: `PASS regress/multi-module/program -`.
+Expected: `PASS regress/multi-module/program/program -` (the id is the file stem plus the `(test ...)` name).
 
 - [ ] **Step 6: Run the suite**
 
@@ -253,7 +253,7 @@ Struct and enum names become `"<module>.<name>"` where the module declared the t
 - [ ] **Step 5: Prove the regress case now runs**
 
 Run: `python3 -m logos test --only regress 2>&1 | grep multi-module`
-Expected: `PASS regress/multi-module/program -`.
+Expected: `PASS regress/multi-module/program/program -` (the id is the file stem plus the `(test ...)` name).
 
 - [ ] **Step 6: Run the suite**
 
@@ -398,7 +398,7 @@ Expected: exit 0, no diff. Nothing in W0 should move a table; a diff here means 
 
 - [ ] **Step 3: Record the regress evidence**
 
-Note in the pull request: `regress/multi-module/program` failed with `E0103` before Task 1 and passes after Task 3; the commit before Task 2 is the branch state that reproduces the failure.
+Note in the pull request: `regress/multi-module/program/program` failed with `E0103` before Task 1 and passes after Task 3; the commit before Task 2 is the branch state that reproduces the failure. Regenerate `tests/summary.txt` with `python3 -m logos test --update-baseline` once the case passes, and give that baseline change its reason in the template.
 
 - [ ] **Step 4: Commit and open the PR**
 
@@ -408,7 +408,7 @@ git push -u origin feat/selfhost-w0-multifile
 gh pr create --title "feat: W0 multi-file build for self-hosting" --body-file .github/PULL_REQUEST_TEMPLATE.md
 ```
 
-Fill every section of the template, including the reason for any change to `tests/summary.txt` (there should be none) and the statement that the four invariants hold.
+Fill every section of the template, including the reason for the `tests/summary.txt` change (one new case, same leak total) and the statement that the four invariants hold.
 
 ## Later waves
 
