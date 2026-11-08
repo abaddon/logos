@@ -386,6 +386,72 @@ class ImportedTypeOutsideTheUnitTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0)
 
 
+def _build_set(files: dict[str, str], root: str, level: str) -> str:
+    """Write ``files`` as a build set, build ``root`` and return its output."""
+    directory = Path(tempfile.mkdtemp())
+    for name, text in files.items():
+        (directory / f"{name}.logos").write_text(text, encoding="utf-8")
+    out = str(Path(tempfile.mkdtemp()) / root)
+    driver.build_program([str(directory / f"{root}.logos")], out, opt=level)
+    done = subprocess.run([out], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise AssertionError(f"{level}: {done.returncode}: {done.stderr}")
+    return done.stdout
+
+
+class ImportedStructFieldTypeTest(unittest.TestCase):
+    """A struct's field types are spelled by the module that declares it.
+
+    ``deep`` declares ``inner``; ``shapes`` declares ``point`` with a field of
+    that type; ``program`` declares an ``inner`` of its own. The ``point`` a
+    ``shapes`` function builds must keep ``deep``'s ``inner``, whatever the
+    module holding the value happens to call its own field type.
+    """
+
+    DEEP = (
+        "(mod deep)"
+        "(type inner (struct (x :i64)))"
+        "(fn make-inner inner () (ret (make inner 42)))"
+    )
+    SHAPES = (
+        "(mod shapes)"
+        "(use deep)"
+        "(type point (struct (inner inner)))"
+        "(fn origin point () (ret (make point (make-inner))))"
+        "(fn value :i64 ((p point)) (ret (get (get p inner) x)))"
+    )
+
+    def test_a_field_type_keeps_the_declaring_modules_namespace(self):
+        # The two ``inner`` types have different layouts, which is why the
+        # mis-spelt field reached clang as an aggregate that disagrees.
+        program = (
+            "(mod program)"
+            "(use shapes)"
+            "(type inner (struct (y :i64) (z :i64)))"
+            "(fn main :void () (let p (origin)) (println (value p)))"
+        )
+        files = {"deep": self.DEEP, "shapes": self.SHAPES, "program": program}
+        for level in ("-O0", "-O2"):
+            self.assertEqual(_build_set(files, "program", level), "42\n", level)
+
+    def test_identical_layouts_still_keep_their_own_namespace(self):
+        # Same layout on both sides: the failure was never the layout. The
+        # two identified types differ, so a wrong spelling is still refused.
+        program = (
+            "(mod program)"
+            "(use shapes)"
+            "(type inner (struct (y :i64)))"
+            "(fn main :void ()"
+            " (let q inner (make inner 7))"
+            " (println (get q y))"
+            " (let p (origin))"
+            " (println (value p)))"
+        )
+        files = {"deep": self.DEEP, "shapes": self.SHAPES, "program": program}
+        for level in ("-O0", "-O2"):
+            self.assertEqual(_build_set(files, "program", level), "7\n42\n", level)
+
+
 class OneModuleTwoFilesTest(unittest.TestCase):
     """C2: one module name may only ever be answered by one file."""
 
