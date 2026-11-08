@@ -1,0 +1,9 @@
+(mod program)
+
+(use util)
+
+(test program
+  (expect (out "12\n")
+    (code 0)
+    (leaks 0))
+  (println (twice 6)))

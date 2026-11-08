@@ -1,0 +1,4 @@
+(mod util)
+
+(fn twice :i64 ((x :i64))
+  (ret (* x 2)))
