@@ -1,0 +1,42 @@
+(mod io)
+
+(extern fn creat :i32 ((path : (ptr :u8)) (mode :u32)))
+
+(extern fn write :i64 ((fd :i64) (text :str)))
+
+(extern fn close :i32 ((fd :i64)))
+
+(fn io-create :i64 ((path :str))
+  (let n :i64 (str-len path))
+  (let buf (alloc :u8 (+ n 1)))
+  (letmut i :i64 0)
+  (while (< i n)
+    (set-deref (ptr-add buf i)
+      (str-byte path i))
+    (set i (+ i 1)))
+  (set-deref (ptr-add buf n) 0)
+  (let raw :i32 (creat (ptr buf) 420))
+  (free buf)
+  (ret (cast :i64 raw)))
+
+(fn io-write :i64 ((fd :i64) (s :str))
+  (let n :i64 (str-len s))
+  (letmut done :i64 0)
+  (letmut bad :bool false)
+  (while (and (not bad)
+           (< done n))
+    (let w :i64 (write fd (str-slice s done n)))
+    (if (< w 1)
+      (set bad true)
+      (set done (+ done w))))
+  (ret (if bad -1 done)))
+
+(fn io-close :i64 ((fd :i64))
+  (ret (cast :i64 (close fd))))
+
+(fn io-read :str ((path :str))
+  (ret (read-file path)))
+
+(fn io-temp-path :str ((stem :str) (n :i64))
+  (ret (str-concat (str-concat "/tmp/" stem)
+         (str-concat "-" (str-from-i64 n)))))
