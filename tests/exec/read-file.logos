@@ -1,0 +1,8 @@
+(mod read-file)
+
+(test read-file
+  (expect (out "0\ntrue\n")
+    (code 0)
+    (leaks 0))
+  (match (read-file "/dev/null") ((ok text) (println (str-len text))) ((err e) (println e)))
+  (match (read-file "/nonexistent/logos-w2/read-file.logos") ((ok text) (println (= (str-len text) 0))) ((err e) (println (> e 0)))))

@@ -1,0 +1,14 @@
+(mod run)
+
+(test run
+  (expect (out "0\nhi\n")
+    (code 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "sh")
+  (vec-push a "-c")
+  (vec-push a "echo hi")
+  (let r (run "sh" a))
+  (println (run-status r))
+  (print (run-out r)))

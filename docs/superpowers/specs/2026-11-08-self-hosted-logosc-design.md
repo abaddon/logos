@@ -127,7 +127,7 @@ first (D4), because the corpus gate runs on Python.
 | `(str-byte s i)` | `:u8` | the lexer walks bytes; `str-slice` cannot read one byte |
 | `(str-from-i64 v)` | `:str` | `%t<n>` names, node paths, JSON numbers |
 | `(f64-bits v)` | `:i64` | float constants are emitted as hex, from the value's bit pattern |
-| `(run prog args)` | `run` struct | run clang, and run each test binary |
+| `(run prog args)` | `:run` handle | run clang, and run each test binary; status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and `(run-err r)` |
 | `(ref T)` parameter | non-owning | helpers that read and grow the compiler's arenas |
 
 `read-file` is fallible, and it panics on nothing. A missing module is not its job
@@ -144,9 +144,11 @@ hex for every float, so both compilers only ever format an integer.
 `(run prog args)` details: `prog` is a `:str`, `args` is a `(vec :str)` that may be
 empty. The vec is moved, so the caller passes a name. The call uses no shell:
 arguments are handed to `execve` one by one, so a path with a space is safe. It
-returns `(type run (struct (status :i64) (out :str) (err :str)))`, where `status`
-is the exit code or `128 + signal`. A spawn failure panics `R0006` with the program
-name, which is the clean "clang not found" message.
+returns an opaque `:run` handle, a process-lifetime value in the shape `:thread` and
+`:mutex` already have; its status, stdout and stderr are read by `(run-status r)`,
+`(run-out r)` and `(run-err r)`, where the status is the exit code or `128 + signal`.
+A spawn failure panics `R0006` with the program name, which is the clean "clang not
+found" message.
 
 `(ref T)` details:
 
