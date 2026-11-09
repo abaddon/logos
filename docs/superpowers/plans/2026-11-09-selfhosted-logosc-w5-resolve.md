@@ -71,8 +71,12 @@ the Python compiler reports.
       duplicate `fn`; a `fn`/`type` collision; a duplicate `test`; an `extern`
       colliding with a `fn`; a second `(mod …)` in one file; a top-level
       `(println 1)`; a file with no `mod`.
-- [ ] Parity: over every `tests/regress/* .expect` whose code is E0002 or E0003,
-      `gen2 resolve` prints the same code at the same path. Report the list.
+- [ ] Parity: the corpus has exactly **one** resolver-owned negative case,
+      `tests/parse/unknown-node` (`E0002 unknown node 'wat'`). The six regress
+      cases that expect E0002 or E0003 are checker diagnostics (allocation
+      invariants, a recursive enum, reserved names) and the resolver accepts
+      them, so they are not this task's target. Task 3 adds the missing
+      resolver fixtures.
 
 ## Task 2: imports and cycles
 
@@ -88,9 +92,17 @@ the Python compiler reports.
 
 ## Task 3: the wave's gate work
 
+- [ ] Resolver-owned negative fixtures under `tests/parse/` with `.expect`
+      codes, one per rule the resolver owns: no `(mod …)`, a nameless `mod`, a
+      second `mod`, an unknown top-level node, a duplicate `fn`, a duplicate
+      `test`, an `extern` collision, `(use)` with no name, `(use a b)`, an
+      unknown module, a module that declares another name, a cycle, and a merge
+      collision naming both sides. Each must fail under Python with the code the
+      fixture claims, and `gen2 resolve` must print the same code at the same
+      path.
 - [ ] `tests/test_resolve_parity.py` (or house equivalent) that runs `gen2 resolve`
-      over the negative corpus cases whose codes are E0002, E0003, E0004, E0005
-      and asserts code and path.
+      over every fixture in that set and asserts code and path. Checker-owned
+      cases are out of scope by construction: `gen2` stops at resolve.
 - [ ] Manifest regenerated; `bash tools/selfhost.sh` still `0 differences`;
       `bash tools/pr_gate.sh` 6/6; PR; squash-merge with the admin bypass.
 
@@ -102,5 +114,6 @@ the Python compiler reports.
    their own answer.
 3. A cycle reports the closing chain, not the whole import stack.
 4. The first failure wins and its path is the node's path, not the file's.
-5. The module's own name is claimed before its forms, so a file cannot be both
-   `util` and declare `util` as a type.
+5. The module's own name is claimed in the module registry, which is **separate**
+   from the definition namespace: `(mod m)` with `(type m …)` is legal, as it is
+   in Python. Do not "fix" that into an error.
