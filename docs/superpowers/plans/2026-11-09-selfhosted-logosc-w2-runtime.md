@@ -108,7 +108,8 @@ git commit -s -m "docs: spec and chapter 19 for the runtime forms, with the fail
 **Interfaces:**
 - Produces, in `rt.h`:
   - `long rt_create(const unsigned char *path, size_t n)`
-  - `size_t rt_read_file(const unsigned char *path, size_t n, int *err)`
+  - `size_t rt_read_file(const unsigned char *path, size_t n)` — panics `R0007` at
+    `path` when the file cannot be read, and returns the length otherwise
   - `size_t rt_args(size_t *count)` filling a process-lifetime array of `(ptr,len)` pairs
   - `rt_run *rt_run_start(const unsigned char *prog, size_t pn, const unsigned char **argv, const size_t *argn, size_t argc)`
   - `long rt_run_status(rt_run *r)`, `const unsigned char *rt_run_out(rt_run *r, size_t *n)`, the same for `err`
@@ -116,7 +117,8 @@ git commit -s -m "docs: spec and chapter 19 for the runtime forms, with the fail
 - [ ] **Step 1: Write the runtime, in one commit**
 
 `rt_create` opens with `O_WRONLY|O_CREAT|O_TRUNC, 0644`. `rt_read_file` opens, `fstat`s, reads
-in a loop, and returns the buffer with `err` set. `rt_args` reads `/proc/self/cmdline` from a
+in a loop, and panics `R0007` with the path when any step fails: the form returns a `:str`,
+so the failure has nowhere else to go. `rt_args` reads `/proc/self/cmdline` from a
 constructor, so the emitted `main` signature does not change. `rt_run_start` uses
 `posix_spawn` with two pipes, drains both with one `poll` loop until both reach EOF, then
 `waitpid`, kills after 30 s and reports 124.
@@ -148,7 +150,7 @@ git commit -s -m "feat: runtime for files, arguments and child processes"
 ### Task 3: The five simple forms
 
 **Files:**
-- Modify: `logos/check.py`, `logos/lower.py`, `logos/llvm.py` if a type is needed
+- Modify: `logos/check.py`, `logos/lower.py`, `logos/llvm.py` if a type is needed, `logos/diag.py` (`R0007` in the code table), `docs/LOGOS.md` (regenerated)
 - Test: `tests/test_runtime_forms.py` (new), `tests/exec/{read-file,args,str-tools}.logos`
 
 **Interfaces:**
