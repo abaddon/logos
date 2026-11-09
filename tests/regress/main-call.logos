@@ -1,0 +1,7 @@
+(mod main-call)
+
+(fn helper :i64 ()
+  (ret (main)))
+
+(fn main :i64 ()
+  (ret (helper)))

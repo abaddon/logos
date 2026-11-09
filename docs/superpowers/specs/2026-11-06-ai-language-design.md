@@ -332,6 +332,12 @@ and then fails in the linker. An imported `extern` declaration is the one
 exception, because it has no body to lower — the consumer emits its own
 `declare`, and the symbol is the C one either way.
 
+`main` is the entry point and is called only by the system: a call to it from
+any definition, in its own module or an imported one, is E0108 `the entry
+point is not callable`, at the call. The system passes no arguments and takes
+an `:i32` back, so a Logos-signature call to that symbol is a call clang would
+refuse and, across modules, one the linker already owns.
+
 ### Tests are grammar
 
 `(test ...)` and its directives are ordinary module-level nodes, not a

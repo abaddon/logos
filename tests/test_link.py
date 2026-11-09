@@ -558,9 +558,9 @@ class OneModuleTwoFilesTest(unittest.TestCase):
 
 
 class TestEntryMainTest(unittest.TestCase):
-    """A test build's entry is the test body: no module's ``main`` is callable."""
+    """The entry point is the system's to call, in a build and in a test build."""
 
-    def test_a_test_build_never_calls_an_imported_main(self):
+    def test_a_call_to_a_sibling_main_is_e0108(self):
         directory = Path(tempfile.mkdtemp())
         _parse(
             "(mod util)\n(fn twice :i64 ((x :i64)) (ret (* x 2)))\n",
@@ -577,21 +577,31 @@ class TestEntryMainTest(unittest.TestCase):
             "lib",
             directory,
         )
+        # ``lib`` names a symbol it cannot call: the ``main`` it reaches is the
+        # C entry point, which clang takes with an ``:i32`` result and no
+        # arguments. The checker refuses the call, at the call.
+        with self.assertRaises(LogosError) as caught:
+            driver.checked_program(str(directory / "lib.logos"))
+        self.assertEqual(caught.exception.code, "E0108")
+        self.assertEqual(caught.exception.path, "lib/run/2/0")
+        self.assertIn("entry point is not callable", caught.exception.message)
+
+    def test_a_call_to_its_own_main_is_e0108(self):
+        # The same fault within one module: it predates build sets, and it is
+        # refused for the same reason.
+        directory = Path(tempfile.mkdtemp())
         _parse(
-            "(mod root)\n(use lib)\n"
-            "(test t (expect (code 0)) (println (run)))\n",
-            "root",
+            "(mod alone)\n"
+            "(fn helper :i64 () (ret (main)))\n"
+            "(fn main :i64 () (ret (helper)))\n",
+            "alone",
             directory,
         )
-        checked = driver.checked_program(str(directory / "root.logos"))
-        # Before the guard, ``lib``'s import of ``app`` re-added ``main`` to
-        # its symbol map after ``forget_main``, so ``run`` emitted a call to
-        # the test entry itself: ``call i32 @main()``. There is no body to
-        # call, so the only correct answer is the missing-definition E0103.
         with self.assertRaises(LogosError) as caught:
-            lower.lower_test_program(checked, "t")
-        self.assertEqual(caught.exception.code, "E0103")
-        self.assertIn("main", caught.exception.message)
+            driver.checked_program(str(directory / "alone.logos"))
+        self.assertEqual(caught.exception.code, "E0108")
+        self.assertEqual(caught.exception.path, "alone/helper/2/0")
+
 
 
 def _called(fn) -> list[str]:

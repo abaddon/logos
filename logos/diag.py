@@ -70,6 +70,7 @@ CODES = {
     "E0105": "missing return",
     "E0106": "integer literal out of range",
     "E0107": "unused binding",
+    "E0108": "the entry point is not callable",
     "E0200": "unknown field",
     "E0201": "field type mismatch",
     "E0300": "use after move",
@@ -106,6 +107,12 @@ LITERAL_RANGE = "E0106"
 #: through the binding does not count as a read, so ``letmut`` set and never
 #: read is reported too.
 UNUSED_BINDING = "E0107"
+
+#: A call to ``main``. The entry point is called by the system with no
+#: arguments and an ``:i32`` result, so a program-level call to it would emit a
+#: call to the C entry point with a Logos signature: clang refuses the result
+#: type and, across modules, the symbol is the one the linker already owns.
+MAIN_NOT_CALLABLE = "E0108"
 UNKNOWN_FIELD = "E0200"
 FIELD_TYPE_MISMATCH = "E0201"
 USE_AFTER_MOVE = "E0300"

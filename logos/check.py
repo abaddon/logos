@@ -339,6 +339,7 @@ from logos.diag import (
     INSTANTIATION_LIMIT,
     LITERAL_RANGE,
     LOOP_MOVE,
+    MAIN_NOT_CALLABLE,
     MISSING_RETURN,
     MOVE_IMMUTABLE,
     NON_EXHAUSTIVE,
@@ -4052,6 +4053,13 @@ class _Checker:
             if constructed is not None:
                 return constructed
             raise diag(UNKNOWN_FUNCTION, node.path, f"unknown function '{name}'")
+        if name == "main":
+            # The entry point is the system's to call: it passes no arguments
+            # and takes an ``:i32`` back. A call from another definition would
+            # emit a call to the C entry point under a Logos signature, which
+            # clang refuses at one end and the linker owns at the other, and
+            # across modules it is one symbol every module can name.
+            raise diag(MAIN_NOT_CALLABLE, node.path, "the entry point is not callable")
         if name in self._externs:
             # A C declaration has no body to lower and no module to link
             # against: the backend emits its ``declare`` and the linker finds
