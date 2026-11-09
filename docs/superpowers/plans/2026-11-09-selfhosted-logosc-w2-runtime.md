@@ -108,10 +108,9 @@ git commit -s -m "docs: spec and chapter 19 for the runtime forms, with the fail
 **Interfaces:**
 - Produces, in `rt.h`:
   - `long rt_create(const unsigned char *path, size_t n)`
-  - `size_t rt_read_file(const unsigned char *path, size_t n)` — panics `R0007` at
-    `path` when the file cannot be read, and returns the length otherwise
-  - `size_t rt_args(size_t *count)` filling a process-lifetime array of `(ptr,len)` pairs
-  - `rt_run *rt_run_start(const unsigned char *prog, size_t pn, const unsigned char **argv, const size_t *argn, size_t argc)`
+  - `size_t rt_read_file(const unsigned char *path, size_t n, const unsigned char **out, const char *node_path)` — panics `R0007` at `node_path` when the file cannot be read, and returns the length otherwise
+  - `size_t rt_args(const rt_arg **args)` where `rt_arg` is a `{const unsigned char *p; size_t n}` pair (16 bytes), filled in a constructor from `/proc/self/cmdline`
+  - `rt_run *rt_run_start(const unsigned char *prog, size_t pn, const rt_arg *args, size_t argc, const char *call_path)` — `args` is `argv[1..]`; `call_path` is where a spawn failure is reported; the call panics `R0006` with the program name
   - `long rt_run_status(rt_run *r)`, `const unsigned char *rt_run_out(rt_run *r, size_t *n)`, the same for `err`
 
 - [ ] **Step 1: Write the runtime, in one commit**
