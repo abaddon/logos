@@ -11,7 +11,7 @@ stops before the gates if a commit is unsigned.
 
 ## Gates
 
-Run `bash tools/pr_gate.sh` and paste the result line for each gate. All five
+Run `bash tools/pr_gate.sh` and paste the result line for each gate. All six
 must pass.
 
 | Gate | Command | Result |
@@ -21,6 +21,7 @@ must pass.
 | acceptance | `bash tools/accept.sh` | |
 | manual drift | `python3 -m logos guide --check` | |
 | formatting | `python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')` | |
+| self-hosting | `bash tools/selfhost.sh` | |
 
 ## Checklist
 

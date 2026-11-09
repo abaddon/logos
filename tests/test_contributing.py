@@ -4,8 +4,8 @@ AGENTS.md tells an agent what done means, tools/pr_gate.sh runs it locally and
 .github/workflows/gate.yml runs it on every pull request. If the three drift,
 an agent can be told a change is finished while CI rejects it, or CI can stop
 checking a gate the local script still claims to check. These tests keep the
-three copies of the five-gate list in agreement, keep the DCO sign-off a
-precondition that runs before the gates rather than a sixth gate, and keep
+three copies of the six-gate list in agreement, keep the DCO sign-off a
+precondition that runs before the gates rather than a seventh gate, and keep
 CODEOWNERS covering the paths whose owner must review a change.
 """
 
@@ -25,6 +25,7 @@ GATES = [
     "bash tools/accept.sh",
     "python3 -m logos guide --check",
     "python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')",
+    "bash tools/selfhost.sh",
 ]
 
 # The sign-off is a precondition, not a gate: it runs before GATES and is not
@@ -50,6 +51,8 @@ AGENTS = ROOT / "AGENTS.md"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
 PR_GATE = ROOT / "tools" / "pr_gate.sh"
 DCO_SCRIPT = ROOT / "tools" / "check_dco.sh"
+SELFHOST_SCRIPT = ROOT / "tools" / "selfhost.sh"
+SELFHOST_MANIFEST = ROOT / "tools" / "selfhost-manifest.txt"
 README = ROOT / "README.md"
 
 
@@ -86,6 +89,8 @@ class ContributorFilesTest(unittest.TestCase):
             CODEOWNERS,
             PR_GATE,
             DCO_SCRIPT,
+            SELFHOST_SCRIPT,
+            SELFHOST_MANIFEST,
         ):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertTrue(path.is_file(), f"{path} is missing")
@@ -114,11 +119,38 @@ class ContributorFilesTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_selfhost_script_is_executable_and_parses(self):
+        self.assertTrue(os.access(SELFHOST_SCRIPT, os.X_OK), "tools/selfhost.sh is not executable")
+        result = subprocess.run(
+            ["bash", "-n", str(SELFHOST_SCRIPT)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_manifest_lists_every_tracked_logos_file_once_in_order(self):
+        listed = [
+            line.strip()
+            for line in SELFHOST_MANIFEST.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(listed, sorted(listed), "the manifest must be sorted")
+        self.assertEqual(len(listed), len(set(listed)), "the manifest repeats a path")
+        result = subprocess.run(
+            ["git", "ls-files", "*.logos"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tracked = sorted(result.stdout.split())
+        self.assertEqual(listed, tracked, "the manifest and git disagree on the file set")
+
 
 class GateListAgreementTest(unittest.TestCase):
-    """AGENTS.md, the local gate script and CI name the same five commands."""
+    """AGENTS.md, the local gate script and CI name the same six commands."""
 
-    def test_agents_names_the_five_gates_in_order(self):
+    def test_agents_names_the_six_gates_in_order(self):
         lines = stripped_lines(AGENTS)
         positions = []
         for command in GATES:
@@ -127,15 +159,15 @@ class GateListAgreementTest(unittest.TestCase):
                 positions.append(lines.index(command))
         self.assertEqual(positions, sorted(positions), "AGENTS.md gates are out of order")
 
-    def test_agents_documents_five_gates_and_the_sign_off_precondition(self):
+    def test_agents_documents_six_gates_and_the_sign_off_precondition(self):
         text = AGENTS.read_text(encoding="utf-8")
-        self.assertIn("five commands", text)
-        self.assertNotIn("six gates", text)
-        self.assertNotIn("six commands", text)
+        self.assertIn("six commands", text)
+        self.assertNotIn("five commands", text)
+        self.assertNotIn("seven commands", text)
         self.assertEqual(
             fenced_block(AGENTS),
             GATES,
-            "the command block in AGENTS.md must hold exactly the five gates",
+            "the command block in AGENTS.md must hold exactly the six gates",
         )
         self.assertIn("Signed-off-by", text, "AGENTS.md must state the sign-off precondition")
         self.assertIn(SIGN_OFF_COMMAND, text, "AGENTS.md must name the sign-off check")
@@ -145,7 +177,7 @@ class GateListAgreementTest(unittest.TestCase):
             "sign-off is a precondition, not a gate",
         )
 
-    def test_pr_gate_runs_the_five_gates(self):
+    def test_pr_gate_runs_the_six_gates(self):
         lines = stripped_lines(PR_GATE)
         for command in GATES:
             with self.subTest(command=command):
@@ -157,14 +189,14 @@ class GateListAgreementTest(unittest.TestCase):
         dco = [index for index, line in enumerate(lines) if SIGN_OFF_COMMAND in line]
         self.assertTrue(dco, "tools/pr_gate.sh never runs tools/check_dco.sh")
         calls = [index for index, line in enumerate(lines) if line.startswith("run_gate ")]
-        self.assertEqual(len(calls), len(GATES), "pr_gate.sh must invoke exactly five gates")
+        self.assertEqual(len(calls), len(GATES), "pr_gate.sh must invoke exactly six gates")
         first_gate = calls[0]
         self.assertLess(dco[0], first_gate, "sign-off must run before the first gate")
         text = PR_GATE.read_text(encoding="utf-8")
         self.assertIn("FAIL sign-off", text)
-        self.assertIn("The five gates were not run", text)
+        self.assertIn("The six gates were not run", text)
 
-    def test_workflow_runs_the_five_gates(self):
+    def test_workflow_runs_the_six_gates(self):
         lines = stripped_lines(WORKFLOW)
         for command in GATES:
             with self.subTest(command=command):
@@ -264,8 +296,8 @@ class TemplatesTest(unittest.TestCase):
 
     def test_contributing_treats_sign_off_as_a_precondition(self):
         text = CONTRIBUTING.read_text(encoding="utf-8")
-        self.assertIn("## The five gates", text)
-        self.assertNotIn("## The six gates", text)
+        self.assertIn("## The six gates", text)
+        self.assertNotIn("## The five gates", text)
         self.assertIn("precondition", text)
         self.assertIn(SIGN_OFF_COMMAND, text)
 

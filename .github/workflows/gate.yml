@@ -52,7 +52,7 @@ jobs:
       # a commit is unsigned. Only for a pull request -- a push to main has no
       # base to compare against and must not re-litigate commits already merged.
       # The base and head SHAs come from the event, so the range is exactly this
-      # PR. The documented gate list in AGENTS.md stays at five commands.
+      # PR. The documented gate list in AGENTS.md stays at six commands.
       - name: sign-off
         if: github.event_name == 'pull_request'
         env:
@@ -80,6 +80,9 @@ jobs:
           fi
           python3 -m logos fmt tests docs/manual
           git diff --exit-code -- '*.logos'
+      - name: self-hosting
+        run: |
+          bash tools/selfhost.sh
       - name: packaging diagnostics
         if: failure()
         shell: bash
