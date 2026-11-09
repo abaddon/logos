@@ -215,7 +215,7 @@ FORM_DOCS = (
     ("str-eq", "2", "`(str-eq a b)` byte equality of two strings"),
     ("str-slice", "3", "`(str-slice s start end)` bytes `[start, end)`"),
     ("str-byte", "2", "`(str-byte s i)` one byte of a `:str` as `:u8`, bounds checked"),
-    ("str-from-i64", "1", "`(str-from-i64 v)` the integer v in decimal, as a `:str`"),
+    ("str-from-i64", "1", "`(str-from-i64 v)` the `:i64` v in decimal, as a `:str`"),
     ("f64-bits", "1", "`(f64-bits v)` the binary64 bit pattern of v, as `:i64`"),
     ("read-all", "0", "`(read-all)` reads standard input to a `:str`"),
     ("read-file", "1", "`(read-file p)` the whole file p names, as a `:str`"),
@@ -568,9 +568,11 @@ def build_markdown() -> str:
     )
     lines.append("")
     lines.append(
-        "Runtime panic codes: `R0001` division by zero, `R0003` failed runtime "
-        "check, `R0004` free of an unknown address, `R0005` thread operation "
-        "failed. `R0002` double free is a runtime name only."
+        "Runtime panic codes: `R0001` division by zero, `R0002` double free, "
+        "`R0003` failed runtime check, `R0004` free of an unknown address, "
+        "`R0005` thread operation failed, `R0006` a program could not be "
+        "started, `R0007` a file could not be read. `R0002` and `R0004` are "
+        "runtime names only: nothing in the compiler emits them."
     )
     lines.append("")
 

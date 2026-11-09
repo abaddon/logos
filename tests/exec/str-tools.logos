@@ -7,3 +7,8 @@
   (println (str-byte "abc" 1))
   (println (str-from-i64 -42))
   (println (f64-bits 1.5)))
+
+(test str-byte-end
+  (expect (code 2)
+    (err-contains "R0003: byte index out of bounds"))
+  (println (str-byte "abc" 3)))

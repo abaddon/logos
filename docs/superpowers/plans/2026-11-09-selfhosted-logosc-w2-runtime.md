@@ -157,7 +157,7 @@ git commit -s -m "feat: runtime for files, arguments and child processes"
 
 - [ ] **Step 1: Failing unit tests**, one per form, in `tests/test_runtime_forms.py`, each asserting the type the checker gives the form and the wrong-argument diagnostic (`E0100`) and wrong arity (`E0102`).
 
-- [ ] **Step 2: Add the forms to the checker**, in the family that already holds `str-len`, `str-concat`, `str-eq`, `str-slice`: `str-byte` takes `(str, integer)` and returns `:u8`; `str-from-i64` takes an integer and returns `:str`; `f64-bits` takes `:f64` and returns `:i64`; `read-file` takes a `:str` and returns `:str`; `args` takes nothing and returns `(vec :str)`.
+- [ ] **Step 2: Add the forms to the checker**, in the family that already holds `str-len`, `str-concat`, `str-eq`, `str-slice`: `str-byte` takes `(:str, :i64)` and returns `:u8`; `str-from-i64` takes `:i64` and returns `:str`; `f64-bits` takes `:f64` and returns `:i64`; `read-file` takes a `:str` and returns `:str`; `args` takes nothing and returns `(vec :str)`.
 
 - [ ] **Step 3: Add their lowering**, `read-file` through `rt_read_file` returning the whole file, or panicking `R0007` with the path when the open or read fails, `args` through `rt_args` building a vector of fat pointers, `str-byte` a `load i8` through the string's data pointer with a bounds check that panics `R0003`, `str-from-i64` through `rt_str_from_i64`, `f64-bits` a `bitcast`.
 

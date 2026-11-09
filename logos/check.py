@@ -29,7 +29,10 @@ they rewrite the three-word descriptor that lives in its slot, exactly as
 parameter, which the callee owns outright. A parameter is a place for these
 three forms and not for ``set``, which still needs ``letmut``. An index that
 is not an integer is E0400 and a string operand that is not a ``:str`` is
-E0401.
+E0401. That E0401 rule belongs to the ``str-*`` forms the compiler has always
+had; the forms added for the self-hosted compiler (``read-file``, ``args``,
+``str-byte``, ``str-from-i64``, ``f64-bits``) report a wrong argument of any
+kind as E0100 at that argument instead.
 
 A parameter may be spelled ``(ref (vec T))``: the callee receives the address
 of the caller's descriptor, so a push, set or free inside it acts on the
@@ -3105,13 +3108,16 @@ class _Checker:
     def _str_from_i64(self, node: Node, env: _Env) -> Ty:
         """``(str-from-i64 v)``: ``v`` in decimal, as a new ``:str``.
 
-        Every integer width is accepted; the backend widens the operand to the
-        ``long long`` the runtime formats.
+        The operand is ``:i64`` exactly. The runtime formats a ``long long``
+        and the language has no implicit conversion, so every other integer
+        width has to be ``cast`` first: a ``:u64`` above ``2^63`` would
+        otherwise be handed over as its bit pattern and printed as a negative
+        number.
         """
         items = node.items
         if len(items) != 2:
-            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an integer")
-        self._integer_operand(items[1], env, node, "str-from-i64")
+            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an :i64")
+        self._i64_operand(items[1], env, node, "str-from-i64")
         return Prim("str")
 
     def _f64_bits(self, node: Node, env: _Env) -> Ty:
@@ -3161,6 +3167,26 @@ class _Checker:
                 f"'{what}' needs {noun}, found {ty}",
             )
         return ty
+
+    def _i64_operand(
+        self, item: Node | Token, env: _Env, node: Node, what: str
+    ) -> Ty:
+        """One operand that must be exactly ``:i64``, or E0100 at it.
+
+        The runtime forms that take a ``long long`` do not widen: an unsigned
+        or narrower integer would arrive as a bit pattern the runtime cannot
+        tell from the value it should print, so the program has to ``cast`` it
+        first. The hint says so, and only when a cast could help.
+        """
+        ty = self._value(item, env, None, node.path)
+        if isinstance(ty, Prim) and ty.name == "i64":
+            return ty
+        hint = "; cast it to :i64 first" if _integer(ty) else ""
+        raise diag(
+            TYPE_MISMATCH,
+            _at(item, node),
+            f"'{what}' takes an :i64, found {ty}{hint}",
+        )
 
     # -- vectors ----------------------------------------------------------
 

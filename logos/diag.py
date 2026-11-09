@@ -214,12 +214,6 @@ FLOAT_RANGE = "R0003"
 #: location it prints is ``<runtime>`` because no node allocated the block.
 FREE_UNKNOWN = "R0004"
 
-#: The runtime code for a ``(read-file p)`` whose path could not be opened or
-#: read. The runtime raises it, not the lowerer: only the running process knows
-#: whether the file is there, and the form returns a ``:str``, so a failure has
-#: nowhere else to go. It is the one runtime code in ``CODES``.
-READ_FILE = "R0007"
-
 
 class LogosError(Exception):
     """A diagnostic carrying a code, a location and a message.

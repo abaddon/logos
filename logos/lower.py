@@ -2526,13 +2526,13 @@ class _Fn:
     def str_from_i64(self, node: Node) -> str:
         """``(str-from-i64 v)``: the runtime formats the operand as decimal.
 
-        The operand is extended to the ``long long`` the runtime takes: a
-        narrow signed value sign-extends, an unsigned one zero-extends, so the
-        text is the value the program held.
+        The operand is ``:i64`` — the checker refuses every other width — so
+        ``index64`` hands it over unchanged and the runtime's ``long long``
+        parameter needs no conversion.
         """
         items = node.items
         if len(items) != 2:
-            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an integer")
+            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an :i64")
         value = self.index64(items[1], node.path, "integer")
         slot = self.slot(Prim("i64"), path=node.path)
         self.lowering.declare(_RT_STR_FROM_I64)

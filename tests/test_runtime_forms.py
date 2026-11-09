@@ -146,32 +146,51 @@ class StrByteCheckTest(unittest.TestCase):
 
 
 class StrFromI64CheckTest(unittest.TestCase):
-    """``(str-from-i64 v)``: an integer written in decimal, as ``:str``."""
+    """``(str-from-i64 v)``: an ``:i64`` written in decimal, as ``:str``."""
 
     def test_str_from_i64_is_a_str(self):
         cm = checked("(mod m)(fn f :str () (ret (str-from-i64 -42)))")
         self.assertEqual(type_of(cm, "str-from-i64"), Prim("str"))
 
-    def test_every_integer_width_is_accepted(self):
-        for param in ("a :i8", "b :u64"):
+    def test_an_i64_operand_is_accepted(self):
+        cm = checked("(mod m)(fn f :str ((n :i64)) (ret (str-from-i64 n)))")
+        self.assertEqual(type_of(cm, "str-from-i64"), Prim("str"))
+
+    def test_another_integer_width_must_be_cast_first(self):
+        # The runtime formats a ``long long``; a ``:u64`` above 2^63 would be
+        # printed as its negative bit pattern, so the checker refuses it.
+        error = fail_on(
+            "(mod m)(fn f :str () (ret (str-from-i64 (cast :u64 -1))))"
+        )
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(
+            error.message,
+            "'str-from-i64' takes an :i64, found :u64; cast it to :i64 first",
+        )
+        # At the argument, not at the form.
+        self.assertEqual(error.path, "m/f/2/0/0")
+
+    def test_every_other_width_is_refused(self):
+        for param in ("a :i8", "b :u64", "c :u32"):
             with self.subTest(param=param):
                 name = param.split()[0]
-                cm = checked(
+                error = fail_on(
                     f"(mod m)(fn f :str (({param})) (ret (str-from-i64 {name})))"
                 )
-                self.assertEqual(type_of(cm, "str-from-i64"), Prim("str"))
+                self.assertEqual(error.code, "E0100")
+                self.assertIn("cast it to :i64 first", error.message)
 
     def test_the_operand_must_be_an_integer(self):
         error = fail_on('(mod m)(fn f :str () (ret (str-from-i64 "1.5")))')
         self.assertEqual(error.code, "E0100")
         self.assertEqual(
-            error.message, "'str-from-i64' needs an integer, found :str"
+            error.message, "'str-from-i64' takes an :i64, found :str"
         )
 
     def test_str_from_i64_takes_one_argument(self):
         error = fail_on("(mod m)(fn f :str () (ret (str-from-i64 1 2)))")
         self.assertEqual(error.code, "E0102")
-        self.assertEqual(error.message, "'str-from-i64' takes an integer")
+        self.assertEqual(error.message, "'str-from-i64' takes an :i64")
 
 
 class F64BitsCheckTest(unittest.TestCase):
@@ -270,17 +289,19 @@ class StrToolsLoweringTest(unittest.TestCase):
 
 
 class RuntimeFormsExecTest(unittest.TestCase):
-    """The three corpus cases, at both optimisation levels."""
+    """The corpus cases, at both optimisation levels."""
 
     def build(self, stem: str, case: str, opt: str) -> str:
         BUILD.mkdir(parents=True, exist_ok=True)
-        out = str(BUILD / f"runtime-forms-{stem}-{opt[1:]}")
+        out = str(BUILD / f"runtime-forms-{stem}-{case}-{opt[1:]}")
         driver.run_test(str(EXEC / f"{stem}.logos"), case, out, opt=opt)
         return out
 
-    def run_case(self, stem: str, case: str, opt: str) -> subprocess.CompletedProcess:
+    def run_case(
+        self, stem: str, case: str, opt: str, *args: str
+    ) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [self.build(stem, case, opt)], capture_output=True, timeout=60
+            [self.build(stem, case, opt), *args], capture_output=True, timeout=60
         )
 
     def test_str_tools_prints_a_byte_an_integer_and_a_bit_pattern(self):
@@ -311,3 +332,27 @@ class RuntimeFormsExecTest(unittest.TestCase):
                 self.assertEqual(done.stdout, b"true\n", done.stderr)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertNotIn(b"LEAK", done.stderr)
+
+    def test_args_elements_are_whole_strings(self):
+        # One byte per element instead of one sixteen-byte pair leaves the
+        # count right and every element empty, so this asserts the text.
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                done = self.run_case(
+                    "args", "args-elements", opt, "alpha beta", ""
+                )
+                self.assertEqual(
+                    done.stdout, b"3\nalpha beta\n\n", done.stderr
+                )
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertNotIn(b"LEAK", done.stderr)
+
+    def test_str_byte_at_the_length_panics(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                done = self.run_case("str-tools", "str-byte-end", opt)
+                self.assertEqual(done.stdout, b"", done.stderr)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn(
+                    b"R0003: byte index out of bounds", done.stderr
+                )
