@@ -4528,7 +4528,11 @@ def _single(value: float) -> float:
 
 
 def _hex_float(value: float) -> str:
-    """``value`` as LLVM's hexadecimal double literal, ``0x3FF19999A0000000``."""
+    """``value`` as LLVM's hexadecimal double literal.
+
+    ``0x3FF199999999999A`` is the double ``1.1``; the single-precision value
+    ``_single`` produces for ``:f32`` is widened to its own exact double first.
+    """
     return "0x{:016X}".format(struct.unpack("<Q", struct.pack("<d", value))[0])
 
 

@@ -414,9 +414,10 @@ class Types:
     declared: dict[str, Ty] = field(default_factory=dict)
     #: The width each numeric literal was checked at, keyed by the token
     #: itself. A literal has no width in the syntax, and the backend has to
-    #: spell it before it knows what the enclosing form expects — but LLVM
-    #: accepts a decimal float constant only when it is exactly the target
-    #: width's value, so ``0.1`` at ``:f32`` needs the single-precision bits.
+    #: spell it before it knows what the enclosing form expects — but the width
+    #: decides which bits the constant is. The backend prints a float as its
+    #: bit pattern in hexadecimal, and ``0.1`` at ``:f32`` must be the
+    #: single-precision value, not the double one the source also spells.
     #: Each copy of a generic body carries its own map, exactly as it carries
     #: its own ``expr_types``: one source token can be ``:f32`` in one
     #: instantiation and ``:f64`` in another.
