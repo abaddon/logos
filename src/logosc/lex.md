@@ -274,7 +274,8 @@ message.
 Beyond the tests, the port was compared token by token against
 `logos/lexer.py` over 29 corpus files (`docs/manual/*.logos`, `src/std/*.logos`,
 this module, `src/logosc/lex_test.logos`, `tests/exec/results.logos`,
-`tests/exec/strings.logos`): 12,992 token lines, identical kind, line, column,
-byte length and decoded bytes. The comparison was a throwaway harness, not a
-committed test — the plan's parity rule for W4 task 1 is hand-written
-expectations, because there is no `logosc lex` verb to diff against.
+`tests/exec/strings.logos`): 13,101 tokens at the commit that added this
+module, identical kind, line, column, byte length and decoded bytes. The
+comparison was a throwaway harness, not a committed test — the plan's parity
+rule for W4 task 1 is hand-written expectations, because there is no `logosc
+lex` verb to diff against.
