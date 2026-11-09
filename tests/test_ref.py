@@ -5,18 +5,24 @@ of its own vector descriptor, so a ``vec-push`` inside the callee grows the
 caller's buffer, and nothing is copied or moved. The checker's share is exactly
 that shape — the argument must be a mutable binding or another ref parameter
 (E0304), and a ref may never leave the call that received it (E0305). The
-lowerer's share is Task 4; here every case stops at the checker.
+lowerer's share is the IR at the bottom of this file: the parameter is a
+pointer, the call passes the address of the caller's slot, and every vector
+form reads and writes the descriptor the pointer names.
 """
 
 from __future__ import annotations
 
+import subprocess
 import unittest
+from pathlib import Path
 
-from logos import check, parser
+from logos import check, driver, llvm, lower, parser
 from logos.check import CheckedModule, check_module
 from logos.diag import LogosError
-from logos.resolve import resolve
+from logos.resolve import program, resolve
 from logos.types import Prim, Ref, Vec
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def checked(source: str) -> CheckedModule:
@@ -35,6 +41,25 @@ def refusal(source: str) -> LogosError:
     except LogosError as error:
         return error
     raise AssertionError("expected a diagnostic, but the module checked")
+
+
+def emitted(source: str) -> str:
+    """Lower one inline module and return its LLVM text."""
+    return llvm.emit(lower.lower_module(checked(source)))
+
+
+def build_and_run(name: str, source: str, opt: str) -> subprocess.CompletedProcess:
+    """Build ``source`` at ``opt`` into ``build/`` and run it once.
+
+    A debug build, so a block still live at exit lands on stderr and the test
+    can see it rather than a silent pass.
+    """
+    path = ROOT / "build" / f"{name}.logos"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    out = str(ROOT / "build" / f"{name}{opt[1:]}")
+    driver.build(str(path), out, opt=opt, debug=True)
+    return subprocess.run([out], capture_output=True, text=True)
 
 
 GOOD = """(mod r)
@@ -329,3 +354,133 @@ class RefShapeTest(unittest.TestCase):
             "(fn f :void ((v (ref (vec :i64)))) (set-field v x 1) (ret))"
         )
         self.assertEqual(error.code, "E0104")
+
+
+TWO_REFS = """(mod two)
+
+(fn bump :void ((a (ref (vec :i64))) (b (ref (vec :i64))))
+  (vec-push a 1)
+  (vec-push b 2)
+  (vec-set a 0 7))
+
+(fn main :i64 ()
+  (letmut a (vec :i64) (make (vec :i64)))
+  (letmut b (vec :i64) (make (vec :i64)))
+  (bump a b)
+  (println (vec-len a))
+  (println (vec-len b))
+  (println (vec-get a 0))
+  (println (vec-get b 0))
+  (vec-free a)
+  (vec-free b)
+  (ret 0))
+"""
+
+FREE_THROUGH_REF = """(mod ref-free)
+
+(fn clear :void ((v (ref (vec :i64))))
+  (vec-free v))
+
+(fn main :i64 ()
+  (letmut v (vec :i64) (make (vec :i64)))
+  (vec-push v 1)
+  (clear v)
+  (println (vec-len v))
+  (vec-free v)
+  (ret 0))
+"""
+
+
+class RefLoweringTest(unittest.TestCase):
+    """The IR shape: a pointer slot, a slot address at the call, two loads."""
+
+    def test_a_ref_parameter_is_a_pointer_to_the_descriptor(self):
+        text = emitted(GOOD)
+        # Pinned from the emitted text: the parameter is one pointer to the
+        # three-word descriptor, never the descriptor itself.
+        self.assertIn(
+            "define internal void @lg.r.grow({ i64*, i64, i64 }* %v.0) {", text
+        )
+
+    def test_the_caller_passes_the_address_of_its_slot(self):
+        text = emitted(GOOD)
+        # ``%v.0.addr`` is the caller's own slot: the address is lent, so no
+        # descriptor is copied and none is cleared.
+        self.assertIn(
+            "call void @lg.r.grow({ i64*, i64, i64 }* %v.0.addr)", text
+        )
+
+    def test_a_push_loads_the_pointer_then_the_descriptor(self):
+        text = emitted(GOOD)
+        self.assertIn(
+            "  %t1 = load { i64*, i64, i64 }*, { i64*, i64, i64 }** %v.0.addr",
+            text,
+        )
+        self.assertIn(
+            "  %t2 = load { i64*, i64, i64 }, { i64*, i64, i64 }* %t1", text
+        )
+        # And the rewritten descriptor goes back through the same pointer, so
+        # the caller's length and capacity move with the buffer.
+        self.assertIn("  store { i64*, i64, i64 } %t32, { i64*, i64, i64 }* %t1", text)
+
+    def test_two_ref_parameters_are_two_pointers(self):
+        text = emitted(TWO_REFS)
+        self.assertIn(
+            "define internal void @lg.two.bump({ i64*, i64, i64 }* %v.0, "
+            "{ i64*, i64, i64 }* %v.1) {",
+            text,
+        )
+
+    def test_a_ref_in_an_imported_signature_keeps_its_pointer(self):
+        # A build set of two modules qualifies every type in a sibling's
+        # signature: the ref must survive that walk as the same pointer.
+        checked = check.check_program(
+            program(
+                [
+                    parser.parse(
+                        "(mod prog)\n(use util)\n"
+                        "(fn main :i64 ()"
+                        " (letmut v (vec :i64) (make (vec :i64)))"
+                        " (grow v) (vec-free v) (ret 0))",
+                        "prog.logos",
+                    ),
+                    parser.parse(
+                        "(mod util)\n"
+                        "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1))",
+                        "util.logos",
+                    ),
+                ]
+            )
+        )
+        text = llvm.emit(lower.lower_program(checked))
+        self.assertIn(
+            "define internal void @lg.util.grow({ i64*, i64, i64 }* %v.0)", text
+        )
+        self.assertIn(
+            "call void @lg.util.grow({ i64*, i64, i64 }* %v.0.addr)", text
+        )
+
+
+class RefRuntimeTest(unittest.TestCase):
+    """The caller's descriptor, observed after the callee returns."""
+
+    def test_each_of_two_refs_grows_its_own_descriptor(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run("test-ref-two", TWO_REFS, opt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # Each length grew by its own push; the set through ``a`` did
+                # not reach ``b``.
+                self.assertEqual(result.stdout, "1\n1\n7\n2\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_vec_free_through_a_ref_zeroes_the_callers_descriptor(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run("test-ref-free", FREE_THROUGH_REF, opt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # The callee released the buffer and zeroed the descriptor the
+                # pointer names, so the caller reads length 0 and its own
+                # ``vec-free`` is a harmless free(NULL). No block leaks.
+                self.assertEqual(result.stdout, "0\n")
+                self.assertEqual(result.stderr, "")

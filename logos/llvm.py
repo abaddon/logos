@@ -54,6 +54,7 @@ from logos.types import (
     Own,
     Prim,
     Ptr,
+    Ref,
     Res,
     Shared,
     StructRef,
@@ -206,6 +207,11 @@ def type_text(ty: Ty) -> str:
         if spelled is not None:
             return spelled
     if isinstance(ty, (Ptr, Own)):
+        return f"{type_text(ty.elem)}*"
+    if isinstance(ty, Ref):
+        # A ref is the address of the caller's descriptor: one pointer, whose
+        # pointee is the vector it names. Nothing is copied, so the layout of
+        # the value is exactly the layout of a pointer to the descriptor.
         return f"{type_text(ty.elem)}*"
     if isinstance(ty, (Shared, Chan, Atomic)):
         # A shared wrapper is a marker, not a layout: the value is exactly the
