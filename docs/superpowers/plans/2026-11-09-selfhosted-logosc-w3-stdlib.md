@@ -58,10 +58,12 @@ power-of-two bucket count, the multiply-and-add hash of §D8.
 
 ## Task 2: the string tools
 
-- [ ] `src/std/str.logos`: `str-find (hay needle from) :i64` (-1 when absent),
-      `str-split (sep) (s) -> (vec :str)` (empty fields kept, a trailing
-      separator yields a final empty field), `str-join (parts) (sep) :str`,
-      `str-starts-with`, `str-trim-left` if the lexer needs it.
+- [ ] `src/std/str.logos`: `string-find (hay needle from) :i64` (-1 when absent),
+      `string-split (sep) (s) -> (vec :str)` (empty fields kept, a trailing
+      separator yields a final empty field), `string-join (ref parts) (sep) :str`,
+      `string-starts-with`. The `string-` prefix is not decoration: `check.py:1457`
+      reserves `vec- str- arr- atomic-`, so `str-find` is `E0003`, and `join` is a
+      form name besides.
 - [ ] `src/std/str_test.logos`: empty haystack, needle at 0, at the end, absent;
       split of `""`, of a string with no separator, of `"a,,b,"`; join of zero
       parts (empty), one part, many; round trip `join (split s) == s` for a
