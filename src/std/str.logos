@@ -57,7 +57,7 @@
     (string-split-nonempty parts sep s (str-len s)))
   (ret parts))
 
-(fn string-join :str ((parts (vec :str)) (sep :str))
+(fn string-join :str ((parts (ref (vec :str))) (sep :str))
   (letmut out :str "")
   (letmut i :i64 0)
   (while (< i (vec-len parts))
@@ -66,5 +66,4 @@
                (str-concat (str-concat out sep)
                  (vec-get parts i))))
     (set i (+ i 1)))
-  (vec-free parts)
   (ret out))

@@ -6,10 +6,11 @@ documentation the source cannot carry. Read it before calling the module.
 
 ## Names: `string-*`, not `str-*`
 
-The plan spells these `str-find`, `str-split`, `str-join`, `str-starts-with`. A
-`fn` may not be called that: the checker reserves the `str-` head for the form
-family (`logos/check.py:RESERVED_PREFIXES`), so the definition is refused where
-it is written, before any call is resolved:
+The plan first spelled these `str-find`, `str-split`, `str-join`,
+`str-starts-with`; it now says `string-*` and `(ref parts)` (commit
+`eb727ac`). A `fn` may not be called `str-*` at all: the checker reserves the
+`str-` head for the form family (`logos/check.py:RESERVED_PREFIXES`), so the
+definition is refused where it is written, before any call is resolved:
 
 ```
 FAIL exec/str_test/find -O0: build failed: E0003 str/str-match-at: reserved form name
@@ -28,7 +29,7 @@ prefix test.
 |---|---|---|
 | `string-find hay needle from` | `:i64` | the first index at or after `from` where `needle` occurs, `-1` when absent |
 | `string-split sep s` | `(vec :str)` | the fields of `s` between separators, empty fields kept |
-| `string-join parts sep` | `:str` | the parts joined by `sep`; **consumes and frees `parts`** |
+| `string-join parts sep` | `:str` | the parts joined by `sep`; **borrows `parts`** (a `letmut`; the caller frees it) |
 | `string-starts-with s prefix` | `:bool` | whether `s` begins with `prefix` |
 | `string-match-at hay needle at n` | `:bool` | implementation: the first `n` bytes of `needle` equal `hay` at `at` |
 | `string-split-nonempty (ref parts) sep s sn` | `:void` | implementation: the split for a separator of at least one byte |
@@ -107,29 +108,65 @@ is owned — the strings in it are views, and there is no per-element free.
 
 Cost: one `string-find` per field plus one `vec-push` per field, linear in
 `|s|` because each search starts where the last field ended. The vector grows
-amortised; `(string-split "," line)` on a 100 KB line with 32,769 fields leaks
-nothing (`str_test.logos` case `growth`).
+amortised; `(string-split "," line)` on a 96 KiB (98,304-byte) line with 32,769
+fields leaks nothing (`str_test.logos` case `growth`).
 
 ## `string-join`
 
-- Zero parts give `""`. One part gives that part unchanged (no copy at all:
-  the first part is not concatenated).
-- `(string-join parts sep)` is `p0 + sep + p1 + …`, so `n` parts cost `2n−1`
-  `str-concat` calls — `n` for the parts and `n−1` for the separators — and
-  each of those copies the accumulated result, so joining costs O(n × result
-  length) bytes copied. **It is the simple shape, not the fast one.** A caller
-  joining a hundred thousand fields wants a preallocated buffer and a per-field
-  `memcpy`, which the language does not offer yet.
+- Zero parts give `""`, and no `str-concat` call is made.
+- One part gives **that part itself** — unchanged, not copied: the first part is
+  not concatenated.
+- Two or more parts give `p0 + sep + p1 + …`, built by `str-concat`.
 
-`string-join` **takes ownership of `parts` and frees it** before returning.
-This is not decoration: a vector passed by value is moved, so the caller cannot
-touch it again — `(vec-free parts)` after the call is `E0300 use after move` —
-and a join that did not free would leak one vector per call with no way for the
-caller to prevent it. A caller that still needs the fields must not join them.
+Each part after the first costs two calls — one appends the separator to the
+accumulated result, one appends the part — so `n` parts cost `2(n−1)`
+`str-concat` calls, **not** `2n−1`: zero for `n` = 0 and `n` = 1, two for `n` =
+2, and so on. Each call copies the accumulated result, so joining costs
+O(n × result length) bytes copied. **It is the simple shape, not the fast one.**
+A caller joining a hundred thousand fields wants a preallocated buffer and a
+per-field `memcpy`, which the language does not offer yet.
 
-The result is copied, not a view: every `str-concat` allocates and the runtime
-keeps the buffer for the process's life (§D9), so a joined string is never
-freed and never points into `parts`.
+### It borrows the vector; the caller frees it
+
+`string-join` takes `parts` as `(ref (vec :str))` — a **borrow**, not a move —
+and never frees it. After the call the caller still owns the vector:
+`(vec-len parts)` is unchanged, a second `(string-join parts sep)` is legal, and
+`(vec-free parts)` is the caller's line to write when it is done with the
+fields.
+
+The argument must be a `letmut` binding; an immutable `let` is refused:
+
+```
+E0304 a ref argument must be a mutable binding, and 'parts' is not
+```
+
+The trade-off is the one to keep in view. A vector passed by value could be
+freed inside the join and could not leak, but that made every join a hidden
+ownership transfer: the caller's vector was gone, and touching it again was
+`E0300 use after move`, with no way to ask for a join that kept the fields. The
+borrow removes that trap and moves one obligation to the caller: **a forgotten
+`(vec-free parts)` is a leak, not an `E0300`.** The checker cannot catch it,
+because nothing was consumed. The free therefore belongs in the same function
+that allocated the vector, on the line after the last read.
+
+```logos
+(letmut fields (vec :str) (string-split "," "a,b"))
+(println (string-join fields ","))
+(vec-free fields)
+```
+
+### What the result points at
+
+**The result is a fresh buffer for `n ≠ 1` and a view of the single part for
+`n = 1`.** (For `n` = 0 that "fresh buffer" is the empty literal `""`; no copy
+is made.) With two or more parts every `str-concat` allocates a new buffer, so
+the result points into nothing the caller owns — and, per §D9, that buffer is
+kept for the process's life and is never freed. With exactly one part the code
+returns `(vec-get parts 0)` unchanged: the result **is** that string, so it
+aliases whatever the part aliases — for a part that came from `string-split`,
+the source string. The keep-the-source-alive rule above therefore extends to a
+join of one part. Freeing the vector is not the hazard (its elements are views
+and own nothing); freeing or overwriting the string a part was sliced from is.
 
 ## `string-starts-with`
 
@@ -154,5 +191,5 @@ read, so it does not panic. `(string-starts-with "" "a")` is `false` and
 `src/std/str_test.logos` pins the edges above: empty haystack, a needle at `0`,
 at the end and absent, the empty needle, `""` split, a split with no separator,
 `"a,,b,"`, the empty separator, joins of zero, one and many parts, a round trip
-matrix over nine strings, and a 100 KB line split into 32,769 fields with
-`(leaks 0)`.
+matrix over nine strings, and a 96 KiB (98,304-byte) line split into 32,769
+fields with `(leaks 0)`.

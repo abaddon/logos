@@ -6,7 +6,9 @@
   (letmut parts
     (vec :str)
     (string-split sep s))
-  (ret (= (string-join parts sep) s)))
+  (let same :bool (= (string-join parts sep) s))
+  (vec-free parts)
+  (ret same))
 
 (test find
   (expect (out "0\n-1\n0\n3\n3\n-1\n-1\n2\n5\n-1\n1\n3\n-1\n-1\n")
@@ -119,11 +121,13 @@
     (vec :str)
     (make (vec :str)))
   (println (str-len (string-join zero ",")))
+  (vec-free zero)
   (letmut one
     (vec :str)
     (make (vec :str)))
   (vec-push one "solo")
   (println (string-join one ","))
+  (vec-free one)
   (letmut many
     (vec :str)
     (make (vec :str)))
@@ -131,12 +135,14 @@
   (vec-push many "b")
   (vec-push many "c")
   (println (string-join many "-"))
+  (vec-free many)
   (letmut blanks
     (vec :str)
     (make (vec :str)))
   (vec-push blanks "")
   (vec-push blanks "")
-  (println (string-join blanks "-")))
+  (println (string-join blanks "-"))
+  (vec-free blanks))
 
 (test round-trip-table
   (expect (out "true\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n")
@@ -153,7 +159,7 @@
   (println (round-trip "field one\tfield two" "\t")))
 
 (test round-trip-length
-  (expect (out "2\n3\n5\n")
+  (expect (out "2\n3\n5\n2\n")
     (code 0)
     (leaks 0))
   (letmut parts
@@ -161,7 +167,9 @@
     (string-split "," "a\0b,c"))
   (println (vec-len parts))
   (println (str-len (vec-get parts 0)))
-  (println (str-len (string-join parts ","))))
+  (println (str-len (string-join parts ",")))
+  (println (vec-len parts))
+  (vec-free parts))
 
 (test growth
   (expect (out "98304\n32769\n0\n2\ntrue\n")
