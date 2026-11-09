@@ -7,7 +7,6 @@
   (letmut a
     (vec :str)
     (make (vec :str)))
-  (vec-push a "sh")
   (vec-push a "-c")
   (vec-push a "echo hi")
   (let r (run "sh" a))
@@ -16,7 +15,6 @@
   (letmut b
     (vec :str)
     (make (vec :str)))
-  (vec-push b "sh")
   (vec-push b "-c")
   (vec-push b "echo oops 1>&2")
   (let r2 (run "sh" b))

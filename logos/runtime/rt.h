@@ -208,15 +208,18 @@ long rt_create(const unsigned char *path, size_t n);
  * not tracked by the leak tracker, for the reason above. A zero-length file
  * yields a zero-length buffer, never NULL.
  *
- * Panics with R0007 at the path when the file cannot be opened or read: the
+ * Panics with R0007 at `node_path` when the file cannot be opened or read: the
  * form returns a `:str`, so a failure has nowhere else to go. The message is
- * `could not read <path>`, and the location is the path itself.
+ * `could not read <path>`, naming the file, while the location is the node
+ * that asked, the same shape as a compile error. `node_path` is a
+ * compiler-generated NUL-terminated literal; NULL — or an empty string, which
+ * is what a missing node path degrades to — prints `<runtime>`.
  *
  * The buffer comes back through `out` rather than as the return value because
  * the length is the return value: a two-word return would be an `sret`
  * argument, and this boundary is kept to scalars and pointers. */
 size_t rt_read_file(const unsigned char *path, size_t n,
-                    const unsigned char **out);
+                    const unsigned char **out, const char *node_path);
 
 /* One command-line argument: a pointer into the process-lifetime command line
  * and its byte count. Two words, pointer then length, so an array of these is
@@ -254,13 +257,21 @@ typedef struct rt_run rt_run;
  * talks a lot on both cannot deadlock against a full pipe. A child still
  * running after 30 seconds is killed, and its status is then 124; otherwise
  * the status is the exit code, or 128 + the number of the signal that ended
- * it. A program that could not be started, or a pipe the runtime could not
- * create, panics R0006 with the program's name. */
+ * it. The 30 seconds bound the child as well as the pipes: a child that closes
+ * both streams and then never exits is killed too. A grandchild that inherits
+ * the pipes and keeps them open is not: it can hold the call past the deadline
+ * until it exits, because end of file is what ends the read.
+ * A program that could not be started, or a pipe the runtime could not
+ * create, panics R0006 at `call_path` with the program's name.
+ *
+ * `call_path` is the `run` node path, a compiler-generated NUL-terminated
+ * literal; NULL — or an empty string — prints `<runtime>`. */
 rt_run *rt_run_start(const unsigned char *prog, size_t pn,
                      const unsigned char **argv, const size_t *argn,
-                     size_t argc);
+                     size_t argc, const char *call_path);
 
-/* The status: an exit code, 128 + signal, or 124 after the timeout. */
+/* The status: an exit code, 128 + signal, or 124 after the timeout. Panics
+ * R0005 on a NULL handle, like the two readers below. */
 long rt_run_status(rt_run *r);
 
 /* The child's standard output, and its byte count through *n. The buffer

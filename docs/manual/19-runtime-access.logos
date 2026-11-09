@@ -14,7 +14,6 @@
   (letmut a
     (vec :str)
     (make (vec :str)))
-  (vec-push a "sh")
   (vec-push a "-c")
   (vec-push a "echo hi")
   (let r (run "sh" a))

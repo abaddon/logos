@@ -675,30 +675,40 @@ long rt_create(const unsigned char *path, size_t n) {
     return fd < 0 ? -1 : (long)fd;
 }
 
-/* R0007 for a path that could not be read. The location is the path itself:
- * the form has no node path to offer, and the message has to name the file, so
- * carrying both is the only thing that makes the line useful. */
-static _Noreturn void rt_read_file_panic(const unsigned char *path, size_t n) {
+/* A node path as rt_panic wants it: NULL when there is none, so the fallback
+ * `<runtime>` is printed rather than a line that starts with a colon. An empty
+ * literal is the shape a missing path degrades to, so it counts as none. */
+static const char *rt_node_path(const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return NULL;
+    }
+    return path;
+}
+
+/* R0007 for a path that could not be read. The message names the file; the
+ * location is the node that asked, like a compile error. */
+static _Noreturn void rt_read_file_panic(const unsigned char *path, size_t n,
+                                         const char *node_path) {
     static const char prefix[] = "could not read ";
     char *cpath = rt_cstr(path, n);
     char *msg;
     size_t plen = sizeof prefix - 1;
 
     if (cpath == NULL || n > (size_t)-1 - sizeof prefix) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(node_path), "R0003", "out of memory");
     }
     msg = malloc(sizeof prefix + n);
     if (msg == NULL) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(node_path), "R0003", "out of memory");
     }
     memcpy(msg, prefix, plen);
     memcpy(msg + plen, cpath, n);
     msg[plen + n] = '\0';
-    rt_panic(cpath, "R0007", msg);
+    rt_panic(rt_node_path(node_path), "R0007", msg);
 }
 
 size_t rt_read_file(const unsigned char *path, size_t n,
-                    const unsigned char **out) {
+                    const unsigned char **out, const char *node_path) {
     char *cpath = rt_cstr(path, n);
     struct stat st;
     unsigned char *buffer;
@@ -707,12 +717,12 @@ size_t rt_read_file(const unsigned char *path, size_t n,
     int fd;
 
     if (cpath == NULL) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(node_path), "R0003", "out of memory");
     }
     fd = open(cpath, O_RDONLY);
     if (fd < 0) {
         free(cpath);
-        rt_read_file_panic(path, n);
+        rt_read_file_panic(path, n, node_path);
     }
     /* A regular file's size is a good first guess and saves the growth loop
      * for the common case. /proc reports zero, so the guess stays 4096 there
@@ -726,7 +736,7 @@ size_t rt_read_file(const unsigned char *path, size_t n,
     if (buffer == NULL) {
         close(fd);
         free(cpath);
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(node_path), "R0003", "out of memory");
     }
     for (;;) {
         ssize_t got;
@@ -737,14 +747,15 @@ size_t rt_read_file(const unsigned char *path, size_t n,
                 free(buffer);
                 close(fd);
                 free(cpath);
-                rt_panic(NULL, "R0003", "file is too large");
+                rt_panic(rt_node_path(node_path), "R0003",
+                         "file is too large");
             }
             grown = realloc(buffer, cap * 2);
             if (grown == NULL) {
                 free(buffer);
                 close(fd);
                 free(cpath);
-                rt_panic(NULL, "R0003", "out of memory");
+                rt_panic(rt_node_path(node_path), "R0003", "out of memory");
             }
             buffer = grown;
             cap *= 2;
@@ -757,7 +768,7 @@ size_t rt_read_file(const unsigned char *path, size_t n,
             free(buffer);
             close(fd);
             free(cpath);
-            rt_read_file_panic(path, n);
+            rt_read_file_panic(path, n, node_path);
         }
         if (got == 0) {
             break;
@@ -845,7 +856,10 @@ __attribute__((constructor)) static void rt_args_init(void) {
     if (count != 0) {
         rt_arg *args = malloc(count * sizeof *args);
         if (args == NULL) {
+            /* The pair is all or nothing: with no array there is no count. */
             free(raw);
+            rt_argv = NULL;
+            rt_argv_count = 0;
             return;
         }
         i = 0;
@@ -859,11 +873,22 @@ __attribute__((constructor)) static void rt_args_init(void) {
             i++; /* the NUL, or one past the end after a final unterminated run */
         }
         rt_argv = args;
+        rt_argv_count = count;
+        return;
     }
-    rt_argv_count = count;
+    rt_argv = NULL;
+    rt_argv_count = 0;
 }
 
 size_t rt_args(const rt_arg **args) {
+    /* Never a count without an array: a caller reads *args only when the
+     * count it gets back is non-zero. */
+    if (rt_argv == NULL) {
+        if (args != NULL) {
+            *args = NULL;
+        }
+        return 0;
+    }
     if (args != NULL) {
         *args = rt_argv;
     }
@@ -882,8 +907,11 @@ struct rt_run {
 
 /* How long a child may run before it is killed. A constant, not a parameter:
  * a test that hangs is a bug in the program, and 124 is the shell's code for a
- * command that timed out. */
+ * command that timed out. The guard lets the timeout probe build a short
+ * budget; nothing in the compiler defines it. */
+#ifndef RT_RUN_TIMEOUT_MS
 #define RT_RUN_TIMEOUT_MS 30000
+#endif
 
 /* A child that wrote nothing still gives a `:str` a valid pointer. */
 static const unsigned char rt_run_empty[1] = {0};
@@ -897,19 +925,22 @@ static long long rt_monotonic_ms(void) {
     return (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
 }
 
-/* R0006 for a child that could not be started, naming the program. */
-static _Noreturn void rt_run_spawn_panic(const char *prog) {
+/* R0006 for a child that could not be started, naming the program and located
+ * at the `run` node that asked. */
+static _Noreturn void rt_run_spawn_panic(const char *prog,
+                                         const char *call_path) {
     static const char prefix[] = "could not start ";
     size_t plen = sizeof prefix - 1;
     size_t n = strlen(prog);
     char *msg = malloc(sizeof prefix + n);
 
     if (msg == NULL) {
-        rt_panic(NULL, "R0006", "could not start a program");
+        rt_panic(rt_node_path(call_path), "R0006",
+                 "could not start a program");
     }
     memcpy(msg, prefix, plen);
     memcpy(msg + plen, prog, n + 1);
-    rt_panic(NULL, "R0006", msg);
+    rt_panic(rt_node_path(call_path), "R0006", msg);
 }
 
 /* Add a close action for fd unless the descriptor is one of the two the child
@@ -957,7 +988,7 @@ static void rt_append(unsigned char **buf, size_t *len, size_t *cap,
 
 rt_run *rt_run_start(const unsigned char *prog, size_t pn,
                      const unsigned char **argv, const size_t *argn,
-                     size_t argc) {
+                     size_t argc, const char *call_path) {
     char *cprog = rt_cstr(prog, pn);
     char **cargv;
     rt_run *r;
@@ -969,27 +1000,27 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     int rc;
 
     if (cprog == NULL) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(call_path), "R0003", "out of memory");
     }
     /* execve needs C strings and the child needs them for as long as it lives,
      * so each is a process-lifetime copy; the caller's Logos strings are only
      * read. cargv[0] is the program, then the arguments, then NULL. */
     cargv = malloc((argc + 2) * sizeof *cargv);
     if (cargv == NULL) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(call_path), "R0003", "out of memory");
     }
     cargv[0] = cprog;
     for (i = 0; i < argc; i++) {
         cargv[i + 1] = rt_cstr(argv[i], argn[i]);
         if (cargv[i + 1] == NULL) {
-            rt_panic(NULL, "R0003", "out of memory");
+            rt_panic(rt_node_path(call_path), "R0003", "out of memory");
         }
     }
     cargv[argc + 1] = NULL;
 
     r = malloc(sizeof *r);
     if (r == NULL) {
-        rt_panic(NULL, "R0003", "out of memory");
+        rt_panic(rt_node_path(call_path), "R0003", "out of memory");
     }
     r->status = 0;
     r->out = NULL;
@@ -1000,10 +1031,10 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     r->err_cap = 0;
 
     if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
-        rt_run_spawn_panic(cprog);
+        rt_run_spawn_panic(cprog, call_path);
     }
     if (posix_spawn_file_actions_init(&actions) != 0) {
-        rt_run_spawn_panic(cprog);
+        rt_run_spawn_panic(cprog, call_path);
     }
     rc = posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
     if (rc == 0) {
@@ -1024,14 +1055,14 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     }
     if (rc != 0) {
         posix_spawn_file_actions_destroy(&actions);
-        rt_run_spawn_panic(cprog);
+        rt_run_spawn_panic(cprog, call_path);
     }
     /* posix_spawnp, not posix_spawn: the program is named the way a shell
      * names it, and the corpus runs `sh` and `false` without a path. */
     rc = posix_spawnp(&pid, cprog, &actions, NULL, cargv, environ);
     posix_spawn_file_actions_destroy(&actions);
     if (rc != 0) {
-        rt_run_spawn_panic(cprog);
+        rt_run_spawn_panic(cprog, call_path);
     }
     /* The child holds the write ends now. Keeping ours would make the read
      * ends never see EOF, which is exactly the deadlock this loop avoids. */
@@ -1116,22 +1147,63 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
 
         {
             int st = 0;
-            pid_t reaped;
+            pid_t reaped = -1;
+            int reaped_ok = 0;
+            int killed = 0;
 
             if (timed_out) {
-                /* The child outlived its budget. Kill it and reap it, so it is
-                 * not left as a zombie behind a status the program can see. */
+                /* The pipes outlived the budget. Kill the child now; the loop
+                 * below still does the reaping. */
                 (void)kill(pid, SIGKILL);
+                killed = 1;
             }
-            do {
-                reaped = waitpid(pid, &st, 0);
-            } while (reaped < 0 && errno == EINTR);
+            /* The deadline bounds the child, not just its output: a child that
+             * closed both streams and then kept running would block a plain
+             * waitpid forever. Poll WNOHANG against the same deadline, and on
+             * expiry SIGKILL and reap, so nothing is left as a zombie behind a
+             * status the program can see. */
+            for (;;) {
+                long long remaining = deadline - rt_monotonic_ms();
+                struct timespec nap;
 
-            if (timed_out) {
+                reaped = waitpid(pid, &st, WNOHANG);
+                if (reaped == pid) {
+                    reaped_ok = 1;
+                    break;
+                }
+                if (reaped < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    break; /* ECHILD: there is nothing left to reap. */
+                }
+                if (remaining <= 0) {
+                    (void)kill(pid, SIGKILL);
+                    killed = 1;
+                    break;
+                }
+                /* A short nap, capped by the time left, so the loop costs
+                 * almost nothing over 30 seconds and still lands near the
+                 * deadline. */
+                nap.tv_sec = 0;
+                nap.tv_nsec = (long)(remaining < 10 ? remaining : 10) *
+                              1000000L;
+                (void)nanosleep(&nap, NULL);
+            }
+            if (!reaped_ok) {
+                /* After SIGKILL the child is going away; reap it so the
+                 * status is collected rather than leaked to init. */
+                do {
+                    reaped = waitpid(pid, &st, 0);
+                } while (reaped < 0 && errno == EINTR);
+                reaped_ok = reaped == pid;
+            }
+
+            if (timed_out || killed) {
                 r->status = 124;
-            } else if (reaped == pid && WIFEXITED(st)) {
+            } else if (reaped_ok && WIFEXITED(st)) {
                 r->status = WEXITSTATUS(st);
-            } else if (reaped == pid && WIFSIGNALED(st)) {
+            } else if (reaped_ok && WIFSIGNALED(st)) {
                 r->status = 128 + WTERMSIG(st);
             } else {
                 r->status = 0;

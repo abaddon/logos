@@ -181,7 +181,7 @@ git commit -s -m "feat: runtime for files, arguments and child processes"
 
 - [ ] **Step 2: `:run` as an opaque primitive**, beside `:thread` and `:mutex`, with its IR type a pointer to the runtime's struct.
 
-- [ ] **Step 3: The form and the accessors**, lowered to `rt_run_start` and the three readers. The form releases the moved args vector: copy each element into a NUL-terminated C string, then free the descriptor's buffer through the same call `vec-free` makes, then start the child. A program that runs a child must not leak, and it cannot free the vector itself because the call took it.
+- [ ] **Step 3: The form and the accessors**, lowered to `rt_run_start` and the three readers. The lowerer gathers the vector into the `{ptr,len}` array the runtime takes — a pointer array and a length array, one entry per element — and the form releases the moved args vector: because the runtime copies every argument itself, free the descriptor's buffer through the same call `vec-free` makes **after** `rt_run_start` returns, never before it (that would be a use-after-free). A program that runs a child must not leak, and it cannot free the vector itself because the call took it.
 
 - [ ] **Step 4: `R0006`**, with the code table line and the manual regeneration.
 
