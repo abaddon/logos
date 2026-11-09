@@ -1,0 +1,11 @@
+(mod program)
+
+(use shapes)
+
+(test program
+  (expect (out "6\n")
+    (code 0)
+    (leaks 0))
+  (letmut v (make-one))
+  (println (get (vec-get v 0) x))
+  (vec-free v))

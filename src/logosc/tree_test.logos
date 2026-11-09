@@ -1,0 +1,197 @@
+(mod tree-test)
+
+(use lex)
+
+(use tree)
+
+(fn label :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let n node (vec-get nodes id))
+  (let t :i64 (get n text))
+  (ret (if (= (get n tok) -2) "file"
+         (if (= (get n tok) -1)
+           (if (= t -1) "()"
+             (vec-get ntexts t))
+           (str-concat "t" (str-concat (str-from-i64 (get n tok))
+                             (str-concat ":" (vec-get ntexts t))))))))
+
+(fn show-path :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let p :str (tree-path nodes ntexts 0 id))
+  (ret (if (str-eq p "") "-" p)))
+
+(fn dump-node :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (depth :i64))
+  (print depth)
+  (print " ")
+  (print (show-path nodes ntexts id))
+  (print " ")
+  (println (label nodes ntexts id))
+  (letmut c :i64 (get (vec-get nodes id) first))
+  (while (not (= c -1))
+    (dump-node nodes ntexts c (+ depth 1))
+    (set c (get (vec-get nodes c) next))))
+
+(fn print-tree-error :void ((t tree-error))
+  (println "E0001")
+  (println (get t path))
+  (println (get t line))
+  (println (get t col))
+  (println (get t msg)))
+
+(fn dump-ok :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (println "OK")
+  (println (vec-len nodes))
+  (dump-node nodes ntexts 0 0))
+
+(fn dump-arena :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (dump-ok nodes ntexts)
+    (print-tree-error t)))
+
+(fn tree-dump :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (dump-arena kinds texts lines cols nodes ntexts)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(fn dump-src :void ((src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (tree-dump kinds texts lines cols)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols))
+
+(fn dirty-dump :void ((src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (vec-push ntexts "sentinel")
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (dump-arena kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(test mod-alone
+  (expect (out "OK\n4\n0 - file\n1 a mod\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod a)"))
+
+(test nested-depth-5
+  (expect (out "OK\n20\n0 - file\n1 d mod\n1 d/f fn\n2 - t2::i64\n2 d/f/1 ()\n2 d/f/2 ret\n3 d/f/2/0 a\n4 d/f/2/0/0 b\n5 d/f/2/0/0/0 c\n6 d/f/2/0/0/0/0 d\n7 - t4:1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod d)\n(fn f :i64 ()\n  (ret (a (b (c (d 1))))))"))
+
+(test sibling-run
+  (expect (out "OK\n19\n0 - file\n1 s mod\n1 s/a fn\n2 - t2::i64\n2 s/a/1 ()\n1 s/b fn\n2 - t2::i64\n2 s/b/1 ()\n1 s/c fn\n2 - t2::i64\n2 s/c/1 ()\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod s)\n(fn a :i64 ())\n(fn b :i64 ())\n(fn c :i64 ())"))
+
+(test nested-paths
+  (expect (out "OK\n18\n0 - file\n1 p mod\n1 p/f fn\n2 - t2::i64\n2 p/f/1 ()\n3 p/f/1/0 x\n4 - t2::i64\n2 p/f/2 ret\n3 p/f/2/0 +\n4 - t2:x\n4 - t4:1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod p)\n(fn f :i64 ((x :i64)) (ret (+ x 1)))"))
+
+(test unknown-head
+  (expect (out "OK\n8\n0 - file\n1 u mod\n1 u/0 wibble\n2 - t4:1\n2 - t4:2\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod u)\n(wibble 1 2)"))
+
+(test test-name
+  (expect (out "OK\n10\n0 - file\n1 m mod\n1 m/test/t test\n2 m/test/t/0 expect\n3 - t4:1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(test t (expect 1))"))
+
+(test extern
+  (expect (out "OK\n10\n0 - file\n1 x mod\n1 x/getpid extern\n2 - t2::i64\n2 x/getpid/1 ()\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod x)\n(extern fn getpid :i64 ())"))
+
+(test bare-heads
+  (expect (out "OK\n10\n0 - file\n1 h mod\n1 h/0 ()\n2 - t3:s\n2 - t2:x\n1 h/1 ()\n2 - t4:1\n2 - t4:2\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod h)\n(\"s\" x)\n(1 2)"))
+
+(test two-modules
+  (expect (out "OK\n12\n0 - file\n1 a mod\n1 a/b mod\n1 a/f fn\n2 - t2::i64\n2 a/f/1 ()\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod a)\n(mod b)\n(fn f :i64 ())"))
+
+(test dirty-arena
+  (expect (out "OK\n5\n0 - file\n1 a mod\n")
+    (code 0)
+    (leaks 0))
+  (dirty-dump "(mod a)"))
+
+(test lone-close
+  (expect (out "E0001\n\n2\n1\nunbalanced ')'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod e)\n)"))
+
+(test unclosed-form
+  (expect (out "E0001\ne/f\n2\n1\nunbalanced '('\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod e)\n(fn f :i64 ()"))
+
+(test unclosed-nested
+  (expect (out "E0001\ne/f/2/0\n2\n20\nunbalanced '('\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod e)\n(fn f :i64 () (ret (+ 1"))
+
+(test top-level-atom
+  (expect (out "E0001\n\n1\n1\nform outside parentheses\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "x"))

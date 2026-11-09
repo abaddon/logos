@@ -6,6 +6,11 @@ node name and no comments, so whitespace carries no meaning.
 
 Token positions are one-based. ``col`` counts characters, so a tab is one
 column.
+
+Whitespace is the fixed ASCII set — space, tab, line feed, vertical tab, form
+feed and carriage return. Any other C0 byte, or DEL, is ``E0006 unknown
+character`` at its position rather than part of an atom; bytes from ``0x80``
+up stay atom bytes.
 """
 
 from __future__ import annotations
@@ -35,6 +40,16 @@ ESCAPES = {
 }
 
 _DELIMITERS = "()\""
+
+#: The fixed ASCII whitespace set. ``str.isspace`` is deliberately not used:
+#: it also accepts Unicode spaces and the C0 separators ``0x1c``–``0x1f``,
+#: which the Logos lexer treats as an unknown character (E0006).
+_WHITESPACE = " \t\n\v\f\r"
+
+
+def _control(ch: str) -> bool:
+    """Whether ``ch`` is a C0 byte that is not whitespace, or DEL."""
+    return (ord(ch) < 0x20 and ch not in _WHITESPACE) or ord(ch) == 0x7F
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,9 +87,18 @@ class _Lexer:
                 self.index += 1
                 self.line += 1
                 self.col = 1
-            elif ch.isspace():
+            elif ch in _WHITESPACE:
                 self.index += 1
                 self.col += 1
+            elif _control(ch):
+                raise diag(
+                    LEXICAL,
+                    "",
+                    "unknown character",
+                    file=self.file,
+                    line=self.line,
+                    col=self.col,
+                )
             elif ch == "(":
                 tokens.append(Token(LPAREN, ch, self.line, self.col))
                 self._skip(1)
@@ -137,7 +161,7 @@ class _Lexer:
         start = self.index
         while self.index < len(self.src):
             ch = self.src[self.index]
-            if ch.isspace() or ch in _DELIMITERS:
+            if ch in _WHITESPACE or ch in _DELIMITERS or _control(ch):
                 break
             self.index += 1
             self.col += 1

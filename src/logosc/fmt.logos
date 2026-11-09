@@ -1,0 +1,153 @@
+(mod fmt)
+
+(use tree)
+
+(fn fmt-continuation :bool ((b :i64))
+  (ret (and (>= b 128)
+         (< b 192))))
+
+(fn fmt-put :i64 ((col :i64) (s :str))
+  (print s)
+  (letmut at :i64 0)
+  (letmut end :i64 col)
+  (let n :i64 (str-len s))
+  (while (< at n)
+    (let b :i64 (cast :i64 (str-byte s at)))
+    (set end (if (= b 10) 0
+               (if (fmt-continuation b) end
+                 (+ end 1))))
+    (set at (+ at 1)))
+  (ret end))
+
+(fn fmt-indent :i64 ((n :i64))
+  (letmut i :i64 0)
+  (while (< i n)
+    (print " ")
+    (set i (+ i 1)))
+  (ret n))
+
+(fn fmt-break :i64 ((column :i64))
+  (print "\n")
+  (ret (fmt-indent column)))
+
+(fn fmt-block-kind :bool ((kind :str))
+  (ret (or (str-eq kind "fn")
+         (str-eq kind "test"))))
+
+(fn fmt-field-kind :bool ((kind :str))
+  (ret (or (str-eq kind "struct")
+         (str-eq kind "enum"))))
+
+(fn fmt-form-count :i64 ((nodes (ref (vec node))) (id :i64))
+  (letmut c :i64 (get (vec-get nodes id) first))
+  (letmut count :i64 0)
+  (while (not (= c -1))
+    (let child node (vec-get nodes c))
+    (set count (if (and (= (get child tok) -1)
+                     (not (= (get child text) -1)))
+                 (+ count 1) count))
+    (set c (get child next)))
+  (ret count))
+
+(fn fmt-breaks :bool ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let n node (vec-get nodes id))
+  (let head :i64 (get n text))
+  (let count :i64 (fmt-form-count nodes id))
+  (ret (if (= head -1) false
+         (if (fmt-field-kind (vec-get ntexts head)) false
+           (if (> count 1) true
+             (and (fmt-block-kind (vec-get ntexts head))
+               (> count 0)))))))
+
+(fn fmt-skip :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let n node (vec-get nodes id))
+  (let head :i64 (get n text))
+  (ret (if (= head -1) 0
+         (if (= (get n name) -1) 1
+           (if (str-eq (vec-get ntexts head) "extern") 3 2)))))
+
+(fn fmt-name :i64 ((ntexts (ref (vec :str))) (kind :str) (name :i64) (col :i64))
+  (letmut end :i64 col)
+  (set end (if (str-eq kind "extern")
+             (fmt-put end " fn") end))
+  (set end (fmt-put end " "))
+  (ret (fmt-put end (vec-get ntexts name))))
+
+(fn fmt-string :i64 ((ntexts (ref (vec :str))) (text :i64) (col :i64))
+  (let s :str (vec-get ntexts text))
+  (letmut end :i64 (fmt-put col "\""))
+  (letmut i :i64 0)
+  (let n :i64 (str-len s))
+  (while (< i n)
+    (let b :i64 (cast :i64 (str-byte s i)))
+    (set end (if (= b 92)
+               (fmt-put end "\\\\")
+               (if (= b 34)
+                 (fmt-put end "\\\"")
+                 (if (= b 10)
+                   (fmt-put end "\\n")
+                   (if (= b 9)
+                     (fmt-put end "\\t")
+                     (if (= b 13)
+                       (fmt-put end "\\r")
+                       (if (= b 0)
+                         (fmt-put end "\\0")
+                         (fmt-put end (str-slice s i (+ i 1))))))))))
+    (set i (+ i 1)))
+  (ret (fmt-put end "\"")))
+
+(fn fmt-token :i64 ((ntexts (ref (vec :str))) (tok :i64) (text :i64) (col :i64))
+  (ret (if (= tok 3)
+         (fmt-string ntexts text col)
+         (fmt-put col (vec-get ntexts text)))))
+
+(fn fmt-form :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (column :i64))
+  (let n node (vec-get nodes id))
+  (let head :i64 (get n text))
+  (let name :i64 (get n name))
+  (letmut end :i64 (fmt-put column "("))
+  (set end (if (= head -1) end
+             (fmt-put end (vec-get ntexts head))))
+  (set end (if (= name -1) end
+             (fmt-name ntexts (vec-get ntexts head) name end)))
+  (let breaks :bool (fmt-breaks nodes ntexts id))
+  (let skip :i64 (fmt-skip nodes ntexts id))
+  (letmut c :i64 (get n first))
+  (letmut pos :i64 0)
+  (while (not (= c -1))
+    (let child node (vec-get nodes c))
+    (let is-form :bool (and (= (get child tok) -1)
+                         (not (= (get child text) -1))))
+    (let at-line :bool (and breaks (and is-form (not (and (= skip 1)
+                                                       (= pos 0))))))
+    (let sep :str (if (or (not (= head -1))
+                        (> pos 0)) " " ""))
+    (set end (if at-line
+               (fmt-form nodes ntexts c (fmt-break (+ column 2)))
+               (if (= (get child tok) -1)
+                 (fmt-form nodes ntexts c (fmt-put end sep))
+                 (fmt-token ntexts
+                   (get child tok)
+                   (get child text)
+                   (fmt-put end sep)))))
+    (set pos (+ pos 1))
+    (set c (get child next)))
+  (ret (fmt-put end ")")))
+
+(fn fmt-gap :void ((more :bool))
+  (if more
+    (print "\n\n")
+    (ret)))
+
+(fn fmt-tail :void ((any :bool))
+  (if any
+    (print "\n")
+    (ret)))
+
+(fn fmt :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut c :i64 (get (vec-get nodes 0) first))
+  (while (not (= c -1))
+    (let _ :i64 (fmt-form nodes ntexts c 0))
+    (set c (get (vec-get nodes c) next))
+    (fmt-gap (not (= c -1))))
+  (fmt-tail (not (= (get (vec-get nodes 0) first) -1))))

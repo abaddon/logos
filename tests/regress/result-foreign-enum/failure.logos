@@ -1,0 +1,7 @@
+(mod failure)
+
+(type fault (enum (fine) (bad :i64)))
+
+(fn fail :
+  (res :i64 fault) ()
+  (ret (err (bad 3))))

@@ -1,0 +1,12 @@
+(mod program)
+
+(use failure)
+
+(fn handle :i64 ((x : (res :i64 fault)))
+  (match x ((ok v) (ret v)) ((err y) (match y ((bad n) (ret n)) (fine (ret 0))))))
+
+(test program
+  (expect (out "3\n")
+    (code 0)
+    (leaks 0))
+  (println (handle (fail))))

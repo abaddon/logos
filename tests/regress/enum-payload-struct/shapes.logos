@@ -1,0 +1,10 @@
+(mod shapes)
+
+(type point (struct (x :i64) (y :i64)))
+
+(type shape (enum (fine) (bad point)))
+
+(fn classify :i64 ()
+  (let s (bad (make point 4 5)))
+  (match s ((bad p) (ret (+ (get p x)
+                           (get p y)))) (fine (ret 0))))

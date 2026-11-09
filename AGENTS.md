@@ -10,7 +10,7 @@ Read `docs/LOGOS.md` first. It is the generated manual: a cheat sheet followed
 by one executable chapter per feature, and it is the ground truth for what the
 language accepts.
 
-## Done means these five commands pass
+## Done means these six commands pass
 
 Run them from the repository root, in this order:
 
@@ -20,6 +20,7 @@ python3 -m logos test
 bash tools/accept.sh
 python3 -m logos guide --check
 python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
+bash tools/selfhost.sh
 ```
 
 Before any of them, every commit on your branch must carry a `Signed-off-by`
@@ -29,7 +30,10 @@ first and stops if it fails. See `CONTRIBUTING.md`.
 `bash tools/pr_gate.sh` runs exactly this list, prints PASS or FAIL for each
 gate, and exits non-zero if any failed. Run it before you open a pull request.
 Do not weaken a gate, skip a gate, or change its expected result to make a
-change pass.
+change pass. The last gate builds the self-hosted front end from
+`src/logosc/*.logos` and requires its `fmt` to reproduce every tracked
+`.logos` file byte for byte, so the self-hosting claim is measured on every
+pull request.
 
 ## A compiler change needs a regress case
 

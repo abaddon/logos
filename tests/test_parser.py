@@ -72,6 +72,21 @@ class LexerTest(unittest.TestCase):
         tokens = tokenize("(a\x0cb)", "m.logos")
         self.assertEqual([t.value for t in tokens], ["(", "a", "b", ")"])
 
+    def test_control_bytes_are_lexical_diagnostics(self):
+        # The control set is the fixed ASCII whitespace complement, not
+        # ``str.isspace``: 0x1c-0x1f and DEL must be refused like NUL, and
+        # non-ASCII whitespace such as NBSP joins the atom instead.
+        for ch in "\x00\x01\x1c\x1f\x7f":
+            with self.assertRaises(LogosError) as caught:
+                tokenize(f"(a{ch}b)", "m.logos")
+            error = caught.exception
+            self.assertEqual(error.code, "E0006")
+            self.assertEqual(
+                error.render(), "E0006 m.logos:1:3: unknown character"
+            )
+        tokens = tokenize("a\u00a0b", "m.logos")
+        self.assertEqual([t.value for t in tokens], ["a\u00a0b"])
+
 
 class NodePathTest(unittest.TestCase):
     def test_paths(self):

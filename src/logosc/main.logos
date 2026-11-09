@@ -1,0 +1,94 @@
+(mod main)
+
+(use lex)
+
+(use tree)
+
+(use fmt)
+
+(extern fn rt_write :i64 ((fd :i64) (text :str)))
+
+(fn main-write :void ((s :str))
+  (let _ :i64 (rt_write 2 s))
+  (ret))
+
+(fn main-usage :i64 ()
+  (main-write "usage: gen2 fmt <file>\n")
+  (ret 2))
+
+(fn main-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
+  (main-write path)
+  (main-write ":")
+  (main-write (str-from-i64 line))
+  (main-write ":")
+  (main-write (str-from-i64 col))
+  (main-write ": ")
+  (main-write code)
+  (main-write ": ")
+  (main-write msg)
+  (main-write "\n")
+  (ret 2))
+
+(fn main-print :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (fmt nodes ntexts)
+  (ret 0))
+
+(fn main-tree :i64 ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (ret (if (tree-ok t)
+         (main-print nodes ntexts)
+         (main-diag path "E0001"
+           (get t line)
+           (get t col)
+           (get t msg)))))
+
+(fn main-source :i64 ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let src :str (read-file path))
+  (let e lex-error (lex src kinds texts lines cols))
+  (ret (if (lex-ok e)
+         (main-tree path kinds texts lines cols nodes ntexts)
+         (main-diag path "E0006"
+           (get e line)
+           (get e col)
+           (get e msg)))))
+
+(fn main-run :i64 ((path :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut status :i64 (main-source path kinds texts lines cols nodes ntexts))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts)
+  (ret status))
+
+(fn main-args :i64 ((a (ref (vec :str))))
+  (ret (if (= (vec-len a) 3)
+         (if (str-eq (vec-get a 1) "fmt")
+           (main-run (vec-get a 2))
+           (main-usage))
+         (main-usage))))
+
+(fn main :i64 ()
+  (letmut a (args))
+  (letmut status :i64 (main-args a))
+  (vec-free a)
+  (ret status))

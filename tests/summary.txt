@@ -187,6 +187,7 @@ PASS regress/alloc-enum -
 PASS regress/alloc-fn -
 PASS regress/closure-escape -
 PASS regress/div-zero/division-by-zero-panics -
+PASS regress/enum-payload-struct/program/program -
 PASS regress/extern-rt/program/runtime-file -
 PASS regress/float-literal-compare/all-literal-comparisons-are-float -
 PASS regress/generic-vector -
@@ -204,7 +205,9 @@ PASS regress/ref-escape-send -
 PASS regress/ref-escape-spawn -
 PASS regress/ref-to-function-value -
 PASS regress/reserved-name -
+PASS regress/result-foreign-enum/program/program -
 PASS regress/rt-definition -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
 PASS regress/struct-owner-mismatch/program -
+PASS regress/vec-foreign-struct/program/program -
 PASS regress/vec-place-copy -

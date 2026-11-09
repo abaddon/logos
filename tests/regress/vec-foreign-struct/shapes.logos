@@ -1,0 +1,11 @@
+(mod shapes)
+
+(type point (struct (x :i64)))
+
+(fn make-one :
+  (vec point) ()
+  (letmut v
+    (vec point)
+    (make (vec point)))
+  (vec-push v (make point 6))
+  (ret v))

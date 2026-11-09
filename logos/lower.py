@@ -1291,12 +1291,17 @@ class _Lower:
         The IR's vocabulary is a flat tuple per instruction, and a type is an
         object in it, so the rewrite is a walk of the tuple rather than a case
         for each opcode: a new opcode carrying a type cannot be forgotten here.
+
+        A type is handed to :meth:`qualify_type` whole, not pattern-matched by
+        its head: a composite such as ``Ptr(StructRef("point"))`` must have
+        its element qualified too, or the declaration and the use are spelled
+        by different names. The recursive walk lives in one place.
         """
         if isinstance(value, tuple):
             return tuple(self.qualify_operand(item, owner) for item in value)
         if isinstance(value, list):
             return [self.qualify_operand(item, owner) for item in value]
-        if isinstance(value, (StructRef, EnumRef)):
+        if isinstance(value, Ty):
             return self.qualify_type(value, owner)
         return value
 
