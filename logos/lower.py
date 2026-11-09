@@ -4053,7 +4053,13 @@ class _Fn:
         params = (_VOID_PTR, *sig.params)
         pointer = self.temp()
         self.emit(("fnptr", pointer, sig.ret, params, code))
-        args = (env, *(self.value(arg, node.path) for arg in node.items[1:]))
+        args = (
+            env,
+            *(
+                self.argument(arg, ty, node.path)
+                for arg, ty in zip(node.items[1:], sig.params)
+            ),
+        )
         dest = "" if _is_void(sig.ret) else self.temp()
         self.emit(("icall", dest, sig.ret, params, pointer, args))
         return dest
@@ -4445,7 +4451,9 @@ def sizeof_of(
     if isinstance(ty, (Chan, Atomic)):
         # One opaque pointer to the runtime object.
         return 8
-    if isinstance(ty, (Ptr, Own)):
+    if isinstance(ty, (Ptr, Own, Ref)):
+        # A ref is one pointer to the caller's descriptor: an address, never
+        # the descriptor itself.
         return 8
     if isinstance(ty, FnTy):
         # ``{ i8*, i8* }``: the environment and the code pointer.
@@ -4490,7 +4498,8 @@ def align_of(
         return align_of(ty.elem, structs, enums, memo)
     if isinstance(ty, (Chan, Atomic)):
         return 8
-    if isinstance(ty, (Ptr, Own)):
+    if isinstance(ty, (Ptr, Own, Ref)):
+        # A ref is one pointer, so its alignment is the pointer's.
         return 8
     if isinstance(ty, FnTy):
         # Two pointers: the alignment is the pointer's, not the size.

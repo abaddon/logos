@@ -318,6 +318,20 @@ class RefStorageTest(unittest.TestCase):
         self.assertIn("enum 'box'", error.message)
         self.assertEqual(error.path, "r/f/2/1")
 
+    def test_a_ref_written_into_an_empty_array_is_refused(self):
+        # The array literal refuses a ref, so this site is otherwise
+        # unreachable; an empty array has no literal to refuse it, and the
+        # store must state the same rule as ``vec-set``.
+        error = refusal(
+            "(mod r)"
+            "(fn f :void ((v (ref (vec :i64))))"
+            "  (letmut a (make (arr (ref (vec :i64)) 0)))"
+            "  (arr-set a 0 v)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("array element", error.message)
+
     def test_a_ref_carried_in_a_result_slot_is_refused(self):
         error = refusal(
             "(mod r)"
@@ -340,6 +354,23 @@ class RefShapeTest(unittest.TestCase):
         )
         self.assertEqual(error.code, "E0100")
         self.assertIn("a ref may name a vector only", error.message)
+
+    def test_a_generic_ref_parameter_says_it_cannot_be_generic(self):
+        # No argument can satisfy ``(ref (vec T))``: the instantiated copy
+        # would need a concrete descriptor type. The message must say that,
+        # not read as a mismatch of the argument the caller did pass.
+        error = refusal(
+            "(mod r)"
+            "(fn put :void ((v (ref (vec T))) (x :T)) (vec-push v x) (ret))"
+            "(fn main :i64 ()"
+            "  (letmut v (vec :i64) (make (vec :i64)))"
+            "  (put v 1)"
+            "  (vec-free v)"
+            "  (ret 0))"
+        )
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(error.path, "r/main/3")
+        self.assertIn("ref parameter cannot be generic", error.message)
 
     def test_set_still_refuses_a_ref_parameter(self):
         error = refusal(
@@ -574,3 +605,71 @@ class RefRuntimeTest(unittest.TestCase):
                 # block; the caller still reads 10 first and 14 last.
                 self.assertEqual(result.stdout, "5\n10\n14\n")
                 self.assertEqual(result.stderr, "")
+
+
+REF_THROUGH_CLOSURE = """(mod ind-closure)
+
+(fn main :i64 ()
+  (letmut v (vec :i64) (make (vec :i64)))
+  (letmut g (fn :void ((p (ref (vec :i64)))) (vec-push p 3)))
+  (g v)
+  (println (vec-len v))
+  (vec-free v)
+  (ret 0))
+"""
+
+REF_THROUGH_NAMED_VALUE = """(mod ind-named)
+
+(fn grow :void ((p (ref (vec :i64))))
+  (vec-push p 3))
+
+(fn main :i64 ()
+  (letmut v (vec :i64) (make (vec :i64)))
+  (letmut g grow)
+  (g v)
+  (println (vec-len v))
+  (vec-free v)
+  (ret 0))
+"""
+
+
+class RefIndirectCallTest(unittest.TestCase):
+    """I1: a function value receiving a ref gets the caller's descriptor."""
+
+    def test_a_ref_through_a_closure_reaches_the_callers_descriptor(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run("test-ref-ind-closure", REF_THROUGH_CLOSURE, opt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # The push landed in ``v``: the icall passed the address of
+                # the caller's slot, not a copy of the descriptor.
+                self.assertEqual(result.stdout, "1\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_a_ref_through_a_named_function_value_reaches_the_callers_descriptor(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run(
+                    "test-ref-ind-named", REF_THROUGH_NAMED_VALUE, opt
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "1\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_an_indirect_call_passes_the_slot_address_for_a_ref(self):
+        # The IR shape the indirect path must share with the direct one: the
+        # icall's only declared argument is the caller's own slot address.
+        text = emitted(REF_THROUGH_CLOSURE)
+        self.assertRegex(
+            text,
+            r"call void %t\d+\(i8\* %t\d+, \{ i64\*, i64, i64 \}\* %v\.0\.addr\)",
+        )
+
+
+class RefLayoutTest(unittest.TestCase):
+    """A ref is one pointer wherever an aggregate is laid out."""
+
+    def test_a_ref_is_one_word_for_size_and_alignment(self):
+        ref = Ref(Vec(Prim("i64")))
+        self.assertEqual(lower.sizeof_of(ref, {}), 8)
+        self.assertEqual(lower.align_of(ref, {}), 8)

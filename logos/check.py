@@ -2955,6 +2955,7 @@ class _Checker:
                 f"array index must be an integer, found {index}",
             )
         got = self._value(items[3], env, var.ty.elem, node.path)
+        self._refuse_ref(got, _at(items[3], node), "storing it in an array element")
         if _escapes(got):
             raise diag(CLOSURE_ESCAPE, _at(items[3], node), _CLOSURE_ESCAPE)
         if not compatible(var.ty.elem, got):
@@ -4674,6 +4675,14 @@ def _argument_message(index: int, name: str, param: Ty, found: Ty) -> str:
     are the case bare names cannot tell apart — ``point`` would be the same
     word on both sides — so the sentence names both declarations instead.
     """
+    if isinstance(param, Ref) and has_typevar(param.elem):
+        # No argument can satisfy a generic ref: the callee would need a
+        # concrete descriptor type, and the type variable is only fixed at
+        # the call. Saying "expects ..., found ..." would blame the argument.
+        return (
+            f"argument {index} of '{name}': a ref parameter cannot be "
+            f"generic yet: {param}"
+        )
     if (
         isinstance(param, (StructRef, EnumRef))
         and isinstance(found, type(param))

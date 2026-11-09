@@ -129,8 +129,9 @@ class Ref:
 
     A vector is the only thing a ref may name. A ref to a bare value would be
     an alias with no ownership story, and a ref to a struct has no rule yet,
-    so :func:`parse_type` refuses a primitive here (E0100) and leaves a bare
-    name for the checker to resolve and refuse.
+    so :func:`parse_type` refuses anything but a ``(vec ...)`` here (E0100) —
+    a primitive and a bare name alike, since a bare name parses to a
+    ``StructRef`` and never to a vector.
     """
 
     elem: "Ty"
