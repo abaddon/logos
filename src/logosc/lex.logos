@@ -123,10 +123,19 @@
              (if (= b 116) "\t"
                (if (= b 114) "\r" "\0")))))))
 
+(fn lex-char-end :i64 ((s :str) (from :i64) (n :i64))
+  (letmut at :i64 (+ from 1))
+  (while (and (< at n)
+           (lex-continuation (lex-byte s at)))
+    (set at (+ at 1)))
+  (ret at))
+
 (fn lex-escape-msg :str ((s :str) (at :i64))
   (ret (str-concat "unknown escape \\" (str-slice s
                                          (+ at 1)
-                                         (+ at 2)))))
+                                         (lex-char-end s
+                                           (+ at 1)
+                                           (str-len s))))))
 
 (fn lex-string-code :i64 ((s :str) (at :i64) (n :i64))
   (let b :i64 (lex-byte s at))
