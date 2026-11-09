@@ -15,6 +15,10 @@ PASS type/loop-move -
 PASS type/move-immutable -
 PASS type/move -
 PASS type/non-exhaustive -
+PASS type/ref-escapes-capture -
+PASS type/ref-escapes-return -
+PASS type/ref-not-a-vector -
+PASS type/ref-not-mutable -
 PASS type/shift-float -
 PASS type/sibling-set -
 PASS type/try-mismatch -
@@ -72,6 +76,7 @@ PASS exec/match/match-arms-are-statements -
 PASS exec/match/match-arm-has-a-block-body -
 PASS exec/read/empty-standard-input -
 PASS exec/read/reading-is-not-a-leak -
+PASS exec/ref-param/ref-param -
 PASS exec/results/match-ok -
 PASS exec/results/match-err-payload -
 PASS exec/results/match-str-payload -
@@ -184,6 +189,10 @@ PASS regress/multi-module/program/program -
 PASS regress/owner-place-read -
 PASS regress/print-small-numbers/every-small-width -
 PASS regress/recursive-enum -
+PASS regress/ref-channel-element -
+PASS regress/ref-escape-send -
+PASS regress/ref-escape-spawn -
+PASS regress/ref-to-function-value -
 PASS regress/reserved-name -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
 PASS regress/struct-owner-mismatch/program -
