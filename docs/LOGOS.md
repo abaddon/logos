@@ -820,6 +820,8 @@ Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant
 | `E0301` | free of a non-owning pointer |
 | `E0302` | move out of an immutable binding |
 | `E0303` | move of a binding declared outside a loop |
+| `E0304` | ref argument is not a mutable binding |
+| `E0305` | ref escapes the call |
 | `E0400` | index type mismatch |
 | `E0401` | string not a str |
 | `E0402` | vector value not copyable |

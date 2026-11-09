@@ -1,0 +1,6 @@
+(mod ref-escapes-capture)
+
+(fn peek :i64 ((v (ref (vec :i64))))
+  (let g (fn :i64 ()
+           (vec-len v)))
+  (ret 0))

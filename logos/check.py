@@ -31,6 +31,17 @@ three forms and not for ``set``, which still needs ``letmut``. An index that
 is not an integer is E0400 and a string operand that is not a ``:str`` is
 E0401.
 
+A parameter may be spelled ``(ref (vec T))``: the callee receives the address
+of the caller's descriptor, so a push, set or free inside it acts on the
+caller's vector and nothing is copied or moved. The argument must be a
+``letmut`` binding or another ref parameter (E0304, ``a ref argument must be a
+mutable binding``), and a ref may not leave the call: returning it, storing it
+in a field, an element or an enum payload, capturing it, allocating a block of
+it, or passing it to a parameter that is not a ref is E0305, ``a ref cannot
+escape the call``. Every container form reads a ref as the vector it names, so
+``vec-len`` and ``vec-get`` work through one too; ``set`` and ``set-field``
+keep refusing any parameter, ref or not (E0104).
+
 A ``(vec T)`` owns the buffer its descriptor names, so a value that contains one
 is never copied: binding it to a second name, setting one, passing it as an
 argument, or pushing it into another vector moves it, and the source is empty
@@ -346,6 +357,8 @@ from logos.diag import (
     NOT_A_STR,
     NOT_FOUND,
     NOT_MUTABLE,
+    REF_ARGUMENT,
+    REF_ESCAPE,
     SHARED_MARKER,
     TRY_MISMATCH,
     TYPE_MISMATCH,
@@ -377,6 +390,7 @@ from logos.types import (
     Own,
     Prim,
     Ptr,
+    Ref,
     Res,
     Shared,
     StructRef,
@@ -1127,6 +1141,12 @@ class _Var:
     a move inside a loop of a binding declared outside it (E0303): the body is
     checked once, so the second pass would read what the first released.
 
+    ``ref`` records that the binding is a ``(ref (vec T))`` parameter: it holds
+    an address rather than a value. A ref passes the mutability test of the
+    container forms because the callee is meant to write through it, but it
+    may never be moved, stored or captured — every one of those would outlive
+    the call that lent it (E0305).
+
     ``handled`` is the obligation a ``(res T E)`` carries: the value was made,
     so somebody has to look at its error slot. ``match``, ``try``, ``ret`` and
     handing it to a callee all discharge it; letting the block that declared it
@@ -1144,6 +1164,7 @@ class _Var:
     mutable: bool
     moved: bool = False
     param: bool = False
+    ref: bool = False
     decl_loop: int = 0
     origin_loop: int = 0
     handled: bool = False
@@ -1258,13 +1279,20 @@ class _Env:
         mutable: bool,
         path: str,
         param: bool = False,
+        ref: bool = False,
         handled: bool = False,
     ) -> None:
         block = self.scopes[-1]
         if name in block:
             raise diag(DUPLICATE, path, f"duplicate definition '{name}'")
         block[name] = _Var(
-            ty, mutable, param=param, decl_loop=self.loop, handled=handled, path=path
+            ty,
+            mutable,
+            param=param,
+            ref=ref,
+            decl_loop=self.loop,
+            handled=handled,
+            path=path,
         )
 
     def find(self, name: str) -> _Var | None:
@@ -1294,6 +1322,15 @@ class _Env:
             return None
         if found.moved:
             raise diag(USE_AFTER_MOVE, where, f"use after move of '{name}'")
+        if isinstance(found.ty, Ref):
+            # A closure copies what it captures, and a copy of a ref is an
+            # address into the caller's frame: the closure could be called
+            # after that frame is gone. E0305, at the use that captured it.
+            raise diag(
+                REF_ESCAPE,
+                where,
+                f"a ref cannot escape the call: a closure captures '{name}'",
+            )
         if (
             isinstance(found.ty, Own)
             or holds_vector(found.ty, self.structs)
@@ -1760,12 +1797,14 @@ class _Checker:
         )
         for index, param in enumerate(_param_nodes(_params_item(node), node.path)):
             param_name, _ = _param_parts(param)
+            param_ty = sig.params[index]
             env.define(
                 param_name,
-                sig.params[index],
+                param_ty,
                 mutable=False,
                 path=param.path,
                 param=True,
+                ref=isinstance(param_ty, Ref),
             )
         self._body(node, _body_start(node), env)
 
@@ -2657,6 +2696,7 @@ class _Checker:
                 )
             return Prim("void")
         value = self._value(args[0], env, env.ret, node.path)
+        self._refuse_ref(value, _at(args[0], node), "returning it")
         if _escapes(value):
             # The environment lives in this frame. Returning the closure hands
             # a caller a pointer to a slot that dies when this frame does.
@@ -2720,6 +2760,7 @@ class _Checker:
                 )
             for item, (field, fty) in zip(values, fields):
                 got = self._value(item, env, fty, node.path)
+                self._refuse_ref(got, _at(item, node), "storing it in a field")
                 if _escapes(got):
                     # A field outlives the expression, so a capturing closure
                     # stored here would be called after its frame is gone.
@@ -2753,6 +2794,7 @@ class _Checker:
                 )
             for item in values:
                 got = self._value(item, env, ty.elem, node.path)
+                self._refuse_ref(got, _at(item, node), "storing it in an array element")
                 if _escapes(got):
                     # An array element is storage the frame keeps: the value
                     # would be callable after the closure's frame is gone.
@@ -2834,6 +2876,7 @@ class _Checker:
             if fname != field:
                 continue
             got = self._value(items[3], env, fty, node.path)
+            self._refuse_ref(got, _at(items[3], node), "storing it in a field")
             if _escapes(got):
                 raise diag(
                     CLOSURE_ESCAPE, _at(items[3], node), _CLOSURE_ESCAPE
@@ -3010,8 +3053,15 @@ class _Checker:
     # -- vectors ----------------------------------------------------------
 
     def _vec_operand(self, item: Node | Token, env: _Env, node: Node, what: str) -> Vec:
-        """One operand that must be a ``(vec T)``, or E0100 at it."""
+        """One operand that must be a ``(vec T)``, or E0100 at it.
+
+        A ref is a pointer to the caller's descriptor, and every container form
+        reads it the same way it reads the caller's own binding, so
+        ``(vec-len v)`` and ``(vec-get v i)`` accept a ref exactly as a vector.
+        """
         ty = self._value(item, env, None, node.path)
+        if isinstance(ty, Ref):
+            ty = ty.elem
         if not isinstance(ty, Vec):
             raise diag(
                 TYPE_MISMATCH, _at(item, node), f"'{what}' needs a (vec T), found {ty}"
@@ -3053,17 +3103,24 @@ class _Checker:
             # nothing: writing through this name would touch a buffer another
             # binding owns now.
             raise diag(USE_AFTER_MOVE, node.path, f"use after move of '{name}'")
-        if not var.mutable and not var.param:
+        if not var.mutable and not var.param and not var.ref:
             raise diag(
                 NOT_MUTABLE, node.path, f"cannot {verb} immutable binding '{name}'"
             )
-        if not isinstance(var.ty, Vec):
+        ty = var.ty
+        if isinstance(ty, Ref):
+            # The slot holds a pointer to the caller's descriptor; the form
+            # reads and writes the descriptor it finds there, so every
+            # mutating vector form acts through a ref exactly as through the
+            # caller's own binding.
+            ty = ty.elem
+        if not isinstance(ty, Vec):
             raise diag(
                 TYPE_MISMATCH,
                 _at(items[1], node),
                 f"'{node.kind}' needs a (vec T), found {var.ty}",
             )
-        return var, var.ty
+        return var, ty
 
     def _vec_push(self, node: Node, env: _Env) -> Ty:
         """``(vec-push v x)``: append one element, growing the buffer."""
@@ -3075,6 +3132,7 @@ class _Checker:
             verb="push to",
         )
         got = self._value(node.items[2], env, ty.elem, node.path)
+        self._refuse_ref(got, _at(node.items[2], node), "pushing it into a vector")
         if _escapes(got):
             # The buffer outlives the frame that holds the environment, so a
             # capturing closure pushed here would be called through a dead
@@ -3126,6 +3184,9 @@ class _Checker:
         )
         self._index(node.items[2], env, node, "vector index")
         got = self._value(node.items[3], env, ty.elem, node.path)
+        self._refuse_ref(
+            got, _at(node.items[3], node), "storing it in a vector element"
+        )
         if _escapes(got):
             raise diag(CLOSURE_ESCAPE, _at(node.items[3], node), _CLOSURE_ESCAPE)
         if not compatible(ty.elem, got):
@@ -3176,6 +3237,7 @@ class _Checker:
                 WRONG_ARITY, node.path, "alloc takes a type and an element count"
             )
         elem, _ = _read_type_at(items, 1, self._types, node.path, env.tvars)
+        self._refuse_ref(elem, node.path, "allocating a block of it")
         if _is_void(elem):
             raise diag(TYPE_MISMATCH, node.path, "cannot allocate :void")
         if not _invariant_free(elem, self._structs):
@@ -3695,6 +3757,24 @@ class _Checker:
         if holds_vector(ty, self._structs):
             raise diag(VEC_MOVE, path, _VEC_PLACE)
 
+    def _refuse_ref(self, ty: Ty, where: str, what: str) -> None:
+        """Refuse a ref that would outlive the call that lent it (E0305).
+
+        A ``(ref (vec T))`` is a pointer into the caller's frame, not a value
+        the callee owns: returning one, storing one in a field, an element or
+        a payload, capturing one, or handing one to a parameter that is not a
+        ref would all leave a name pointing at a binding that may already be
+        gone. One predicate because every site states the same rule; ``what``
+        is the site, phrased as the action that would keep it, so the message
+        says which one refused it.
+        """
+        if isinstance(ty, Ref):
+            raise diag(
+                REF_ESCAPE,
+                where,
+                f"a ref cannot escape the call: {what}",
+            )
+
     def _move_only(self, ty: Ty) -> bool:
         """Whether a value of ``ty`` has no copy at all.
 
@@ -3933,6 +4013,7 @@ class _Checker:
             # storage that outlives the expression that built it, so a
             # capturing closure in it would be called after this frame is gone.
             raise diag(CLOSURE_ESCAPE, _at(item, node), _CLOSURE_ESCAPE)
+        self._refuse_ref(ty, _at(item, node), f"carrying it in {what}")
         if holds_vector(ty, self._structs):
             raise diag(
                 VEC_MOVE,
@@ -4113,6 +4194,19 @@ class _Checker:
                 f"got {len(args)}",
             )
         for index, (arg, param) in enumerate(zip(args, sig.params), start=1):
+            if isinstance(param, Ref):
+                # A ref parameter borrows the argument's descriptor; nothing
+                # is transferred, so the caller may keep using and release it.
+                var = self._ref_arg(node, env, index)
+                given = var.ty.elem if isinstance(var.ty, Ref) else var.ty
+                if not compatible(param.elem, given):
+                    raise diag(
+                        TYPE_MISMATCH,
+                        _at(arg, node),
+                        f"argument {index} of '{name}' needs a {param.elem} to "
+                        f"reference, found {given}",
+                    )
+                continue
             if holds_vector(param, self._structs):
                 # R6: the callee owns and may free what it receives, so the
                 # argument must be a whole binding the caller can give up. A
@@ -4133,6 +4227,9 @@ class _Checker:
                 # binding is E0402 rather than a read of an empty slot.
                 self._transfer(arg, env, node.path)
             ty = self._value(arg, env, param, node.path)
+            self._refuse_ref(
+                ty, _at(arg, node), f"passing it to argument {index} of '{name}'"
+            )
             if _escapes(ty):
                 # R12: a capturing closure's environment is a slot in this
                 # frame. A callee may keep what it is handed — in a field, a
@@ -4156,6 +4253,38 @@ class _Checker:
                 # own body is checked for it.
                 self._handled(arg, env)
         return sig.ret
+
+    def _ref_arg(self, node: Node, env: _Env, index: int) -> _Var:
+        """The mutable binding a ref parameter borrows, or E0304.
+
+        The argument of a ``(ref (vec T))`` parameter is not a value but the
+        caller's descriptor slot. Only a ``letmut`` vector or another ref
+        parameter names one — a plain ``let`` promised to keep its value, and a
+        temporary has no slot at all — so anything else is E0304 at the call.
+        The binding is marked used, never moved: the callee holds an address
+        and the caller keeps its vector when the call returns.
+        """
+        arg = node.items[index]
+        if not (isinstance(arg, Token) and arg.kind == ATOM):
+            raise diag(
+                REF_ARGUMENT,
+                _at(arg, node),
+                "a ref argument must be a mutable binding",
+            )
+        name = _name(arg, node.path, "a ref argument")
+        var = env.lookup(name, node.path)
+        if var is None:
+            raise diag(NOT_FOUND, node.path, f"unknown name '{name}'")
+        var.used = True
+        if var.moved:
+            raise diag(USE_AFTER_MOVE, node.path, f"use after move of '{name}'")
+        if not (var.mutable or var.ref):
+            raise diag(
+                REF_ARGUMENT,
+                _at(arg, node),
+                f"a ref argument must be a mutable binding, and '{name}' is not",
+            )
+        return var
 
     # -- generics ---------------------------------------------------------
 
@@ -4347,12 +4476,14 @@ class _Checker:
         )
         for index, param in enumerate(_param_nodes(_params_item(node), node.path)):
             param_name, _ = _param_parts(param)
+            param_ty = instance.params[index]
             env.define(
                 param_name,
-                instance.params[index],
+                param_ty,
                 mutable=False,
                 path=param.path,
                 param=True,
+                ref=isinstance(param_ty, Ref),
             )
         saved = self._record
         self._record = instance.body
@@ -4394,6 +4525,7 @@ class _Checker:
                 mutable=False,
                 path=param_node.path,
                 param=True,
+                ref=isinstance(param_ty, Ref),
             )
         self._statements(node.items[start:], inner, node.path)
         self._record.closures[node.path] = Closure(
@@ -4746,6 +4878,18 @@ def resolve_type(
                 UNKNOWN_NODE, path, "a result cannot be a vector element yet"
             )
         return Vec(elem)
+    if isinstance(ty, Ref):
+        # A ref names a vector and nothing else: ``parse_type`` has already
+        # refused a primitive or a bare name, so the element is a ``Vec`` here
+        # and resolving it applies the vector rules to what it names. The ref
+        # itself resolves to itself — the ``(ref ...)`` marker is the whole
+        # type, like ``(ptr ...)``.
+        elem = resolve_type(
+            ty.elem, types, path, bindings, structs=structs, enums=enums
+        )
+        if not isinstance(elem, Vec):
+            raise diag(TYPE_MISMATCH, path, "a ref may name a vector only")
+        return Ref(elem)
     if isinstance(ty, Res):
         ok = resolve_type(ty.ok, types, path, bindings, structs=structs, enums=enums)
         err = resolve_type(ty.err, types, path, bindings, structs=structs, enums=enums)
