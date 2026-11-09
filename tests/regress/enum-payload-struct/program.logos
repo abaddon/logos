@@ -1,0 +1,9 @@
+(mod program)
+
+(use shapes)
+
+(test program
+  (expect (out "9\n")
+    (code 0)
+    (leaks 0))
+  (println (classify)))
