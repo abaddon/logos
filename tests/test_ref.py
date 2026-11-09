@@ -78,6 +78,9 @@ class RefArgumentTest(unittest.TestCase):
         self.assertEqual(error.code, "E0304")
         self.assertIn("mutable binding", error.message)
         self.assertIn("'v'", error.message)
+        # The diagnostic sits at the call, never at the parameter: a token
+        # argument has no sub-path of its own.
+        self.assertEqual(error.path, "r/main/3")
 
     def test_a_temporary_argument_is_refused(self):
         error = refusal(
@@ -155,6 +158,149 @@ class RefEscapeTest(unittest.TestCase):
             "  (free p))"
         )
         self.assertEqual(error.code, "E0305")
+
+    # -- the two paths C1 found open --------------------------------------
+
+    def test_a_channel_of_refs_is_refused(self):
+        # The ring copies its elements into a thread and outlives the call
+        # that lent the ref, so no value of this type could ever be sent.
+        error = refusal(
+            "(mod r)"
+            "(fn f :void ((c (shared (chan (ref (vec :i64)))))) (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("a ref cannot escape the call", error.message)
+        self.assertIn("channel", error.message)
+        self.assertEqual(error.path, "r/f/1/0/0")
+
+    def test_a_channel_of_a_struct_holding_a_ref_is_refused(self):
+        # The element walk descends named aggregates: a struct field is not a
+        # place the channel type can see, so spelling the struct must not hide
+        # the ref inside it.
+        error = refusal(
+            "(mod r)"
+            "(type holder (struct (v (ref (vec :i64)))))"
+            "(fn f :void ((c (shared (chan holder)))) (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("channel", error.message)
+
+    def test_a_ref_sent_on_a_channel_is_refused(self):
+        # The reviewer's program. The declaration now refuses it before the
+        # send can be reached; ``_send`` states the same rule for the value.
+        error = refusal(
+            "(mod r)"
+            "(fn f :void ((v (ref (vec :i64))))"
+            "  (letmut c (chan (ref (vec :i64)) 2))"
+            "  (send c v)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("channel", error.message)
+        self.assertEqual(error.path, "r/f/2/1")
+
+    def test_a_ref_spawn_argument_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1))"
+            "(fn mid :void ((w (ref (vec :i64))))"
+            "  (letmut t :thread (spawn grow w))"
+            "  (join t)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("a ref cannot escape the call", error.message)
+        self.assertEqual(error.path, "r/mid/2/2")
+
+    def test_a_copied_ref_spawn_argument_is_refused(self):
+        # The copy between the parameter and the spawn is legal — it names the
+        # same descriptor — but the thread boundary is not: the copy is still a
+        # ref and the thread outlives the caller's frame.
+        error = refusal(
+            "(mod r)"
+            "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1))"
+            "(fn mid :void ((w (ref (vec :i64))))"
+            "  (letmut x w)"
+            "  (letmut t :thread (spawn grow x))"
+            "  (join t)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertEqual(error.path, "r/mid/3/2")
+
+    def test_a_ref_passed_to_a_function_value_is_refused(self):
+        # A named callee cannot keep its argument; a function value can be
+        # stored and called after the ref's frame is gone.
+        error = refusal(
+            "(mod r)"
+            "(fn mid :void ((w (ref (vec :i64))))"
+            "  (letmut g (fn :void ((p (ref (vec :i64)))) (vec-push p 1)))"
+            "  (g w)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("function value", error.message)
+        self.assertEqual(error.path, "r/mid/3")
+
+    def test_a_ref_passed_to_a_named_function_binding_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1))"
+            "(fn mid :void ((w (ref (vec :i64))))"
+            "  (letmut g grow)"
+            "  (g w)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("function value", error.message)
+
+
+class RefStorageTest(unittest.TestCase):
+    """E0305 at each storage site a ref may not be written to."""
+
+    def test_a_ref_written_into_a_vector_element_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(fn f :void ((v (ref (vec :i64))))"
+            "  (letmut o (vec (ref (vec :i64))) (make (vec (ref (vec :i64)))))"
+            "  (vec-set o 0 v)"
+            "  (vec-free o)"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("vector element", error.message)
+        self.assertEqual(error.path, "r/f/3")
+
+    def test_a_ref_written_into_an_array_element_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(fn f :void ((v (ref (vec :i64))))"
+            "  (letmut a (make (arr (ref (vec :i64)) 1) v))"
+            "  (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("array element", error.message)
+        self.assertEqual(error.path, "r/f/2/1")
+
+    def test_a_ref_carried_in_an_enum_payload_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(type box (enum (of (ref (vec :i64)))))"
+            "(fn f :void ((v (ref (vec :i64)))) (letmut b (of v)) (ret))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("enum 'box'", error.message)
+        self.assertEqual(error.path, "r/f/2/1")
+
+    def test_a_ref_carried_in_a_result_slot_is_refused(self):
+        error = refusal(
+            "(mod r)"
+            "(type bad (enum (nope)))"
+            "(fn f (res (ref (vec :i64)) bad) ((v (ref (vec :i64)))) (ret (ok v)))"
+        )
+        self.assertEqual(error.code, "E0305")
+        self.assertIn("a result", error.message)
+        self.assertEqual(error.path, "r/f/2/0")
 
 
 class RefShapeTest(unittest.TestCase):

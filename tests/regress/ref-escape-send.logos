@@ -1,0 +1,6 @@
+(mod ref-escape-send)
+
+(fn f :void ((v (ref (vec :i64))))
+  (letmut c (chan (ref (vec :i64)) 2))
+  (send c v)
+  (ret))
