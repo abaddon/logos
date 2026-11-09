@@ -6,6 +6,8 @@
 
 (use fmt)
 
+(use resolve)
+
 (extern fn rt_write :i64 ((fd :i64) (text :str)))
 
 (fn main-write :void ((s :str))
@@ -13,7 +15,7 @@
   (ret))
 
 (fn main-usage :i64 ()
-  (main-write "usage: gen2 fmt <file>\n")
+  (main-write "usage: gen2 <fmt|resolve> <file>\n")
   (ret 2))
 
 (fn main-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
@@ -29,30 +31,47 @@
   (main-write "\n")
   (ret 2))
 
+(fn main-resolve-diag :i64 ((file :str) (e resolve-error))
+  (let at :str (get e path))
+  (main-write (if (str-eq at "") file at))
+  (main-write ": ")
+  (main-write (resolve-code (get e code)))
+  (main-write ": ")
+  (main-write (get e message))
+  (main-write "\n")
+  (ret 2))
+
+(fn main-resolved :i64 ((file :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let e resolve-error (resolve-file nodes ntexts))
+  (ret (if (resolve-ok e) 0
+         (main-resolve-diag file e))))
+
 (fn main-print :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (fmt nodes ntexts)
   (ret 0))
 
-(fn main-tree :i64 ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+(fn main-tree :i64 ((verb :str) (path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (ret (if (tree-ok t)
-         (main-print nodes ntexts)
+         (if (str-eq verb "resolve")
+           (main-resolved path nodes ntexts)
+           (main-print nodes ntexts))
          (main-diag path "E0001"
            (get t line)
            (get t col)
            (get t msg)))))
 
-(fn main-source :i64 ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+(fn main-source :i64 ((verb :str) (path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let src :str (read-file path))
   (let e lex-error (lex src kinds texts lines cols))
   (ret (if (lex-ok e)
-         (main-tree path kinds texts lines cols nodes ntexts)
+         (main-tree verb path kinds texts lines cols nodes ntexts)
          (main-diag path "E0006"
            (get e line)
            (get e col)
            (get e msg)))))
 
-(fn main-run :i64 ((path :str))
+(fn main-run :i64 ((verb :str) (path :str))
   (letmut kinds
     (vec :i64)
     (make (vec :i64)))
@@ -71,7 +90,7 @@
   (letmut ntexts
     (vec :str)
     (make (vec :str)))
-  (letmut status :i64 (main-source path kinds texts lines cols nodes ntexts))
+  (letmut status :i64 (main-source verb path kinds texts lines cols nodes ntexts))
   (vec-free kinds)
   (vec-free texts)
   (vec-free lines)
@@ -82,8 +101,10 @@
 
 (fn main-args :i64 ((a (ref (vec :str))))
   (ret (if (= (vec-len a) 3)
-         (if (str-eq (vec-get a 1) "fmt")
-           (main-run (vec-get a 2))
+         (if (or (str-eq (vec-get a 1) "fmt")
+               (str-eq (vec-get a 1) "resolve"))
+           (main-run (vec-get a 1)
+             (vec-get a 2))
            (main-usage))
          (main-usage))))
 

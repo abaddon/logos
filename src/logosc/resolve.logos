@@ -1,0 +1,162 @@
+(mod resolve)
+
+(use tree)
+
+(type resolve-error (struct (failed :bool) (code :i64) (path :str) (message :str)))
+
+(fn resolve-pass resolve-error ()
+  (ret (make resolve-error false 0 "" "")))
+
+(fn resolve-fail resolve-error ((code :i64) (path :str) (message :str))
+  (ret (make resolve-error true code path message)))
+
+(fn resolve-ok :bool ((e resolve-error))
+  (ret (not (get e failed))))
+
+(fn resolve-code :str ((code :i64))
+  (ret (str-concat "E000" (str-from-i64 code))))
+
+(fn resolve-index :i64 ((names (ref (vec :str))) (key :str))
+  (letmut i :i64 0)
+  (letmut found :i64 -1)
+  (while (and (= found -1)
+           (< i (vec-len names)))
+    (set found (if (str-eq (vec-get names i) key) i found))
+    (set i (+ i 1)))
+  (ret found))
+
+(fn resolve-head :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let text :i64 (get (vec-get nodes id) text))
+  (ret (if (= text -1) ""
+         (vec-get ntexts text))))
+
+(fn resolve-kind :bool ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (kind :str))
+  (ret (str-eq (resolve-head nodes ntexts id) kind)))
+
+(fn resolve-module :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut c :i64 (get (vec-get nodes 0) first))
+  (letmut found :i64 -1)
+  (while (and (= found -1)
+           (not (= c -1)))
+    (set found (if (resolve-kind nodes ntexts c "mod") c found))
+    (set c (get (vec-get nodes c) next)))
+  (ret found))
+
+(fn resolve-push-module resolve-error ((modules (ref (vec :str))) (name :str))
+  (vec-push modules name)
+  (ret (resolve-pass)))
+
+(fn resolve-claim resolve-error ((modules (ref (vec :str))) (name :str) (path :str))
+  (ret (if (not (= (resolve-index modules name) -1))
+         (resolve-fail 3 path (str-concat "duplicate module '" (str-concat name "'")))
+         (resolve-push-module modules name))))
+
+(fn resolve-duplicate resolve-error ((name :str) (first :str) (second :str) (path :str))
+  (let short :str (str-concat "duplicate definition '" (str-concat name "'")))
+  (ret (if (and (not (str-eq first ""))
+             (and (not (str-eq second ""))
+               (not (str-eq first second))))
+         (resolve-fail 3 path (str-concat short (str-concat ": " (str-concat first (str-concat " and " second)))))
+         (resolve-fail 3 path short))))
+
+(fn resolve-store resolve-error ((names (ref (vec :str))) (paths (ref (vec :str))) (text :str) (path :str))
+  (vec-push names text)
+  (vec-push paths path)
+  (ret (resolve-pass)))
+
+(fn resolve-stored resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (id :i64) (text :str))
+  (let path :str (tree-path nodes ntexts 0 id))
+  (let at :i64 (resolve-index names text))
+  (ret (if (not (= at -1))
+         (resolve-duplicate text (vec-get paths at) path path)
+         (resolve-store names paths text path))))
+
+(fn resolve-record resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (id :i64) (missing :str))
+  (let name :i64 (get (vec-get nodes id) name))
+  (ret (if (= name -1)
+         (resolve-fail 2 (tree-path nodes ntexts 0 id) missing)
+         (resolve-stored nodes ntexts names paths id (vec-get ntexts name)))))
+
+(fn resolve-second resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
+  (let name :i64 (get (vec-get nodes id) name))
+  (let path :str (tree-path nodes ntexts 0 id))
+  (ret (if (= name -1)
+         (resolve-fail 2 path "mod needs a name")
+         (resolve-fail 3 path (str-concat "duplicate module '" (str-concat (vec-get ntexts name) "'"))))))
+
+(fn resolve-form resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))) (id :i64) (kind :str))
+  (ret (if (str-eq kind "fn")
+         (resolve-record nodes ntexts names paths id "fn needs a name")
+         (if (str-eq kind "type")
+           (resolve-record nodes ntexts names paths id "type needs a name")
+           (if (str-eq kind "extern")
+             (resolve-record nodes ntexts names paths id "extern needs (extern fn name :ret ((p :type) ...))")
+             (if (str-eq kind "test")
+               (resolve-record nodes ntexts tests test-paths id "test needs a name")
+               (resolve-fail 2
+                 (tree-path nodes ntexts 0 id)
+                 (str-concat "unknown node '" (str-concat kind "'")))))))))
+
+(fn resolve-one resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (form :i64) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))) (id :i64))
+  (let kind :str (resolve-head nodes ntexts id))
+  (ret (if (= id form)
+         (resolve-pass)
+         (if (str-eq kind "mod")
+           (resolve-second nodes ntexts id)
+           (if (str-eq kind "use")
+             (resolve-pass)
+             (if (str-eq kind "expect-error")
+               (resolve-pass)
+               (resolve-form nodes ntexts names paths tests test-paths id kind)))))))
+
+(fn resolve-forms resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (form :i64) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))))
+  (letmut c :i64 (get (vec-get nodes 0) first))
+  (letmut err resolve-error (resolve-pass))
+  (while (and (resolve-ok err)
+           (not (= c -1)))
+    (set err (resolve-one nodes ntexts form names paths tests test-paths c))
+    (set c (get (vec-get nodes c) next)))
+  (ret err))
+
+(fn resolve-claimed resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (modules (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))) (form :i64) (name :i64))
+  (let claim resolve-error (resolve-claim modules
+                             (vec-get ntexts name)
+                             (tree-path nodes ntexts 0 form)))
+  (ret (if (resolve-ok claim)
+         (resolve-forms nodes ntexts form names paths tests test-paths) claim)))
+
+(fn resolve-declared resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (modules (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))) (form :i64))
+  (let name :i64 (get (vec-get nodes form) name))
+  (ret (if (= name -1)
+         (resolve-fail 2 (tree-path nodes ntexts 0 form) "mod needs a name")
+         (resolve-claimed nodes ntexts modules names paths tests test-paths form name))))
+
+(fn resolve-check resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (modules (ref (vec :str))) (names (ref (vec :str))) (paths (ref (vec :str))) (tests (ref (vec :str))) (test-paths (ref (vec :str))))
+  (let form :i64 (resolve-module nodes ntexts))
+  (ret (if (= form -1)
+         (resolve-fail 2 "" "missing (mod ...) form")
+         (resolve-declared nodes ntexts modules names paths tests test-paths form))))
+
+(fn resolve-file resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut modules
+    (vec :str)
+    (make (vec :str)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut paths
+    (vec :str)
+    (make (vec :str)))
+  (letmut tests
+    (vec :str)
+    (make (vec :str)))
+  (letmut test-paths
+    (vec :str)
+    (make (vec :str)))
+  (letmut err resolve-error (resolve-check nodes ntexts modules names paths tests test-paths))
+  (vec-free modules)
+  (vec-free names)
+  (vec-free paths)
+  (vec-free tests)
+  (vec-free test-paths)
+  (ret err))

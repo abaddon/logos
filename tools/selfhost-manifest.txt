@@ -26,6 +26,8 @@ src/logosc/fmt_test.logos
 src/logosc/lex.logos
 src/logosc/lex_test.logos
 src/logosc/main.logos
+src/logosc/resolve.logos
+src/logosc/resolve_test.logos
 src/logosc/tree.logos
 src/logosc/tree_test.logos
 src/std/io.logos

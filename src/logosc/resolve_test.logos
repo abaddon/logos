@@ -1,0 +1,131 @@
+(mod resolve-test)
+
+(use lex)
+
+(use tree)
+
+(use resolve)
+
+(fn show-fail :void ((e resolve-error))
+  (println (resolve-code (get e code)))
+  (println (get e path))
+  (println (get e message)))
+
+(fn show :void ((e resolve-error))
+  (if (resolve-ok e)
+    (println "OK")
+    (show-fail e)))
+
+(fn dump-tree :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (show (resolve-file nodes ntexts))
+    (println (get t msg))))
+
+(fn dump-src :void ((src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (dump-tree kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(test module-alone
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod a)"))
+
+(test definitions-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(type p (struct (x :i64)))\n(fn f :i64 () (ret 0))\n(test f (expect (code 0)))\n(extern fn getpid :i64 ())"))
+
+(test duplicate-fn
+  (expect (out "E0003\nm/f\nduplicate definition 'f'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn f :i64 () (ret 0))\n(fn f :i64 () (ret 1))"))
+
+(test duplicate-type
+  (expect (out "E0003\nm/p\nduplicate definition 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(type p (struct (x :i64)))\n(type p (struct (y :i64)))"))
+
+(test fn-type-collision
+  (expect (out "E0003\nm/p\nduplicate definition 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(type p (struct (x :i64)))\n(fn p :i64 () (ret 0))"))
+
+(test duplicate-test
+  (expect (out "E0003\nm/test/t\nduplicate definition 't'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(test t (expect (code 0)))\n(test t (expect (code 1)))"))
+
+(test extern-fn-collision
+  (expect (out "E0003\nm/get\nduplicate definition 'get'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn get :i64 () (ret 1))\n(extern fn get :i64 ())"))
+
+(test second-module
+  (expect (out "E0003\na/b\nduplicate module 'b'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod a)\n(mod b)"))
+
+(test unknown-node
+  (expect (out "E0002\nm/0\nunknown node 'println'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(println 1)"))
+
+(test missing-module
+  (expect (out "E0002\n\nmissing (mod ...) form\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret 0))"))
+
+(test nameless-module
+  (expect (out "E0002\n0\nmod needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod)\n(fn f :i64 () (ret 0))"))
+
+(test extern-spelling
+  (expect (out "E0002\nm/0\nextern needs (extern fn name :ret ((p :type) ...))\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(extern get :i64 ())"))
+
+(test body-ignored
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn f :i64 () (println 1))"))
