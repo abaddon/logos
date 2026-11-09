@@ -31,8 +31,8 @@ three forms and not for ``set``, which still needs ``letmut``. An index that
 is not an integer is E0400 and a string operand that is not a ``:str`` is
 E0401. That E0401 rule belongs to the ``str-*`` forms the compiler has always
 had; the forms added for the self-hosted compiler (``read-file``, ``args``,
-``str-byte``, ``str-from-i64``, ``f64-bits``) report a wrong argument of any
-kind as E0100 at that argument instead.
+``str-byte``, ``str-from-i64``, ``f64-bits``, ``run`` and its three readers)
+report a wrong argument of any kind as E0100 at that argument instead.
 
 A parameter may be spelled ``(ref (vec T))``: the callee receives the address
 of the caller's descriptor, so a push, set or free inside it acts on the
@@ -162,6 +162,16 @@ nothing but a pointer or one of them: ``(shared (ptr T))`` is the marked
 address a thread may be handed, and ``deref``/``set-deref``/``ptr-add`` accept
 it. A channel copies its elements, so a vector or an owner element is refused;
 ``spawn`` likewise refuses a move-only argument.
+
+Processes
+---------
+``(run prog args)`` starts ``prog`` with no shell and returns ``:run``, an
+opaque handle that ``(run-status r)``, ``(run-out r)`` and ``(run-err r)``
+read. The program is a ``:str``; the arguments are a bare name of type
+``(vec :str)``, and the call moves it: the runtime copies every string it
+keeps before the form releases the buffer, so a second use of the name is
+E0300 and no temporary can stand in for it. A program the process cannot
+start panics R0006 at the ``run`` node, naming the program.
 
 Purity
 ------
@@ -1440,7 +1450,7 @@ RESERVED_FORMS = frozenset(
     if while match let letmut set ret make get set-field alloc free ptr deref
     set-deref ptr-add print println spawn join lock unlock send recv ok err some
     none try break continue cast shl shr shr-u and or not
-    read-file args f64-bits
+    read-file args f64-bits run run-status run-out run-err
     """.split()
 )
 #: Form families: every name starting with one of these heads is a form.
@@ -1958,6 +1968,10 @@ class _Checker:
             return self._read_file(node, env)
         if kind == "args":
             return self._args(node, env)
+        if kind == "run":
+            return self._run(node, env)
+        if kind in ("run-status", "run-out", "run-err"):
+            return self._run_reader(node, env)
         if kind == "vec-push":
             return self._vec_push(node, env)
         if kind == "vec-len":
@@ -3090,6 +3104,64 @@ class _Checker:
         if len(node.items) != 1:
             raise diag(WRONG_ARITY, node.path, "'args' takes no arguments")
         return Vec(Prim("str"))
+
+    def _run(self, node: Node, env: _Env) -> Ty:
+        """``(run prog args)``: start a child and hand back its ``:run`` handle.
+
+        The program is a ``:str``; the arguments are a **name** of type
+        ``(vec :str)``, and the call moves it. The runtime copies every string
+        it needs before it returns, so the form releases the vector's buffer
+        itself — a second use of the name is E0300, and there is no way to
+        spell a temporary the form could not release.
+
+        Nothing here can fail at check time except the shapes above: whether
+        the program exists is the running process's question, and a program it
+        cannot start panics R0006 at this node.
+        """
+        items = node.items
+        if len(items) != 3:
+            raise diag(
+                WRONG_ARITY,
+                node.path,
+                "'run' takes a program and an argument vector",
+            )
+        self._exact_operand(items[1], env, node, Prim("str"), "run")
+        arguments = items[2]
+        if not (isinstance(arguments, Token) and arguments.kind == ATOM):
+            # A vector has no copy, so a temporary, an element or a call
+            # result would leave two descriptors for one buffer: only a name
+            # can be handed over whole.
+            raise diag(
+                TYPE_MISMATCH,
+                _at(arguments, node),
+                "'run' needs the name of a (vec :str) to pass",
+            )
+        want = Vec(Prim("str"))
+        given = self._value(arguments, env, None, node.path)
+        if not compatible(want, given):
+            raise diag(
+                TYPE_MISMATCH,
+                _at(arguments, node),
+                f"'run' takes a (vec :str) of arguments, found {given}",
+            )
+        # The call takes the vector: the runtime copies the strings and the
+        # lowerer releases the buffer, so the caller may not touch it again.
+        self._consume(arguments, env, node.path)
+        return Prim("run")
+
+    def _run_reader(self, node: Node, env: _Env) -> Ty:
+        """``(run-status r)``, ``(run-out r)`` and ``(run-err r)``.
+
+        One ``:run`` each, and the handle is opaque: the three forms are the
+        only operations on it. The status is the child's exit code (or 128 +
+        signal), and the two streams are ``:str`` values the runtime owns for
+        the process's life.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, f"'{node.kind}' takes a :run")
+        self._exact_operand(items[1], env, node, Prim("run"), node.kind)
+        return Prim("i64") if node.kind == "run-status" else Prim("str")
 
     def _str_byte(self, node: Node, env: _Env) -> Ty:
         """``(str-byte s i)``: the byte at offset ``i``, as ``:u8``.

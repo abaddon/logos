@@ -728,6 +728,10 @@ hi
 | `read-all` | 0 | `(read-all)` reads standard input to a `:str` |
 | `read-file` | 1 | `(read-file p)` the whole file p names, as a `:str` |
 | `args` | 0 | `(args)` the command line, as a tracked `(vec :str)` |
+| `run` | 2 | `(run prog args)` starts prog with the arguments the vector names |
+| `run-status` | 1 | `(run-status r)` the child's exit code, or 128 + signal |
+| `run-out` | 1 | `(run-out r)` the child's standard output, as a `:str` |
+| `run-err` | 1 | `(run-err r)` the child's standard error, as a `:str` |
 | `vec-push` | 2 | `(vec-push v x)` appends, growing the buffer |
 | `vec-len` | 1 | `(vec-len v)` the element count |
 | `vec-get` | 2 | `(vec-get v i)` reads an element, bounds checked |
@@ -802,6 +806,7 @@ hi
 | `:void` | unit | no value; the type of a statement form |
 | `:thread` | handle | a spawned thread handle |
 | `:mutex` | handle | a lock handle, always `(shared :mutex)` when made |
+| `:run` | handle | a child process handle, made only by `(run prog args)` |
 
 ### Operators
 
@@ -834,7 +839,7 @@ hi
 
 ### Reserved names
 
-A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `read-file`, `recv`, `ret`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
+A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `read-file`, `recv`, `ret`, `run`, `run-err`, `run-out`, `run-status`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
 
 Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant names: `ok`, `err`, `some`, `none`, `try`, `print`, `println`, `spawn`, `join`, `mutex`, `lock`, `unlock`, `chan`, `send`, `recv`, `atomic`, `atomic-add`, `atomic-load`, `atomic-store`.
 
@@ -875,6 +880,7 @@ Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant
 | `E0601` | try type mismatch |
 | `E0602` | unhandled result |
 | `E0700` | shared state not marked |
+| `R0006` | a program could not be started |
 | `R0007` | could not read a file |
 
 Runtime panic codes: `R0001` division by zero, `R0002` double free, `R0003` failed runtime check, `R0004` free of an unknown address, `R0005` thread operation failed, `R0006` a program could not be started, `R0007` a file could not be read. `R0002` and `R0004` are runtime names only: nothing in the compiler emits them.

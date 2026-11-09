@@ -563,6 +563,37 @@ _RT_STR_FROM_I64 = IrDecl(
     "rt_str_from_i64", (Prim("i64"), Ptr(Prim("i64"))), _VOID_PTR
 )
 
+#: ``rt_run *rt_run_start(const unsigned char *prog, size_t pn,
+#: const unsigned char **argv, const size_t *argn, size_t argc,
+#: const char *call_path)``. The program and every argument are copied into
+#: NUL-terminated C strings for ``posix_spawnp`` before the call returns, so
+#: the two arrays are the caller's to read and only have to live across the
+#: call. ``call_path`` is the ``run`` node, where a spawn failure panics R0006.
+_RT_RUN_START = IrDecl(
+    "rt_run_start",
+    (
+        _VOID_PTR,
+        Prim("i64"),
+        Ptr(_VOID_PTR),
+        Ptr(Prim("i64")),
+        Prim("i64"),
+        _VOID_PTR,
+    ),
+    _VOID_PTR,
+)
+
+#: ``long rt_run_status(rt_run *r)``: the exit code, 128 + signal, or 124.
+_RT_RUN_STATUS = IrDecl("rt_run_status", (_VOID_PTR,), Prim("i64"))
+
+#: ``const unsigned char *rt_run_out(rt_run *r, size_t *n)`` and the same for
+#: ``err``: a process-lifetime buffer, with the byte count through a slot.
+_RT_RUN_OUT = IrDecl(
+    "rt_run_out", (_VOID_PTR, Ptr(Prim("i64"))), _VOID_PTR
+)
+_RT_RUN_ERR = IrDecl(
+    "rt_run_err", (_VOID_PTR, Ptr(Prim("i64"))), _VOID_PTR
+)
+
 #: ``int memcmp(const void *a, const void *b, size_t n)``: the byte comparison
 #: inside ``str-eq``. Declared with its real signature so the call is not a
 #: lie about the C ABI; the result is the sign of the difference, and only its
@@ -2552,6 +2583,165 @@ class _Fn:
         self.emit(("bitcast", dest, Prim("f64"), Prim("i64"), value))
         return dest
 
+    def run(self, node: Node) -> str:
+        """``(run prog args)``: gather the vector, start the child, release it.
+
+        The runtime takes two arrays — one pointer per argument and one length
+        per argument — so the vector's sixteen-byte elements are split into a
+        pair of fresh ``rt_alloc`` buffers, one element at a time. They are the
+        caller's, so both are released after the call.
+
+        The vector itself was moved into this form, and the runtime copies
+        every string it keeps before returning. The descriptor's buffer is
+        therefore released *after* ``rt_run_start`` returns and never before:
+        freeing it first would hand the runtime a pointer into freed memory.
+        The slot is then zeroed the way ``vec-free`` zeroes it, so the frame
+        holds no second name for the released buffer.
+        """
+        ty = self.type_of(node)
+        if not (isinstance(ty, Prim) and ty.name == "run"):
+            raise diag(
+                UNKNOWN_NODE,
+                node.path,
+                f"'run' did not produce a :run, found {ty}",
+            )
+        items = node.items
+        if len(items) != 3:
+            raise diag(
+                WRONG_ARITY,
+                node.path,
+                "'run' takes a program and an argument vector",
+            )
+        arguments = items[2]
+        if not isinstance(arguments, Token):
+            raise diag(
+                UNKNOWN_NODE,
+                node.path,
+                "'run' needs the name of its argument vector",
+            )
+        binding = self.vars.get(arguments.value)
+        if binding is None:
+            raise diag(
+                NOT_FOUND, node.path, f"unknown name '{arguments.value}'"
+            )
+        held, slot = binding
+        if not isinstance(held, Vec) or not compatible(held.elem, Prim("str")):
+            raise diag(
+                TYPE_MISMATCH,
+                node.path,
+                f"'run' takes a (vec :str) of arguments, found {held}",
+            )
+
+        program, program_len = self.str_parts(items[1], node.path)
+        whole = self.temp()
+        self.emit(("load", whole, held, slot))
+        data = self.vec_part(held, whole, 0)
+        length = self.vec_part(held, whole, 1)
+
+        # One pointer and one length per element: two eight-byte arrays, the
+        # runtime's own layout rather than the vector's sixteen-byte pairs.
+        self.no_overflow(length, 8, node.path)
+        bytes_ = self.temp()
+        self.emit(("mul", bytes_, Prim("i64"), length, "8"))
+        path = self._c_argument(node.path)
+        self.lowering.declare(_RT_ALLOC)
+        raw_pointers = self.temp()
+        self.emit(("call", raw_pointers, "rt_alloc", (bytes_, "8", path)))
+        raw_lengths = self.temp()
+        self.emit(("call", raw_lengths, "rt_alloc", (bytes_, "8", path)))
+        pointers = self.temp()
+        self.emit(
+            ("bitcast", pointers, _VOID_PTR, Ptr(_VOID_PTR), raw_pointers)
+        )
+        lengths = self.temp()
+        self.emit(
+            ("bitcast", lengths, _VOID_PTR, Ptr(Prim("i64")), raw_lengths)
+        )
+
+        origin = self.block.label
+        self.labels += 1
+        tag = f"run{self.labels}"
+        head, body, gathered = f"{tag}.head", f"{tag}.gather", f"{tag}.done"
+        self.block.term = ("br", head)
+        self.new_block(head)
+        index = self.temp()
+        # The name is reserved before the phi that reads it is emitted: the
+        # back edge's increment is defined in the body, which prints later.
+        bumped = self.temp()
+        self.emit(
+            ("phi", index, Prim("i64"), (("0", origin), (bumped, body)))
+        )
+        more = self.temp()
+        self.emit(("icmp", more, "ult", Prim("i64"), index, length))
+        self.block.term = ("cbr", more, body, gathered)
+
+        self.new_block(body)
+        address = self.temp()
+        self.emit(("gep", address, held.elem, data, (("i64", index),)))
+        element = self.temp()
+        self.emit(("load", element, held.elem, address))
+        pointer = self.temp()
+        self.emit(("extractvalue", pointer, held.elem, _PTR_U8, element, 0))
+        count = self.temp()
+        self.emit(("extractvalue", count, held.elem, Prim("i64"), element, 1))
+        pointer_slot = self.temp()
+        self.emit(("gep", pointer_slot, _VOID_PTR, pointers, (("i64", index),)))
+        self.emit(("store", _VOID_PTR, pointer, pointer_slot))
+        length_slot = self.temp()
+        self.emit(("gep", length_slot, Prim("i64"), lengths, (("i64", index),)))
+        self.emit(("store", Prim("i64"), count, length_slot))
+        self.emit(("add", bumped, Prim("i64"), index, "1"))
+        self.block.term = ("br", head)
+
+        self.new_block(gathered)
+        self.lowering.declare(_RT_RUN_START)
+        handle = self.temp()
+        self.emit(
+            (
+                "call",
+                handle,
+                "rt_run_start",
+                (program, program_len, pointers, lengths, length, path),
+            )
+        )
+        # Not until the runtime has copied every string: the descriptor's
+        # buffer is still the only owner of the argument bytes until then.
+        self.lowering.declare(_RT_FREE)
+        self.emit(("call", "", "rt_free", (raw_pointers,)))
+        self.emit(("call", "", "rt_free", (raw_lengths,)))
+        released = self.temp()
+        self.emit(("bitcast", released, Ptr(held.elem), _VOID_PTR, data))
+        self.emit(("call", "", "rt_free", (released,)))
+        self.emit(("store", held, "zeroinitializer", slot))
+        return handle
+
+    def run_reader(self, node: Node) -> str:
+        """``(run-status r)``, ``(run-out r)`` and ``(run-err r)``.
+
+        The status is one ``long``. A stream is a process-lifetime buffer and a
+        byte count through a slot, exactly like ``read-file``'s value: the
+        ``:str`` owns nothing, and the handle outlives the ``:str`` it gave.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, f"'{node.kind}' takes a :run")
+        handle = self.value(items[1], node.path)
+        if node.kind == "run-status":
+            self.lowering.declare(_RT_RUN_STATUS)
+            status = self.temp()
+            self.emit(("call", status, "rt_run_status", (handle,)))
+            return status
+        out = node.kind == "run-out"
+        self.lowering.declare(_RT_RUN_OUT if out else _RT_RUN_ERR)
+        slot = self.slot(Prim("i64"), path=node.path)
+        data = self.temp()
+        self.emit(
+            ("call", data, "rt_run_out" if out else "rt_run_err", (handle, slot))
+        )
+        length = self.temp()
+        self.emit(("load", length, Prim("i64"), slot))
+        return self.str_value(data, length)
+
     # -- vectors ----------------------------------------------------------
 
     def empty_vector(self, ty: Vec, path: str) -> str:
@@ -3380,6 +3570,10 @@ class _Fn:
             return self.read_file(item)
         if kind == "args":
             return self.args(item)
+        if kind == "run":
+            return self.run(item)
+        if kind in ("run-status", "run-out", "run-err"):
+            return self.run_reader(item)
         if kind == "vec-len":
             return self.vec_len(item)
         if kind == "vec-get":
@@ -4532,6 +4726,7 @@ _SIZES = {
     # Runtime handles: one opaque pointer each.
     "thread": 8,
     "mutex": 8,
+    "run": 8,
 }
 
 _FLOATS = ("f32", "f64")

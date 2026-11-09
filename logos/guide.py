@@ -220,6 +220,10 @@ FORM_DOCS = (
     ("read-all", "0", "`(read-all)` reads standard input to a `:str`"),
     ("read-file", "1", "`(read-file p)` the whole file p names, as a `:str`"),
     ("args", "0", "`(args)` the command line, as a tracked `(vec :str)`"),
+    ("run", "2", "`(run prog args)` starts prog with the arguments the vector names"),
+    ("run-status", "1", "`(run-status r)` the child's exit code, or 128 + signal"),
+    ("run-out", "1", "`(run-out r)` the child's standard output, as a `:str`"),
+    ("run-err", "1", "`(run-err r)` the child's standard error, as a `:str`"),
     ("vec-push", "2", "`(vec-push v x)` appends, growing the buffer"),
     ("vec-len", "1", "`(vec-len v)` the element count"),
     ("vec-get", "2", "`(vec-get v i)` reads an element, bounds checked"),
@@ -334,6 +338,9 @@ def _build_types() -> list[dict[str, Any]]:
         elif name == "mutex":
             entry["kind"] = "handle"
             entry["meaning"] = "a lock handle, always `(shared :mutex)` when made"
+        elif name == "run":
+            entry["kind"] = "handle"
+            entry["meaning"] = "a child process handle, made only by `(run prog args)`"
         else:  # pragma: no cover - PRIMITIVES is closed, so this cannot happen
             entry["kind"] = "primitive"
             entry["meaning"] = "a primitive type"

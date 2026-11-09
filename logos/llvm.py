@@ -84,6 +84,9 @@ _PRIM = {
     # is typed ``i8*`` exactly as the C boundary spells ``void *``.
     "thread": "i8*",
     "mutex": "i8*",
+    # A ``:run`` is the same shape: a pointer to the runtime's handle struct,
+    # never dereferenced by generated code.
+    "run": "i8*",
 }
 
 #: Opcodes that print as ``dest = op ty a, b``. The float arithmetic the
