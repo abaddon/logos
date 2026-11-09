@@ -81,9 +81,17 @@ empty fields included**:
 | `(string-split "," ",a")` | two fields: `""`, `"a"` |
 | `(string-split "::" "a::b::")` | three fields: `"a"`, `"b"`, `""` |
 
-A trailing separator yields a final empty field, which is what makes
-`(string-join (string-split sep s) sep)` equal `s` for every `s`. The separator
-may be several bytes; matches do not overlap.
+A trailing separator yields a final empty field, which is what makes the
+round trip `join (split s sep) sep` equal `s` for every `s` — join borrows the
+fields, so the caller keeps them:
+
+```logos
+(letmut parts (vec :str) (string-split sep s))
+(let result :str (string-join parts sep))
+(vec-free parts)
+```
+
+The separator may be several bytes; matches do not overlap.
 
 **Empty separator — pinned: one field holding the whole of `s`.** The language
 has no `panic`, `assert` or `abort` (W3 adds no form), so the alternatives were
