@@ -354,6 +354,13 @@ or optional that carries a bare pointer is refused as a thread argument, and
 ### Modules
 
 One file, one module, file name equals module name. `(use other)` imports.
+An import is a name, not a path: the loader looks for `<name>.logos` beside the
+file that wrote the `use` first, then in the standard library, `src/std/<name>.logos`.
+Those two directories are the whole search path; no environment variable,
+configuration file or caller directory adds a third. The asking file's directory
+wins, so a program can shadow a library module with a local file of the same
+name, and a file at any depth reaches `map` by naming it. A name neither
+directory supplies is `E0005` at the `use`.
 No circular imports: the resolver rejects them with the full cycle. An import
 resolves at check time: the imported definition is visible in the namespace,
 so its type can annotate a local signature and its signature can be checked

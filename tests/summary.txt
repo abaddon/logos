@@ -76,6 +76,7 @@ PASS exec/loops/if-value -
 PASS exec/match/match-returns-a-value -
 PASS exec/match/match-arms-are-statements -
 PASS exec/match/match-arm-has-a-block-body -
+PASS exec/modules/use-map/lookup -
 PASS exec/read-file/read-file -
 PASS exec/read/empty-standard-input -
 PASS exec/read/reading-is-not-a-leak -

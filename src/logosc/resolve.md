@@ -3,7 +3,9 @@
 The Logos port of `logos/resolve.py`: one parsed file becomes a module, its
 `(use …)` forms are loaded and merged, and every name that means two things is
 refused. Task 1 covered one file and its names; Task 2 adds imports, cycles,
-merge collisions, the loader and the file origins in the module registry.
+merge collisions, the loader and the file origins in the module registry;
+Task 3 adds the standard-library search path and moves the name tables onto
+`src/std/map.logos`.
 
 Read `lex.md` and `tree.md` first. The resolver reads the arena `tree-parse`
 built, and it reads imported files by lexing and parsing their source into a
@@ -146,30 +148,45 @@ an import reaches a file in a subdirectory (see the loader).
 ## Imports and the loader
 
 `(use name)` asks the loader for `<dir>/<name>.logos`, where `<dir>` is the
-directory of the file that asked. The path is built by string work:
+directory of the file that asked, and then for `src/std/<name>.logos`. The
+asking file's directory is tried first, so a local module shadows the library
+module of the same name; the standard library is the one fixed second
+directory, and there is no third. The path is built by string work:
 `resolve-dir` finds the final `/`, and `resolve-sibling` appends `/<name>.logos`
-(or `<name>.logos` when there is no directory). Because the name is an atom and
-atoms may contain `/`, `(use left/left)` reads `left/left.logos` and puts the
-imported module's own imports in the `left` directory.
+(or `<name>.logos` when there is no directory). `resolve-stdlib` is
+`resolve-sibling` with the fixed directory `src/std`. Because the name is an
+atom and atoms may contain `/`, `(use left/left)` reads `left/left.logos` and
+puts the imported module's own imports in the `left` directory.
+
+A file in any subdirectory therefore reaches the standard library without a
+path of its own: `docs/manual/20-modules.logos` has no `docs/manual/map.logos`,
+so `(use map)` lands on `src/std/map.logos`. The `src/std` spelling is relative
+to the process's working directory, as every other resolver path is; `gen2`
+must be run from the repository root, the same contract the fixtures use. The
+Python compiler anchors the same directory at its repository root
+(`driver.STDLIB`, derived from `driver.ROOT` beside the C runtime), so a build
+started anywhere finds it.
 
 The loader's answer is cached once per **(name, asking directory)**, keyed by
-`dir + "\0" + name`. A diamond — `left` and `right` both `(use base)` in one
-directory — loads `base.logos` once and both imports share its one module
-record. Two directories asking for one name each load their own file: the
-`origins` fixture's `left` and `right` reach `left/dup.logos` and
-`right/dup.logos`, and the second claim is the `E0003` above. Caching by name
-alone would silently reuse the first answer and hide that collision.
+`dir + "\0" + name`, and the file-system loader caches the parsed tree per
+chosen path. A diamond — `left` and `right` both `(use base)` in one directory
+— loads `base.logos` once and both imports share its one module record. Two
+directories asking for one name each load their own file: the `origins`
+fixture's `left` and `right` reach `left/dup.logos` and `right/dup.logos`, and
+the second claim is the `E0003` above. Caching by name alone would silently
+reuse the first answer and hide that collision.
 
-A name no file answers is `E0005 unknown module '<name>'` at the `use` node. The
-existence probe is a shortcut, and it is deliberate:
+A name neither directory answers is `E0005 unknown module '<name>'` at the
+`use` node. The existence probe is a shortcut, and it is deliberate:
 
 > Logos has no `stat` form. `(read-file path)` panics `R0007` on a missing file,
 > which cannot become a resolver diagnostic, and this wave may not change the
 > Python compiler or its runtime. The loader therefore asks the POSIX `test`
 > program: `(run "test" (["-f", path]))`, and treats status 0 as "a regular file
-> answers this name". The cost is one child process per uncached import and a
-> dependency on `test` being on `PATH`; neither is on the gen2 gate's path,
-> which formats sources and never resolves imports.
+> answers this name". The cost is up to two child processes per uncached import
+> — the sibling and then the library — and a dependency on `test` being on
+> `PATH`; neither is on the gen2 gate's path, which formats sources and never
+> resolves imports.
 
 The loaded file is read with `read-file`, lexed with `(lex …)` and parsed with
 `tree-parse` into fresh arenas, then resolved recursively under the expected
@@ -222,35 +239,29 @@ E0003 merge-imported/f: duplicate definition 'f': other/f and merge-imported/f
 The order is Python's: the name already owned comes first, the second
 declaration second; the path is whichever form introduced the second copy.
 
-## Tables and §D8
+## Name tables and §D8
 
-The resolver's tables are parallel vectors, not the W3 map, and that is a
-deliberate exception with a concrete blocker:
+The resolver's name tables are the §D8 map, imported with `(use map)`. One
+`keys` / `vals` / `slots` triple is allocated by `resolve-file` and threaded
+through every call; there is no per-module map and no second table type. The
+key namespaces the table and, where a name can exist in two modules, the module:
 
-- The definition table is per module and is rebuilt on every recursive
-  `resolve-module` call; it is local to that call and freed on return. The
-  module table is a `(vec resolve-mod)` of structs; the definition table is a
-  `(vec resolve-def)` of structs; the test table is two parallel `(vec :str)`.
-  Lookup is a linear scan (`resolve-index`, `resolve-def-find`,
-  `resolve-mod-find`).
-- §D8 says every named table uses the `src/std/map.logos` map. The map is a
-  stdlib module, but `src/logosc/resolve.logos` cannot import it in this tree:
-  the Python test harness resolves a test file's `use` forms **beside the
-  asking file** (§D6's single-file rule). `(use map)` from
-  `src/logosc/resolve.logos` would look for `src/logosc/map.logos`; the map is
-  in `src/std`, and `python3 -m logos test src/logosc/resolve_test.logos` would
-  fail to build before any test runs. Widening gen2's build set does not help
-  here, because `run_test` hands `checked_program` one root, not a build set.
-  The three escapes are all worse: a std search path violates §D6's "no hidden
-  lookup", a second map implementation in the resolver duplicates the thing
-  §D8 says is singular, and changing the frozen Python harness is outside this
-  wave. So the resolver keeps linear scans; the build set is still widened (see
-  below) so gen2 can use the map as soon as the harness can hand it a build
-  set or the compiler's modules move beside the stdlib. The merge cost is
-  small — a module has tens of definitions — and the scan is measured by the
-  `(leaks 0)` suite, not assumed.
+| key | value |
+|---|---|
+| `m\0<name>` | the module's index in `mods` |
+| `d<slot>\0<name>` | the definition's index in that module's `defs` vector |
+| `t<slot>\0<name>` | the test path's index in `test-paths` |
+| `i<slot>\0<name>` | `1`, meaning this module already imports `name` |
+| `a\0<dir>\0<name>` | the module index the `(use …)` was answered with |
 
-`resolve-file` creates and frees six tables:
+`<slot>` is the module's index in `mods`, assigned when the module opens. It is
+never reused, so two modules may both define `f` — `d0\0f` and `d1\0f` are
+different keys — while an imported copy merged into the asker gets the asker's
+slot. Every value is a non-negative index or the marker `1`, so `map-get`'s
+`-1` is an unambiguous "absent". `map-put` replaces an existing key, which is
+what a second `(mod …)` for the same file or a repeated `(use …)` needs.
+
+`resolve-file` creates and frees seven vectors; the last three are the map:
 
 | vector | holds |
 |---|---|
@@ -258,11 +269,25 @@ deliberate exception with a concrete blocker:
 | `mods` | `resolve-mod` records: module name, file, own-definition range |
 | `active` | the module-name stack |
 | `depth` | the live length of `active` |
-| `asked-keys` | `dir + "\0" + name` for every loaded import |
-| `asked-vals` | the module index each key was answered with |
+| `keys` | one key per map entry |
+| `vals` | the value of each entry, at the same index as its key |
+| `slots` | one bucket per map slot, `entry + 1` or `0`; `map-init` sizes it 8 |
 
-Each `resolve-module` call adds four more locals — the visible `resolve-def`
-table, `tests`, `test-paths` and `imported` — and frees them on every return.
+Each `resolve-module` call adds two locals — the visible `defs` records and
+`test-paths` — and frees both on every return. The earlier `tests`, `imported`,
+`asked-keys` and `asked-vals` vectors are gone: the map stores their names and
+indexes.
+
+This replaced a linear scan over parallel vectors. The old exception was
+concrete — `src/logosc/resolve.logos` could not import `src/std/map.logos`
+because the loader looked only beside the asking file — and the standard-library
+search path above removed it. The map is the win it was meant to be: a lookup
+is O(1) instead of a scan, and the definition, test, imported and import-cache
+tables all became keys in one structure, so the resolver now has fewer vectors
+than before. The merge still copies an imported definition into the asker's
+`defs` vector, because `all` holds each module's **own** definitions and the
+module range (`start`/`end`) is what merge iterates; the map only finds the copy
+by name.
 
 ## Flow
 
@@ -278,7 +303,7 @@ resolve-file
                 resolve-one     skip the mod form; dispatch
                   resolve-form      fn / type / extern / test / unknown
                   resolve-import    use: validate, cycle, cache, load, merge
-                    resolve-load      read, lex, tree-parse, recursive module
+                    resolve-load      sibling or stdlib; read, lex, tree-parse
                       resolve-merge   copy own definitions; collisions
 ```
 
@@ -291,7 +316,9 @@ diagnostic's path comes from the form it refuses, not from the file.
 `gen2` is built from `src/logosc/*.logos` **and** `src/std/map.logos` and
 `src/std/str.logos` — not the whole `src/std` directory. The stdlib's `_test`
 files carry `(test …)` forms and are not modules gen2 needs. `tools/selfhost.sh`
-uses the same set.
+uses the same set. The resolver's own `(use map)` is answered by the build
+set's table there; when a single test file is resolved instead, the
+standard-library fallback above answers it from `src/std`.
 
 The fixtures live under `src/logosc/fixtures/`, which is outside the
 `src/logosc/*.logos` glob, so they are not roots of gen2; they are tracked files
@@ -312,7 +339,7 @@ gate like every other source.
 
 ## Tests
 
-`src/logosc/resolve_test.logos` has 31 cases, each run at `-O0` and `-O2` with
+`src/logosc/resolve_test.logos` has 32 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 1. `module-alone` — `(mod a)` resolves with no output.
@@ -348,6 +375,8 @@ gate like every other source.
     function, which is Python's `_merge` order (types, fns, externs).
 31. `duplicate-module-file` — two directories' `dup.logos` files are `E0003`
     with both file origins.
+32. `stdlib-module` — a fixture in `fixtures/stdlib/` imports `map`, which is
+    not beside it, so the loader answers from `src/std/map.logos`.
 
 The suite is `python3 -m logos test src/logosc/resolve_test.logos --opt -O0
 --opt -O2`, run from the repository root (the fixture paths are relative to
@@ -372,6 +401,7 @@ every resolver-owned fixture:
 | `merge/imported.logos` | `merge-imported/f: E0003: duplicate definition 'f': other/f and merge-imported/f` |
 | `merge/cross.logos` | `merge-cross/2: E0003: duplicate definition 'b': merge-cross/b and cross-other/b` |
 | `origins/root.logos` | `dup: E0003: duplicate module 'dup': …/left/dup.logos and …/right/dup.logos` |
+| `stdlib/use-map.logos` | exit 0 — `map` comes from `src/std` |
 
 The one resolver-owned negative corpus case remains `tests/parse/unknown-node`
 (`E0002 unknown node 'wat'`). The six regress `.expect` cases with codes E0002

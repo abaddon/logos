@@ -189,10 +189,14 @@ This lands in Python, per D4, and the Logos compiler inherits the rule.
 
 Three rules make the merged module well defined, and all three land in W0:
 
-- **`use` resolves against the build set.** A module named on the command line
-  satisfies `use`, and its own directory is searched only as the single-file case.
-  There is no search path and no configuration file: hidden lookup is an anti-goal.
-  A `use` that names no module in the set is `E0005` at the `use` node.
+- **`use` resolves against the build set, then the asking file, then the standard
+  library.** A module named on the command line satisfies `use`; otherwise the
+  loader tries `<asking dir>/<name>.logos` and then `<repo>/src/std/<name>.logos`.
+  Those two directories are the whole search path: no configuration file, no
+  environment variable, no caller directory. Hidden lookup is still an anti-goal,
+  and the pair is fixed, so the stdlib is the only place that is not the source's
+  own directory. A `use` that names no module in any of the three is `E0005` at
+  the `use` node.
 - **Every emitted name is module-qualified.** Functions are already
   `lg.<module>.<name>`; struct types become `%struct.<module>.<name>`, not
   `%struct.<name>`. String constants and temporaries come from one counter for the
@@ -364,7 +368,7 @@ These are the answers, settled here so the plan cites them instead of relitigati
 
 | Question it raised | Ruling |
 |---|---|
-| Where does `use` look for a module? | The build set, then the file's own directory. No search path (D6). |
+| Where does `use` look for a module? | The build set, then the file's own directory, then `src/std`. No other search path (D6). |
 | What disambiguates two modules' `%struct.x` and `@.str0`? | Module-qualified types, one counter for the merged unit, one `main` (D6). |
 | How are float constants spelled? | Hex, from the bits, in Python first; `(f64-bits)` added (D5). |
 | FNV-1a needs XOR, which the language lacks | Multiply-and-add hash, no new operator (D8). |

@@ -34,7 +34,7 @@ Machine-readable: `logosc guide --json` prints the manifest (forms, types, opera
 
 ## Manual
 
-19 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
+20 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
 
 ### 1. Values and literals
 
@@ -673,6 +673,40 @@ Expected stdout, exit 0:
 4609434218613702656
 0
 hi
+```
+
+### 20. Modules
+
+```logos
+(mod modules)
+
+(use map)
+
+(test map-from-std
+  (expect (out "42\n")
+    (code 0)
+    (leaks 0))
+  (letmut keys
+    (vec :str)
+    (make (vec :str)))
+  (letmut vals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slots
+    (vec :i64)
+    (make (vec :i64)))
+  (map-init slots 8)
+  (map-put keys vals slots "answer" 42)
+  (println (map-get keys vals slots "answer"))
+  (vec-free keys)
+  (vec-free vals)
+  (vec-free slots))
+```
+
+Expected stdout, exit 0:
+
+```text
+42
 ```
 
 ## Reference

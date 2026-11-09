@@ -17,6 +17,7 @@ docs/manual/16-extern.logos
 docs/manual/17-tests.logos
 docs/manual/18-ref-parameters.logos
 docs/manual/19-runtime-access.logos
+docs/manual/20-modules.logos
 examples/hello.logos
 examples/json.logos
 examples/matrix.logos
@@ -42,6 +43,7 @@ src/logosc/fixtures/origins/right/dup.logos
 src/logosc/fixtures/origins/right/right.logos
 src/logosc/fixtures/origins/root.logos
 src/logosc/fixtures/self/self.logos
+src/logosc/fixtures/stdlib/use-map.logos
 src/logosc/fixtures/two/a.logos
 src/logosc/fixtures/two/b.logos
 src/logosc/fixtures/wrong/root.logos
@@ -73,6 +75,7 @@ tests/exec/floats.logos
 tests/exec/hello.logos
 tests/exec/loops.logos
 tests/exec/match.logos
+tests/exec/modules/use-map.logos
 tests/exec/read-file.logos
 tests/exec/read.logos
 tests/exec/ref-param.logos

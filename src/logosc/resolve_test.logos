@@ -243,3 +243,9 @@
     (code 0)
     (leaks 0))
   (dump-file "src/logosc/fixtures/origins/root.logos"))
+
+(test stdlib-module
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/stdlib/use-map.logos"))

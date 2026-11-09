@@ -38,9 +38,11 @@ Build set
 ---------
 ``program`` resolves several files as one build: the modules named on the
 command line answer each other's ``use`` before the file system is asked, and
-a name in no set falls back to a ``<name>.logos`` beside the file that asked.
-Two roots that declare one module name are E0003 at the second, because one
-name cannot be two files.
+a name in no set is looked for as ``<name>.logos`` beside the file that asked,
+then as ``<stdlib>/<name>.logos``. The standard-library directory is supplied
+by the compiler driver, from the same repository root as the C runtime; the
+resolver itself never guesses a location. Two roots that declare one module
+name are E0003 at the second, because one name cannot be two files.
 """
 
 from __future__ import annotations
@@ -108,15 +110,19 @@ def resolve(root: Node, loader: Loader, file: str = "") -> Module:
     return _Resolver(loader, file).module(root, None, "")
 
 
-def program(roots: list[Node]) -> list[Module]:
+def program(roots: list[Node], stdlib: Path | None = None) -> list[Module]:
     """Resolve several parsed files as one build set, in the order given.
 
     The set answers every ``use`` before the file system does: a module named
     on the command line is loaded from its root, not from a sibling file. A
     name in no set is looked for as ``<name>.logos`` beside the file that
-    asked for it, which is the single-file rule; a name nobody can supply is
-    E0005 at the ``use``. Because the loader is told which file asked, one
-    root's directory never answers another root's import.
+    asked for it, then as ``<stdlib>/<name>.logos``; that pair is the single
+    search path. ``stdlib`` is the compiler's standard-library directory,
+    supplied by the driver so it is rooted the same way as the runtime. With
+    ``stdlib=None`` there is no fallback, which keeps a unit test that builds a
+    synthetic program from parsing the file system at all. A name nobody can
+    supply is E0005 at the ``use``. Because the loader is told which file
+    asked, one root's directory never answers another root's import.
 
     Two roots that declare one module name are E0003 at the second, naming
     both files: one name cannot answer for two trees.
@@ -143,7 +149,7 @@ def program(roots: list[Node]) -> list[Module]:
         table[name] = root
         origins[name] = root.file
 
-    loader = _set_loader(table)
+    loader = _set_loader(table, stdlib)
     #: The file that answered each module name anywhere in this build. One
     #: registry for every root, so a name answered by two files is refused
     #: whichever root was listed first.
@@ -183,12 +189,30 @@ def reachable(modules: list[Module]) -> list[Module]:
     return order
 
 
-def _set_loader(table: dict[str, Node]) -> Loader:
-    """A loader that answers from ``table``, then from the asker's directory.
+def file_loader(
+    table: dict[str, Node] | None = None, stdlib: Path | None = None
+) -> Loader:
+    """The file-system loader the compiler hands to :func:`resolve`.
 
-    A sibling file is parsed at most once: a diamond import asks for one name
-    twice, and both answers have to be the same tree, so the module graph holds
-    one node for one file.
+    ``table`` answers a build set's roots by module name before any file is
+    read. ``stdlib`` is the standard-library directory, or ``None`` for a
+    caller that wants the single-file rule alone.
+    """
+    return _set_loader(dict(table or {}), stdlib)
+
+
+def _set_loader(table: dict[str, Node], stdlib: Path | None = None) -> Loader:
+    """A loader that answers from ``table``, then beside the asker, then ``stdlib``.
+
+    The asking file's directory comes first, so a local module shadows the
+    library module of the same name. ``stdlib`` is the one fixed second
+    directory; there is no other search path. A name neither place supplies
+    raises ``FileNotFoundError``, which the resolver reports as E0005.
+
+    A file is parsed at most once: a diamond import asks for one name twice,
+    and both answers have to be the same tree, so the module graph holds one
+    node for one file. The cache is keyed by the file's path, not by the name,
+    because two askers in different directories may reach different files.
     """
 
     trees: dict[str, Node] = {}
@@ -197,20 +221,33 @@ def _set_loader(table: dict[str, Node]) -> Loader:
         tree = table.get(name)
         if tree is not None:
             return tree
-        if not asker:
-            raise FileNotFoundError(name)
-        sibling = Path(asker).parent / f"{name}.logos"
-        key = str(sibling)
-        cached = trees.get(key)
-        if cached is not None:
-            return cached
-        if sibling.is_file():
-            tree = parse(sibling.read_text(encoding="utf-8"), key)
-            trees[key] = tree
-            return tree
+        for candidate in _search(name, asker, stdlib):
+            key = str(candidate)
+            cached = trees.get(key)
+            if cached is not None:
+                return cached
+            if candidate.is_file():
+                tree = parse(candidate.read_text(encoding="utf-8"), key)
+                trees[key] = tree
+                return tree
         raise FileNotFoundError(name)
 
     return loader
+
+
+def _search(name: str, asker: str, stdlib: Path | None) -> list[Path]:
+    """The files that may answer ``name``, in the order they are tried.
+
+    The asker's directory is the first candidate and the standard library the
+    second. An asker with no source path has no directory of its own, so it
+    asks the library directly.
+    """
+    candidates: list[Path] = []
+    if asker:
+        candidates.append(Path(asker).parent / f"{name}.logos")
+    if stdlib is not None:
+        candidates.append(stdlib / f"{name}.logos")
+    return candidates
 
 
 def _same_file(first: str, second: str) -> bool:

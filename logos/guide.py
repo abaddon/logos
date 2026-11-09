@@ -56,6 +56,7 @@ CHAPTER_TITLES = {
     "17-tests": "Tests",
     "18-ref-parameters": "Ref parameters",
     "19-runtime-access": "Runtime access",
+    "20-modules": "Modules",
 }
 
 #: The ten rules that decide whether a program compiles. ``text`` is what the
