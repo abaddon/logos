@@ -400,7 +400,7 @@ def _define(module: Module, node: Node, kind: str, defs: dict[str, Node]) -> Non
     if name is None:
         raise diag(UNKNOWN_NODE, node.path, f"{kind} needs a name")
     if name in defs:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, defs[name], node, node.path)
     defs[name] = node
     table = module.types if kind == "type" else module.fns
     table[name] = node
@@ -423,7 +423,7 @@ def _define_extern(module: Module, node: Node, defs: dict[str, Node]) -> None:
             "extern needs (extern fn name :ret ((p :type) ...))",
         )
     if name in defs:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, defs[name], node, node.path)
     defs[name] = node
     module.externs[name] = node
 
@@ -433,7 +433,7 @@ def _define_test(module: Module, node: Node, tests: dict[str, Node]) -> None:
     if name is None:
         raise diag(UNKNOWN_NODE, node.path, "test needs a name")
     if name in tests:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, tests[name], node, node.path)
     tests[name] = node
     module.tests[name] = node
 
@@ -441,10 +441,27 @@ def _define_test(module: Module, node: Node, tests: dict[str, Node]) -> None:
 def _merge(imported: Module, defs: dict[str, Node], path: str) -> None:
     """Make the imported module's definitions visible, refusing collisions."""
     for table in (imported.types, imported.fns, imported.externs):
-        for name in table:
+        for name, node in table.items():
             if name in defs:
-                raise diag(DUPLICATE, path, f"duplicate definition '{name}'")
-            defs[name] = table[name]
+                raise _duplicate(name, defs[name], node, path)
+            defs[name] = node
+
+
+def _duplicate(name: str, first: Node, second: Node, path: str) -> LogosError:
+    """E0003 for one name declared twice, naming both declarations.
+
+    A collision through an import is only useful if it says both sides: the
+    definition the module already had and the one the import brought in. When
+    both spellings collapse to one node path — two definitions of one name in
+    one module — the short form is the one that can be acted on.
+    """
+    if first.path and second.path and first.path != second.path:
+        return diag(
+            DUPLICATE,
+            path,
+            f"duplicate definition '{name}': {first.path} and {second.path}",
+        )
+    return diag(DUPLICATE, path, f"duplicate definition '{name}'")
 
 
 def _cycle(active: list[str], name: str) -> str:

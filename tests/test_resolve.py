@@ -114,6 +114,28 @@ class DuplicateTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "E0003")
         self.assertEqual(caught.exception.path, "m/p")
 
+    def test_a_duplicate_through_an_import_names_both_paths(self):
+        # The module's own ``f`` and the one the import brought in are two
+        # declarations; the message has to say which, or a reader cannot tell
+        # which one to rename.
+        other = {"other": "(mod other)(fn f :i64 () (ret 1))"}
+        with self.assertRaises(LogosError) as caught:
+            resolve_src("(mod m)(use other)(fn f :i64 () (ret 0))", other)
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertEqual(error.path, "m/f")
+        self.assertIn("other/f", error.message)
+        self.assertIn("m/f", error.message)
+
+    def test_a_duplicate_through_an_import_names_both_paths_in_either_order(self):
+        other = {"other": "(mod other)(fn f :i64 () (ret 1))"}
+        with self.assertRaises(LogosError) as caught:
+            resolve_src("(mod m)(fn f :i64 () (ret 0))(use other)", other)
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertIn("other/f", error.message)
+        self.assertIn("m/f", error.message)
+
     def test_a_fn_and_a_type_may_not_share_a_name(self):
         with self.assertRaises(LogosError) as caught:
             resolve_src("(mod m)(type p (struct))(fn p :i64 () (ret 0))")
