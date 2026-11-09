@@ -117,11 +117,15 @@ git commit -s -m "docs: spec and chapter 19 for the runtime forms, with the fail
 in a loop, and returns the buffer with `err` set. `rt_args` reads `/proc/self/cmdline` from a
 constructor, so the emitted `main` signature does not change. `rt_run_start` uses
 `posix_spawn` with two pipes, drains both with one `poll` loop until both reach EOF, then
-`waitpid`, kills after 30 s and reports 124. Every allocation is `rt_alloc` with a path
-argument so the leak tracker sees it; the pipeline frees the child's buffers when the handle
-is freed by the caller's `vec-free`-equivalent? No: the handle lives for the process, and the
-design records that (`shortcut: a run handle is process-lifetime; upgrade if a compiler ever
-runs a million processes`).
+`waitpid`, kills after 30 s and reports 124.
+
+Allocation rule, and it is the one that decides whether `(leaks 0)` can pass: the file buffer,
+the argv array and the run handle are **process-lifetime** and therefore use plain `malloc`,
+never `rt_alloc`. `rt_alloc` enters the leak report, so a tracked block that lives until exit
+would print `LEAK` on every program that reads a file or runs a child, and the corpus's
+`(leaks 0)` would fail for the wrong reason. Write the reason in a comment beside the first
+use (`shortcut: process-lifetime buffers are not tracked; upgrade if one ever needs
+releasing`).
 
 - [ ] **Step 2: Prove the runtime still links and builds clean**
 
