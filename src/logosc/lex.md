@@ -1,6 +1,6 @@
 # `src/logosc/lex.logos` — the lexer
 
-The first module of the self-hosted compiler: `logos/lexer.py` (146 lines) ported to
+The first module of the self-hosted compiler: the lexer in `logos/lexer.py` ported to
 Logos. Logos has no comments and no doc form, so this file is the header
 documentation the source cannot carry. Read it before calling the module.
 
@@ -99,8 +99,9 @@ whose bytes are not valid UTF-8 has no column model there at all.
 ## Whitespace
 
 Space, `\t` (`0x09`), `\n` (`0x0a`), `\v` (`0x0b`), `\f` (`0x0c`) and `\r`
-(`0x0d`) are skipped and produce no token. That is exactly `str.isspace()` on
-ASCII, so a source that lexes under `logos/lexer.py` skips the same bytes here.
+(`0x0d`) are skipped and produce no token. That is the fixed ASCII set, and
+both lexers use it: `logos/lexer.py` no longer calls Python's `str.isspace()`,
+which would also skip `0x1c`–`0x1f` and Unicode spaces.
 
 ## Atoms
 
@@ -156,11 +157,13 @@ the **decoded** contents, without the quotes.
 | `\r` | carriage return (13) |
 | `\0` | NUL (0) |
 
-Any other byte after a `\` is `unknown escape \<byte>`, reported at the line and
-column of the **backslash**. The message is the one `logos/lexer.py` prints:
-`unknown escape \q`, and — for a backslash before a raw newline — `unknown
-escape \` followed by that newline byte. The escape is validated the moment it is
-seen, so `"a\q` reports the unknown escape, not the missing quote.
+Any other character after a `\` is `unknown escape \<character>`, reported at
+the line and column of the **backslash**. A multibyte character is taken whole,
+as `logos/lexer.py` does: `"\é"` reports `unknown escape \é`, not the lone lead
+byte `0xc3`. The message is the one the Python lexer prints: `unknown escape
+\q`, and — for a backslash before a raw newline — `unknown escape \` followed by
+that newline byte. The escape is validated the moment it is seen, so `"a\q`
+reports the unknown escape, not the missing quote.
 
 A **raw newline inside a string is content**, not an error: it is appended to the
 decoded text and advances the line counter. `"a` then a newline then `b"` is one
@@ -182,53 +185,58 @@ string builder exists yet.
 
 A byte below `0x20` that is not one of the six whitespace bytes, or `0x7f` (DEL),
 is `unknown character`, reported at its own position, and lexing stops there.
-This is the one rule the port adds: `logos/lexer.py` cannot report it, because an
-atom there is *any* run of non-delimiter bytes and a control byte would simply
-join one. The W4 plan asks for `E0006` on an unknown character, so the port draws
-the line where the Python lexer's permissiveness is clearly a bug rather than a
-feature: a source with a NUL or a stray `0x01` in it is corrupt, and saying so at
-its position beats lexing it into an atom that the parser then chokes on.
+`logos/lexer.py` now applies the same rule: it no longer folds a control byte
+into an atom, and no longer silently skips `0x1c`–`0x1f` as `str.isspace()`
+did. The W4 plan asks for `E0006` on an unknown character, and a source with a
+NUL or a stray `0x01` in it is corrupt; saying so at its position beats lexing
+it into an atom that the parser then chokes on.
 
 `0x7f` and the other `0x00`–`0x1f` bytes are covered; a NUL is the only one a
 Logos *literal* can produce (`"\0"`), so it is the one the tests use. Every byte
 from `0x80` up is an atom byte, so no source that lexes today stops lexing.
 
-**The one other divergence is Unicode whitespace.** `logos/lexer.py` calls Python's
-`str.isspace()`, which is true of NBSP, U+2028 and a dozen others; this module is
-byte-level and sees only ASCII whitespace, so such a character joins the atom
-around it instead of separating tokens. No file in the corpus has one outside a
-string, and inside a string there is no difference at all.
+**The two lexers now agree on whitespace and control bytes.**
+`logos/lexer.py` used to call `str.isspace()`, which is true of NBSP, U+2028 and
+a dozen others, while this module is byte-level. After fix round 1 both skip
+only the six ASCII whitespace bytes, so a non-ASCII space joins the atom around
+it in both. No file in the corpus has one outside a string, and inside a string
+there is no difference at all.
 
 ## The error value is a struct, not the enum the brief sketched
 
-The brief suggested `(type lex-error (enum (fine) (bad (line :i64) …)))`. Two
-language rules forbid it as written, and one compiler bug forbids a plain
-work-around:
+The brief suggested `(type lex-error (enum (fine) (bad (line :i64) …)))`. One
+language rule forbids it as written, and the workaround it forced exposed a
+lowerer defect that fix round 1 repaired:
 
 1. **A variant takes at most one payload type.** `(bad (line :i64) (col :i64)
    (msg :str))` is `E0002 an enum variant must be (name) or (name type)`.
-2. **A payload may not be a struct defined in another module**, when the enum is
-   matched *outside* the module that declares it. `(enum (fine) (bad lex-fault))`
-   compiles, and the checker accepts every use, but the emitted IR mixes
-   `%struct.lex-fault` with `%struct.lex.lex-fault` at the payload bitcast and
-   clang rejects the module:
+2. **A struct payload in an enum needed a lowerer fix.** The port hit it in a
+   two-module unit: the emitted IR mixed `%struct.lex-fault` with
+   `%struct.lex.lex-fault` at the payload bitcast, and clang rejected the
+   module — at construction, and even when the enum was matched in the module
+   that declared it. The same composite-blind qualification made a
+   `(res :i64 e)` that names another module's enum crash with
+   `ValueError: no layout registered for enum 'e'`. Fix round 1 makes
+   qualification recursive over the type constructors;
+   `tests/regress/enum-payload-struct`, `result-foreign-enum` and
+   `vec-foreign-struct` pin it, and an enum may now carry a struct payload
+   declared anywhere.
 
-   ```
-   error: '%t20' defined with type '%struct.lex-fault*' but expected '%struct.lex.lex-fault*'
-   ```
-
-   A wildcard arm `((bad _) …)` does not escape it, and W4 may not change the
-   checker or the lowerer, so the shape moves:
+   The module still ships the struct shape, but no longer because of that bug:
+   a variant takes one payload type and the error carries three values, so
+   those values have to be a struct either way. An enum would be a tag around
+   the same struct, adding a match without saving a field; the `failed` flag
+   already is that tag.
 
 ```logos
 (type lex-error (struct (failed :bool) (line :i64) (col :i64) (msg :str)))
 ```
 
 A struct crosses a module boundary, is passed by value and is read with `(get e
-line)` without trouble; only the enum-with-a-struct-payload path is broken. The
-cost is one `:bool` and two helpers, `lex-pass` and `lex-fail`, in place of a
-match. When the payload bug is fixed, this can go back to the enum the brief
-wanted; nothing else in the module would change.
+line)` without trouble. The cost is one `:bool` and two helpers, `lex-pass` and
+`lex-fail`, in place of a match; that is a style choice now, not a workaround,
+and it can still become an enum around the same struct if the tag ever earns a
+third state.
 
 `line` and `col` are `0` in `lex-pass` and are meaningless there: read them only
 when `(lex-ok e)` is false.
@@ -250,14 +258,15 @@ when `(lex-ok e)` is false.
 
 ## `src/logosc/lex_test.logos`
 
-22 cases, each `(leaks 0)` and each run at `-O0` and `-O2`: the empty source; `(`;
+24 cases, each `(leaks 0)` and each run at `-O0` and `-O2`: the empty source; `(`;
 `)(`; `(a) (b)`; `(+ -3 4)`; the number matrix above; a tab's column; the
-character columns of `héllo (x)` and `→\t(`; a three-line source; CRLF and `\t`
-as whitespace; adjacent strings; the six escapes decoded byte by byte
-(`92 34 10 9 13 0`); a string holding a NUL; the empty string; a raw newline
-inside a string; `"abc` under `unterminated`; `"abc\` under
-`unterminated-escape`; `"a\qb"` under `unknown-escape`; a backslash before a raw
-newline under `unknown-escape-newline`; `"a\q` with no closing quote under
+character columns of `héllo (x)`, `→\t(` and `(é)` (whose `)` is column 3); a
+three-line source; CRLF and `\t` as whitespace; adjacent strings; the six
+escapes decoded byte by byte (`92 34 10 9 13 0`); a string holding a NUL; the
+empty string; a raw newline inside a string; `"abc` under `unterminated`;
+`"abc\` under `unterminated-escape`; `"a\qb"` under `unknown-escape`; `"a\é"`
+under `unknown-escape-multibyte`; a backslash before a raw newline under
+`unknown-escape-newline`; `"a\q` with no closing quote under
 `unknown-escape-unterminated`; and a NUL outside a string under
 `unknown-character`. Each error case asserts the line, the column and the whole
 message.
