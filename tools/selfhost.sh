@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # The sixth gate: the self-hosted front end must reproduce canonical source.
 #
-# Build gen2 from src/logosc/*.logos with the Python compiler, then run
-# `gen2 fmt <file>` for every path in tools/selfhost-manifest.txt and compare
-# its stdout with the file, byte for byte. Every tracked .logos file is
+# Build gen2 from src/logosc/*.logos plus the two standard modules gen2 may
+# use: map and str. Only those two, not the whole src/std directory — the
+# stdlib's `_test` files carry `(test …)` forms and are not modules gen2 needs.
+# Then run `gen2 fmt <file>` for every path in tools/selfhost-manifest.txt and
+# compare its stdout with the file, byte for byte. Every tracked .logos file is
 # canonical (tools/accept.sh proves the Python formatter is a fixed point), so
 # any difference is either a printer bug in the Logos port or a file that is no
 # longer canonical.
@@ -54,7 +56,7 @@ if (( COUNT != TRACKED )); then
 fi
 
 shopt -s nullglob
-SOURCES=(src/logosc/*.logos)
+SOURCES=(src/logosc/*.logos src/std/map.logos src/std/str.logos)
 shopt -u nullglob
 if (( ${#SOURCES[@]} == 0 )); then
     echo "selfhost: no sources under src/logosc; cannot build gen2" >&2

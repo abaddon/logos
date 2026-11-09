@@ -42,7 +42,7 @@
   (ret 2))
 
 (fn main-resolved :i64 ((file :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
-  (let e resolve-error (resolve-file nodes ntexts))
+  (let e resolve-error (resolve-file nodes ntexts file))
   (ret (if (resolve-ok e) 0
          (main-resolve-diag file e))))
 

@@ -16,13 +16,13 @@
     (println "OK")
     (show-fail e)))
 
-(fn dump-tree :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+(fn dump-tree :void ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (if (tree-ok t)
-    (show (resolve-file nodes ntexts))
+    (show (resolve-file nodes ntexts path))
     (println (get t msg))))
 
-(fn dump-src :void ((src :str))
+(fn dump-src-at :void ((path :str) (src :str))
   (letmut kinds
     (vec :i64)
     (make (vec :i64)))
@@ -43,7 +43,7 @@
     (make (vec :str)))
   (let e lex-error (lex src kinds texts lines cols))
   (if (lex-ok e)
-    (dump-tree kinds texts lines cols nodes ntexts)
+    (dump-tree path kinds texts lines cols nodes ntexts)
     (println (get e msg)))
   (vec-free kinds)
   (vec-free texts)
@@ -51,6 +51,12 @@
   (vec-free cols)
   (vec-free nodes)
   (vec-free ntexts))
+
+(fn dump-src :void ((src :str))
+  (dump-src-at "src/logosc/resolve_test.logos" src))
+
+(fn dump-file :void ((path :str))
+  (dump-src-at path (read-file path)))
 
 (test module-alone
   (expect (out "OK\n")
@@ -129,3 +135,111 @@
     (code 0)
     (leaks 0))
   (dump-src "(mod m)\n(fn f :i64 () (println 1))"))
+
+(test use-no-argument
+  (expect (out "E0002\nm/0\nuse takes one module name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(use)"))
+
+(test use-two-arguments
+  (expect (out "E0002\nm/0\nuse takes one module name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(use a b)"))
+
+(test use-number
+  (expect (out "E0002\nm/0\nuse takes one module name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(use 1)"))
+
+(test nameless-fn
+  (expect (out "E0002\nm/0\nfn needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn)"))
+
+(test nameless-type
+  (expect (out "E0002\nm/0\ntype needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(type (struct))"))
+
+(test nameless-test
+  (expect (out "E0002\nm/0\ntest needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(test (expect (code 0)))"))
+
+(test duplicate-extern
+  (expect (out "E0003\nm/get\nduplicate definition 'get'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(extern fn get :i64 ())\n(extern fn get :i64 ())"))
+
+(test import-two
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/two/a.logos"))
+
+(test import-diamond
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/diamond/root.logos"))
+
+(test import-not-transitive
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/nontrans/root.logos"))
+
+(test import-self
+  (expect (out "E0004\nself/0\ncircular import: self -> self\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/self/self.logos"))
+
+(test import-cycle
+  (expect (out "E0004\nb/0\ncircular import: a -> b -> a\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/cycle/a.logos"))
+
+(test unknown-module
+  (expect (out "E0005\nroot/0\nunknown module 'nope'\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/missing/root.logos"))
+
+(test wrong-module-name
+  (expect (out "E0005\nroot/0\nmodule 'wrong' declares itself 'other'\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/wrong/root.logos"))
+
+(test merge-local-first
+  (expect (out "E0003\nmerge-local/1\nduplicate definition 'f': merge-local/f and other/f\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/merge/local.logos"))
+
+(test merge-import-first
+  (expect (out "E0003\nmerge-imported/f\nduplicate definition 'f': other/f and merge-imported/f\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/merge/imported.logos"))
+
+(test merge-kind-order
+  (expect (out "E0003\nmerge-cross/2\nduplicate definition 'b': merge-cross/b and cross-other/b\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/merge/cross.logos"))
+
+(test duplicate-module-file
+  (expect (out "E0003\ndup\nduplicate module 'dup': src/logosc/fixtures/origins/left/dup.logos and src/logosc/fixtures/origins/right/dup.logos\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/origins/root.logos"))

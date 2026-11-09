@@ -1,0 +1,6 @@
+(mod a)
+
+(use b)
+
+(fn fa :i64 ()
+  (ret 0))

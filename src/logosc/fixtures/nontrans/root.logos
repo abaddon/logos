@@ -1,0 +1,6 @@
+(mod nontrans)
+
+(use mid)
+
+(fn g :i64 ()
+  (ret 0))

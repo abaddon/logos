@@ -1,0 +1,4 @@
+(mod base)
+
+(fn g :i64 ()
+  (ret 1))

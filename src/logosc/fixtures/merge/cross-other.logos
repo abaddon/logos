@@ -1,0 +1,6 @@
+(mod cross-other)
+
+(fn a :i64 ()
+  (ret 1))
+
+(type b (struct (y :i64)))

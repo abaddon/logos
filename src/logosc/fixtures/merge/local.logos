@@ -1,0 +1,6 @@
+(mod merge-local)
+
+(fn f :i64 ()
+  (ret 0))
+
+(use other)

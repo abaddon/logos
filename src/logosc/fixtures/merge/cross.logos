@@ -1,0 +1,8 @@
+(mod merge-cross)
+
+(fn a :i64 ()
+  (ret 0))
+
+(type b (struct (x :i64)))
+
+(use cross-other)

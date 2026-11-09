@@ -77,10 +77,12 @@ exits 2:
 ```
 
 `<path>` is the node path the resolver named — `m/f`, `m/test/t`, `m/0`,
-`a/b` — or the source file when the diagnostic has no node behind it, which is
-only a file with no `(mod ...)` form. The codes are `E0002` and `E0003` in
-Task 1; Task 2 adds `E0004` and `E0005`. `resolve` stops before the checker,
-so a file with a type error resolves and exits 0.
+`a/b`, or `b/0` for a cycle — or the source file when the diagnostic has no
+node behind it, which is only a file with no `(mod ...)` form. The codes are
+`E0002` (unknown node / malformed form), `E0003` (duplicate definition,
+duplicate module), `E0004` (circular import) and `E0005` (unknown module, or a
+module that declares another name). `resolve` stops before the checker, so a
+file with a type error resolves and exits 0.
 
 ## Functions
 
@@ -120,24 +122,28 @@ one costs no allocation either.
 
 ## Building it
 
-`gen2` is one program built from the whole module set:
+`gen2` is one program built from the whole module set gen2 may use: every
+`src/logosc/*.logos` file and the two standard modules the compiler's tables
+name, `src/std/map.logos` and `src/std/str.logos`:
 
 ```sh
-python3 -m logos build src/logosc/*.logos -o build/selfhost/gen2
+python3 -m logos build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/selfhost/gen2
 ```
 
-Exactly one module defines `main`; the `*_test.logos` modules in the set are
-compiled but their `(test …)` bodies are not entry points, so they add no second
-entry. `use` resolves against the build set, which is why `fmt <file>` needs no
-search path. `tools/selfhost.sh` is the caller: it builds this binary and runs
-it over every tracked `.logos` file.
+Only those two stdlib files, not the whole `src/std` directory: the stdlib's
+`_test` files carry `(test …)` forms and are not modules gen2 needs. Exactly one
+module defines `main`; the `*_test.logos` modules in the set are compiled but
+their `(test …)` bodies are not entry points, so they add no second entry. `use`
+resolves against the build set, which is why `fmt <file>` needs no search path.
+`tools/selfhost.sh` is the caller: it builds this binary and runs it over every
+tracked `.logos` file.
 
 ## What it does not do
 
 - **No checker.** `fmt`'s contract is layout, not acceptance; a file with a
   type error formats and exits 0. The Python `fmt` verb behaves the same way.
-  `resolve` likewise stops at names: it does not type-check, and it does not
-  follow `use` (Task 2 does).
+  `resolve` likewise stops at names: it does not type-check, but it does follow
+  `use`, reading `<name>.logos` beside the asking file (see `resolve.md`).
 - **No in-place rewrite.** `main` prints; it never writes the file back. The
   gate compares the stream with the file, and a caller that wants to rewrite
   redirects it.
