@@ -3489,6 +3489,9 @@ class _Checker:
             )
         for index, (arg, param) in enumerate(zip(args, sig.params), start=1):
             ty = self._value(arg, env, param, node.path)
+            self._refuse_ref(
+                ty, _at(arg, node), f"passing it to a thread as argument {index}"
+            )
             if _escapes(ty):
                 raise diag(CLOSURE_ESCAPE, _at(arg, node), _CLOSURE_ESCAPE)
             if self._move_only(ty):
@@ -3570,7 +3573,7 @@ class _Checker:
         # the ring. The same E0700 a spawn argument gets applies here too: an
         # element that is, or holds at any depth, shared state with no
         # `(shared ...)` marker must say so at the element type.
-        _channel_element(elem, node.path)
+        _channel_element(elem, node.path, self._structs, self._enums)
         if _zero_sized(elem, self._structs):
             # The ring copies one element per slot and the caller passes a
             # zero-byte stack slot; the runtime writes at least one byte into
@@ -3608,6 +3611,7 @@ class _Checker:
             raise diag(WRONG_ARITY, node.path, "send takes a channel and a value")
         chan = self._chan_operand(items[1], env, node)
         ty = self._value(items[2], env, chan.elem, node.path)
+        self._refuse_ref(ty, _at(items[2], node), "sending it")
         if _escapes(ty):
             # The ring outlives this frame; a capturing closure's environment
             # is a slot in it. Same rule as any other place a value can be
@@ -4139,7 +4143,7 @@ class _Checker:
                 raise diag(
                     TYPE_MISMATCH, node.path, f"'{name}' is not a function: found {var.ty}"
                 )
-            return self._arguments(node, env, name, var.ty)
+            return self._arguments(node, env, name, var.ty, indirect=True)
         found = env.fns.get(name)
         if found is None:
             if name in PRINTERS:
@@ -4183,8 +4187,17 @@ class _Checker:
             return self._generic_call(node, env, name, found)
         return self._arguments(node, env, name, found)
 
-    def _arguments(self, node: Node, env: _Env, name: str, sig: FnTy) -> Ty:
-        """Check one call's arguments against ``sig`` and return its type."""
+    def _arguments(
+        self, node: Node, env: _Env, name: str, sig: FnTy, *, indirect: bool = False
+    ) -> Ty:
+        """Check one call's arguments against ``sig`` and return its type.
+
+        ``indirect`` says the callee is a function *value* rather than a named
+        definition. A ref may cross a direct call — the callee's body is known
+        and cannot keep the address — but not this one: the value can be stored
+        in a field or a vector and called after the frame that lent the ref has
+        gone, so every argument of an indirect call is E0305 when it is a ref.
+        """
         args = node.items[1:]
         if len(args) != len(sig.params):
             raise diag(
@@ -4198,6 +4211,15 @@ class _Checker:
                 # A ref parameter borrows the argument's descriptor; nothing
                 # is transferred, so the caller may keep using and release it.
                 var = self._ref_arg(node, env, index)
+                if indirect and isinstance(var.ty, Ref):
+                    # The value can be stored and called after the frame that
+                    # lent the ref has gone, so the address may not cross. A
+                    # direct call is safe: its callee's body is known.
+                    self._refuse_ref(
+                        var.ty,
+                        _at(arg, node),
+                        "passing it to a function value, which may outlive the call",
+                    )
                 given = var.ty.elem if isinstance(var.ty, Ref) else var.ty
                 if not compatible(param.elem, given):
                     raise diag(
@@ -4849,7 +4871,7 @@ def resolve_type(
             # argument crosses into a thread: an element that is, or holds at
             # any depth, a bare pointer or synchronization handle must carry
             # the ``(shared ...)`` marker, exactly as the argument would.
-            _channel_element(elem, path)
+            _channel_element(elem, path, structs, enums)
             if _unmarked_share(elem, structs, enums):
                 raise diag(SHARED_MARKER, path, _SHARED_MARKER)
             return Chan(elem)
@@ -5235,15 +5257,72 @@ def _unmarked_share(
     return False
 
 
-def _channel_element(elem: Ty, path: str) -> Ty:
+def _holds_ref(
+    ty: Ty,
+    structs: dict[str, tuple[tuple[str, Ty], ...]] | None = None,
+    enums: dict[str, tuple[tuple[str, Ty | None], ...]] | None = None,
+    seen: frozenset[str] = frozenset(),
+) -> bool:
+    """Whether ``ty`` is, or holds at any depth, a ``(ref T)``.
+
+    A ref is an address in the caller's frame. The type that contains it does
+    not copy it into a self-contained value: sending the container into a
+    channel ring or a spawned thread carries the address with it, so the
+    check that guards those crossings has to see through arrays, vectors,
+    optionals, results and the visible struct and enum tables, exactly as
+    :func:`_unmarked_share` does for a raw pointer. A ``(ref ...)`` is not a
+    stop the way ``(shared ...)`` is: there is no marker that makes an address
+    into storage the frame still owns.
+    """
+    if isinstance(ty, Ref):
+        return True
+    if isinstance(ty, (Arr, Vec, Opt)):
+        return _holds_ref(ty.elem, structs, enums, seen)
+    if isinstance(ty, Res):
+        return _holds_ref(ty.ok, structs, enums, seen) or _holds_ref(
+            ty.err, structs, enums, seen
+        )
+    if isinstance(ty, StructRef):
+        if structs is None or ty.name in seen:
+            return False
+        inner = seen | {ty.name}
+        return any(
+            _holds_ref(field, structs, enums, inner)
+            for _name, field in structs.get(ty.name, ())
+        )
+    if isinstance(ty, EnumRef):
+        if enums is None or ty.name in seen:
+            return False
+        inner = seen | {ty.name}
+        return any(
+            payload is not None and _holds_ref(payload, structs, enums, inner)
+            for _variant, payload in enums.get(ty.name, ())
+        )
+    return False
+
+
+def _channel_element(
+    elem: Ty,
+    path: str,
+    structs: dict[str, tuple[tuple[str, Ty], ...]] | None = None,
+    enums: dict[str, tuple[tuple[str, Ty | None], ...]] | None = None,
+) -> Ty:
     """Refuse a channel element the ring cannot copy, at ``path``.
 
     A channel stores copies of its elements and copies them again on ``recv``,
     so the element must have a copy: not a vector or an owner (two owners of one
     block), not a result (an obligation with no name to discharge it), not
     ``:void`` (no value exists), and not a capturing closure (its environment
-    belongs to the frame that made it).
+    belongs to the frame that made it). A ref, or anything holding one, is the
+    same failure one step removed: the ring outlives the call that lent the
+    address, and no value of the element type could ever be sent.
     """
+    if _holds_ref(elem, structs, enums):
+        raise diag(
+            REF_ESCAPE,
+            path,
+            "a ref cannot escape the call: a channel cannot carry it",
+        )
     if _is_void(elem):
         raise diag(TYPE_MISMATCH, path, "a channel cannot carry :void")
     if holds_owner(elem):
