@@ -1437,6 +1437,7 @@ RESERVED_FORMS = frozenset(
     if while match let letmut set ret make get set-field alloc free ptr deref
     set-deref ptr-add print println spawn join lock unlock send recv ok err some
     none try break continue cast shl shr shr-u and or not
+    read-file args f64-bits
     """.split()
 )
 #: Form families: every name starting with one of these heads is a form.
@@ -1942,8 +1943,18 @@ class _Checker:
             return self._str_eq(node, env)
         if kind == "str-slice":
             return self._str_slice(node, env)
+        if kind == "str-byte":
+            return self._str_byte(node, env)
+        if kind == "str-from-i64":
+            return self._str_from_i64(node, env)
+        if kind == "f64-bits":
+            return self._f64_bits(node, env)
         if kind == "read-all":
             return self._read_all(node, env)
+        if kind == "read-file":
+            return self._read_file(node, env)
+        if kind == "args":
+            return self._args(node, env)
         if kind == "vec-push":
             return self._vec_push(node, env)
         if kind == "vec-len":
@@ -3050,6 +3061,106 @@ class _Checker:
         if len(node.items) != 1:
             raise diag(WRONG_ARITY, node.path, "'read-all' takes no arguments")
         return Prim("str")
+
+    def _read_file(self, node: Node, env: _Env) -> Ty:
+        """``(read-file p)``: the whole of the file ``p`` names, as ``:str``.
+
+        There is no result and no ``errno``: a path the process cannot open or
+        read is a panic (R0007) that names the file, because a ``:str`` has
+        nowhere else to carry the failure. The bytes are the runtime's, so the
+        program owns nothing and has no way to release them.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'read-file' takes a :str")
+        self._exact_operand(items[1], env, node, Prim("str"), "read-file")
+        return Prim("str")
+
+    def _args(self, node: Node, env: _Env) -> Ty:
+        """``(args)``: the command line as a tracked ``(vec :str)``.
+
+        The elements point into the runtime's process-lifetime copy of the
+        command line, but the descriptor and its buffer are the caller's: the
+        vector is an ordinary one, so ``vec-free`` releases it and the leak
+        report sees nothing at exit.
+        """
+        if len(node.items) != 1:
+            raise diag(WRONG_ARITY, node.path, "'args' takes no arguments")
+        return Vec(Prim("str"))
+
+    def _str_byte(self, node: Node, env: _Env) -> Ty:
+        """``(str-byte s i)``: the byte at offset ``i``, as ``:u8``.
+
+        Bounds are checked at run time (R0003): the length of a computed string
+        is not something the checker can know, and the load must not read past
+        the buffer.
+        """
+        items = node.items
+        if len(items) != 3:
+            raise diag(WRONG_ARITY, node.path, "'str-byte' takes a :str and an index")
+        self._exact_operand(items[1], env, node, Prim("str"), "str-byte")
+        self._integer_operand(items[2], env, node, "str-byte", "an integer index")
+        return Prim("u8")
+
+    def _str_from_i64(self, node: Node, env: _Env) -> Ty:
+        """``(str-from-i64 v)``: ``v`` in decimal, as a new ``:str``.
+
+        Every integer width is accepted; the backend widens the operand to the
+        ``long long`` the runtime formats.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an integer")
+        self._integer_operand(items[1], env, node, "str-from-i64")
+        return Prim("str")
+
+    def _f64_bits(self, node: Node, env: _Env) -> Ty:
+        """``(f64-bits v)``: the IEEE 754 binary64 pattern of ``v``, as ``:i64``.
+
+        A bitcast, not a conversion: the bits are read as an integer so the
+        value can be compared or printed exactly as the hardware holds it.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'f64-bits' takes a :f64")
+        self._exact_operand(items[1], env, node, Prim("f64"), "f64-bits")
+        return Prim("i64")
+
+    def _exact_operand(
+        self, item: Node | Token, env: _Env, node: Node, want: Ty, what: str
+    ) -> Ty:
+        """One operand that must be exactly ``want``, or E0100 at it.
+
+        The runtime-access forms report a wrong argument as E0100 with the
+        operand's own path: every one of them names its argument's type in the
+        message, and the specification fixes that shape for all of them.
+        """
+        ty = self._value(item, env, want, node.path)
+        if not compatible(want, ty):
+            raise diag(
+                TYPE_MISMATCH,
+                _at(item, node),
+                f"'{what}' takes a {want}, found {ty}",
+            )
+        return ty
+
+    def _integer_operand(
+        self,
+        item: Node | Token,
+        env: _Env,
+        node: Node,
+        what: str,
+        noun: str = "an integer",
+    ) -> Ty:
+        """One operand of any integer width, or E0100 at it."""
+        ty = self._value(item, env, None, node.path)
+        if not _integer(ty):
+            raise diag(
+                TYPE_MISMATCH,
+                _at(item, node),
+                f"'{what}' needs {noun}, found {ty}",
+            )
+        return ty
 
     # -- vectors ----------------------------------------------------------
 

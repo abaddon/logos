@@ -536,6 +536,33 @@ _RT_STR_CONCAT = IrDecl(
 #: slot, and ``path`` names the ``read-all`` node for a failed read (R0003).
 _RT_READ_ALL = IrDecl("rt_read_all", (Ptr(Prim("i64")), Ptr(Prim("u8"))), _VOID_PTR)
 
+#: ``size_t rt_read_file(const unsigned char *path, size_t n,
+#: const unsigned char **out, const char *node_path)``. The whole file, in a
+#: process-lifetime untracked buffer the runtime owns: a ``:str`` owns nothing,
+#: so the program owes no ``free``. The length is the return value and the
+#: buffer comes back through a slot, because a two-word return would be an
+#: ``sret`` argument. ``node_path`` is the ``read-file`` node, so a path that
+#: cannot be read panics R0007 at the call.
+_RT_READ_FILE = IrDecl(
+    "rt_read_file",
+    (_VOID_PTR, Prim("i64"), Ptr(_PTR_U8), Ptr(Prim("u8"))),
+    Prim("i64"),
+)
+
+#: ``size_t rt_args(const rt_arg **args)``. ``rt_arg`` is a pointer and a
+#: length — the same sixteen bytes as a ``:str`` — so the runtime's array is
+#: layout-compatible with the elements of a ``(vec :str)``. The pairs point
+#: into a process-lifetime copy of the command line, and the array is not a
+#: Logos value: the form copies both into a tracked buffer the caller frees.
+_RT_ARGS = IrDecl("rt_args", (Ptr(_PTR_U8),), Prim("i64"))
+
+#: ``unsigned char *rt_str_from_i64(long long v, size_t *out_len)``. The text
+#: is a process-lifetime untracked buffer, like ``rt_str_concat``'s result; the
+#: byte count comes back through a slot.
+_RT_STR_FROM_I64 = IrDecl(
+    "rt_str_from_i64", (Prim("i64"), Ptr(Prim("i64"))), _VOID_PTR
+)
+
 #: ``int memcmp(const void *a, const void *b, size_t n)``: the byte comparison
 #: inside ``str-eq``. Declared with its real signature so the call is not a
 #: lie about the C ABI; the result is the sign of the difference, and only its
@@ -2381,6 +2408,150 @@ class _Fn:
         self.emit(("load", length, Prim("i64"), slot))
         return self.str_value(data, length)
 
+    def read_file(self, node: Node) -> str:
+        """``(read-file p)``: one runtime call, the whole file as a value.
+
+        The runtime owns the buffer for the process's life, so the value owns
+        nothing and no ``free`` is owed. A path it cannot open or read never
+        returns: the runtime panics R0007 at ``node.path``, naming the file,
+        because the form's type leaves the failure nowhere else to go.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'read-file' takes a :str")
+        pointer, length = self.str_parts(items[1], node.path)
+        slot = self.slot(_PTR_U8, path=node.path)
+        self.lowering.declare(_RT_READ_FILE)
+        size = self.temp()
+        self.emit(
+            (
+                "call",
+                size,
+                "rt_read_file",
+                (pointer, length, slot, self._c_argument(node.path)),
+            )
+        )
+        data = self.temp()
+        self.emit(("load", data, _PTR_U8, slot))
+        return self.str_value(data, size)
+
+    def args(self, node: Node) -> str:
+        """``(args)``: the command line, copied into a tracked ``(vec :str)``.
+
+        The runtime's pairs are layout-compatible with ``:str`` — a pointer
+        then a length, sixteen bytes — so the whole array is one ``memcpy``
+        into a buffer ``rt_alloc`` gives the caller. That buffer is tracked on
+        purpose: this vector is an ordinary one, and the program releases it
+        with ``vec-free`` the way it releases any other. Only the bytes the
+        pairs point at live for the process, and they are untracked.
+
+        A count of zero is the one case with no buffer: the descriptor is
+        (NULL, 0, 0), which ``vec-free`` treats as free(NULL).
+        """
+        items = node.items
+        if len(items) != 1:
+            raise diag(WRONG_ARITY, node.path, "'args' takes no arguments")
+        ty = self.type_of(node)
+        if not isinstance(ty, Vec):
+            raise diag(
+                UNKNOWN_NODE,
+                node.path,
+                f"'args' did not produce a vector, found {ty}",
+            )
+        self.lowering.use_type(ty.elem, node.path)
+        size = sizeof_of(ty.elem, *self.lowering.layouts())
+        align = align_of(ty.elem, *self.lowering.layouts())
+        slot = self.slot(_PTR_U8, path=node.path)
+        self.lowering.declare(_RT_ARGS)
+        count = self.temp()
+        self.emit(("call", count, "rt_args", (slot,)))
+        source = self.temp()
+        self.emit(("load", source, _PTR_U8, slot))
+        empty = self.temp()
+        self.emit(("icmp", empty, "eq", Prim("i64"), count, "0"))
+        origin = self.block.label
+        self.labels += 1
+        tag = f"args{self.labels}"
+        fill, done = f"{tag}.fill", f"{tag}.done"
+        self.block.term = ("cbr", empty, done, fill)
+
+        self.new_block(fill)
+        self.no_overflow(count, size, node.path)
+        if size == 1:
+            bytes_ = count
+        else:
+            bytes_ = self.temp()
+            self.emit(("mul", bytes_, Prim("i64"), count, str(size)))
+        self.lowering.declare(_RT_ALLOC)
+        raw = self.temp()
+        self.emit(
+            ("call", raw, "rt_alloc", (bytes_, str(align), self._c_argument(node.path)))
+        )
+        fresh = self.temp()
+        self.emit(("bitcast", fresh, _VOID_PTR, Ptr(ty.elem), raw))
+        # ``rt_args`` never hands back a count without an array, so ``source``
+        # is a real address on this path.
+        self.lowering.declare(_MEMCPY)
+        self.emit(("call", "", "memcpy", (raw, source, bytes_)))
+        producer = self.block.label
+        self.block.term = ("br", done)
+
+        self.new_block(done)
+        data = self.temp()
+        self.emit(
+            ("phi", data, Ptr(ty.elem), (("null", origin), (fresh, producer)))
+        )
+        return self.vec_value(ty, data, count, count)
+
+    def str_byte(self, node: Node) -> str:
+        """``(str-byte s i)``: one byte through the data pointer.
+
+        The index is widened to ``i64`` so a negative value reads as a huge
+        unsigned one and fails the same bounds test a too-large one does. The
+        test panics R0003 at the call, because a string the program built has
+        a length only the running program knows.
+        """
+        items = node.items
+        if len(items) != 3:
+            raise diag(WRONG_ARITY, node.path, "'str-byte' takes a :str and an index")
+        pointer, length = self.str_parts(items[1], node.path)
+        index = self.index64(items[2], node.path, "byte index")
+        checked = self.bounds(length, index, node.path, "byte index")
+        address = self.temp()
+        self.emit(("gep", address, Prim("u8"), pointer, (("i64", checked),)))
+        dest = self.temp()
+        self.emit(("load", dest, Prim("u8"), address))
+        return dest
+
+    def str_from_i64(self, node: Node) -> str:
+        """``(str-from-i64 v)``: the runtime formats the operand as decimal.
+
+        The operand is extended to the ``long long`` the runtime takes: a
+        narrow signed value sign-extends, an unsigned one zero-extends, so the
+        text is the value the program held.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'str-from-i64' takes an integer")
+        value = self.index64(items[1], node.path, "integer")
+        slot = self.slot(Prim("i64"), path=node.path)
+        self.lowering.declare(_RT_STR_FROM_I64)
+        data = self.temp()
+        self.emit(("call", data, "rt_str_from_i64", (value, slot)))
+        length = self.temp()
+        self.emit(("load", length, Prim("i64"), slot))
+        return self.str_value(data, length)
+
+    def f64_bits(self, node: Node) -> str:
+        """``(f64-bits v)``: the same eight bytes, read as ``:i64``."""
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'f64-bits' takes a :f64")
+        value = self.value(items[1], node.path)
+        dest = self.temp()
+        self.emit(("bitcast", dest, Prim("f64"), Prim("i64"), value))
+        return dest
+
     # -- vectors ----------------------------------------------------------
 
     def empty_vector(self, ty: Vec, path: str) -> str:
@@ -3197,8 +3368,18 @@ class _Fn:
             return self.str_eq_form(item)
         if kind == "str-slice":
             return self.str_slice(item)
+        if kind == "str-byte":
+            return self.str_byte(item)
+        if kind == "str-from-i64":
+            return self.str_from_i64(item)
+        if kind == "f64-bits":
+            return self.f64_bits(item)
         if kind == "read-all":
             return self.read_all(item)
+        if kind == "read-file":
+            return self.read_file(item)
+        if kind == "args":
+            return self.args(item)
         if kind == "vec-len":
             return self.vec_len(item)
         if kind == "vec-get":

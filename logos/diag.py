@@ -45,6 +45,12 @@ quote it.
   that could not be created, locked or unlocked, or a condition variable that
   failed while a channel was blocking. The location is the node that asked
   (the ``spawn``, the ``join``, the ``lock``, the ``send`` or the ``recv``).
+* ``R0007`` a file could not be read — raised by ``rt_read_file`` for a
+  ``(read-file p)`` whose path cannot be opened or read. Unlike the codes
+  above it is in ``CODES``: the form is part of the language's surface and the
+  manual lists what a program can panic with, so its name and meaning are
+  published rather than described only here. The message is ``could not read
+  <path>`` and the location is the ``read-file`` node.
 
 R0002 and R0004 are runtime names only: nothing in the compiler emits them.
 A runtime check with no node behind it prints ``<runtime>`` in the location
@@ -89,6 +95,7 @@ CODES = {
     "E0601": "try type mismatch",
     "E0602": "unhandled result",
     "E0700": "shared state not marked",
+    "R0007": "could not read a file",
 }
 
 UNBALANCED = "E0001"
@@ -206,6 +213,12 @@ FLOAT_RANGE = "R0003"
 #: ``R0002`` it is a runtime name only; the compiler never emits it, and the
 #: location it prints is ``<runtime>`` because no node allocated the block.
 FREE_UNKNOWN = "R0004"
+
+#: The runtime code for a ``(read-file p)`` whose path could not be opened or
+#: read. The runtime raises it, not the lowerer: only the running process knows
+#: whether the file is there, and the form returns a ``:str``, so a failure has
+#: nowhere else to go. It is the one runtime code in ``CODES``.
+READ_FILE = "R0007"
 
 
 class LogosError(Exception):
