@@ -1,0 +1,9 @@
+(mod ref-escape-spawn)
+
+(fn grow :void ((v (ref (vec :i64))))
+  (vec-push v 1))
+
+(fn mid :void ((w (ref (vec :i64))))
+  (letmut t :thread (spawn grow w))
+  (join t)
+  (ret))

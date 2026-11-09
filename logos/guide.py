@@ -54,6 +54,7 @@ CHAPTER_TITLES = {
     "15-threads": "Threads",
     "16-extern": "extern",
     "17-tests": "Tests",
+    "18-ref-parameters": "Ref parameters",
 }
 
 #: The ten rules that decide whether a program compiles. ``text`` is what the
@@ -155,6 +156,7 @@ TYPE_ARITY = {
     "vec": "1",
     "ptr": "1",
     "own": "1",
+    "ref": "1",
     "fn": "2",
     "fn*": "2",
     "res": "2",
@@ -169,6 +171,7 @@ TYPE_MEANING = {
     "vec": "`(vec T)` a growable array owned by a three-word descriptor",
     "ptr": "`(ptr T)` a raw pointer to T",
     "own": "`(own T)` an owning pointer, released by `free`",
+    "ref": "`(ref (vec T))` a non-owning reference to a caller's mutable vector",
     "fn": "`(fn (T...) R)` a plain function value",
     "fn*": "`(fn* (T...) R)` a capturing closure, confined to its frame",
     "res": "`(res T E)` an ok T or an error E; must be handled",

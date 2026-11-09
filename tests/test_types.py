@@ -32,6 +32,7 @@ from logos.types import (
     Own,
     Prim,
     Ptr,
+    Ref,
     Res,
     Shared,
     StructRef,
@@ -198,6 +199,54 @@ class TypeSyntaxTest(unittest.TestCase):
             parse_type(type_syntax("2"))
         self.assertEqual(caught.exception.code, "E0101")
 
+    def test_a_ref_of_a_vector_parses(self):
+        ty = parse_type(type_syntax("(ref (vec :i64))"))
+        self.assertEqual(ty, Ref(Vec(Prim("i64"))))
+        self.assertEqual(str(ty), "(ref (vec :i64))")
+
+    def test_a_ref_of_a_named_type_is_refused(self):
+        # A bare name is a struct or enum reference, never a vector, so the
+        # parser settles it: nothing downstream has to read a Ref it cannot.
+        with self.assertRaises(LogosError) as caught:
+            parse_type(type_syntax("(ref point)"), path="m/f")
+        error = caught.exception
+        self.assertEqual(error.code, "E0100")
+        self.assertTrue(error.path.startswith("m/f"))
+        self.assertEqual(error.message, "a ref may name a vector only")
+
+    def test_a_ref_of_anything_but_a_vector_is_refused(self):
+        for text in ("(ref (ptr :i64))", "(ref (ref (vec :i64)))", "(ref (opt :i64))"):
+            with self.subTest(text=text):
+                with self.assertRaises(LogosError) as caught:
+                    parse_type(type_syntax(text))
+                self.assertEqual(caught.exception.code, "E0100")
+
+    def test_the_checker_reports_E0100_for_a_ref_of_a_named_type(self):
+        # The regression this guards: without the parse-time refusal the
+        # checker meets a Ref it cannot read and raises AttributeError.
+        error = expect_error(
+            "(mod m)"
+            "(type point (struct (x :i64)))"
+            "(fn f :void ((p (ref point))) (ret 0))",
+            "E0100",
+        )
+        self.assertEqual(error.message, "a ref may name a vector only")
+
+    def test_a_ref_of_a_primitive_is_refused(self):
+        with self.assertRaises(LogosError) as caught:
+            parse_type(type_syntax("(ref :i64)"), path="m/f")
+        error = caught.exception
+        self.assertEqual(error.code, "E0100")
+        self.assertTrue(error.path.startswith("m/f"))
+        self.assertEqual(error.message, "a ref may name a vector only")
+
+    def test_a_ref_takes_exactly_one_type(self):
+        for text in ("(ref)", "(ref (vec :i64) :i64)"):
+            with self.subTest(text=text):
+                with self.assertRaises(LogosError) as caught:
+                    parse_type(type_syntax(text))
+                self.assertEqual(caught.exception.code, "E0101")
+
 
 class CompatibleTest(unittest.TestCase):
     def test_identical_types_match(self):
@@ -224,6 +273,14 @@ class CompatibleTest(unittest.TestCase):
     def test_a_named_type_is_nominal(self):
         self.assertFalse(compatible(StructRef("p"), StructRef("q")))
         self.assertFalse(compatible(StructRef("p"), EnumRef("p")))
+
+    def test_two_refs_are_compatible_only_with_the_same_element(self):
+        self.assertTrue(compatible(Ref(Vec(Prim("i64"))), Ref(Vec(Prim("i64")))))
+        self.assertFalse(compatible(Ref(Vec(Prim("i64"))), Ref(Vec(Prim("u8")))))
+        # A ref is not the vector it names, in either direction.
+        self.assertFalse(compatible(Ref(Vec(Prim("i64"))), Vec(Prim("i64"))))
+        self.assertFalse(compatible(Vec(Prim("i64")), Ref(Vec(Prim("i64")))))
+        self.assertFalse(compatible(Ref(Vec(Prim("i64"))), Prim("i64")))
 
     def test_a_resolved_name_is_its_declaration(self):
         # Two modules may each declare ``p``: one name is not one type.

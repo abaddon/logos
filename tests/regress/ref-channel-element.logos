@@ -1,0 +1,4 @@
+(mod ref-channel-element)
+
+(fn f :void ((c (shared (chan (ref (vec :i64))))))
+  (ret))

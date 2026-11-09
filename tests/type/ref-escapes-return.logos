@@ -1,0 +1,5 @@
+(mod ref-escapes-return)
+
+(fn same
+  (ref (vec :i64)) ((v (ref (vec :i64))))
+  (ret v))

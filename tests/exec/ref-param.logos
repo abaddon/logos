@@ -1,0 +1,17 @@
+(mod ref-param)
+
+(fn grow :void ((v (ref (vec :i64))))
+  (vec-push v 7))
+
+(test ref-param
+  (expect (out "2\n7\n")
+    (code 0)
+    (leaks 0))
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push v 1)
+  (grow v)
+  (println (vec-len v))
+  (println (vec-get v 1))
+  (vec-free v))

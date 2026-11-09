@@ -204,6 +204,20 @@ Nothing here is undefined behaviour, so a C oracle can check it:
 - A `:str` owns nothing. Concatenation produces a process-lifetime buffer,
   so a slice never frees and a string never appears in the leak report.
 
+### Ref parameters
+
+A function may take `(ref (vec T))`, a non-owning reference to a caller's
+vector. The call passes the caller's own descriptor, so a `vec-push`, `vec-set`
+or `vec-free` inside the callee acts on the caller's vector, and the caller's
+binding keeps whatever the callee left in it: grown after a push, zeroed after a
+free. The argument must be a mutable binding or another ref parameter. A ref is a
+parameter kind and nothing else: it cannot be returned, stored in a field or a
+container, held in an enum payload, captured by a closure, or passed where a
+value is expected. A ref names a vector and nothing else: `(ref :i64)` and
+`(ref point)` are refused, and so is a ref parameter on an `extern` declaration,
+because a C function's signature is not the language's. A ref is how a program
+keeps one arena in one function and lets helpers grow it.
+
 ### Errors
 
 No exceptions. A function that can fail declares it:

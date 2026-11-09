@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from logos.diag import UNKNOWN_TYPE, diag
+from logos.diag import TYPE_MISMATCH, UNKNOWN_TYPE, diag
 from logos.lexer import ATOM, NUMBER, Token
 from logos.nodes import Node
 
@@ -62,7 +62,7 @@ FLOATS = ("f32", "f64")
 NUMBERS = INTEGERS + FLOATS
 
 #: The composite type forms, by head name.
-FORMS = ("arr", "vec", "ptr", "own", "fn", "fn*", "res", "opt", "shared",
+FORMS = ("arr", "vec", "ptr", "own", "ref", "fn", "fn*", "res", "opt", "shared",
          "chan", "atomic")
 
 
@@ -115,6 +115,29 @@ class Vec:
 
     def __str__(self) -> str:
         return f"(vec {self.elem})"
+
+
+@dataclass(frozen=True, slots=True)
+class Ref:
+    """A non-owning reference to a caller's vector, ``(ref (vec T))``.
+
+    The value is an address: taking a ref copies nothing and releasing one
+    frees nothing. The element is the whole ``(vec T)`` rather than its
+    element, because the callee acts on the descriptor itself — ``vec-push``
+    through a ref grows the caller's buffer, and a read sees what the caller
+    last wrote.
+
+    A vector is the only thing a ref may name. A ref to a bare value would be
+    an alias with no ownership story, and a ref to a struct has no rule yet,
+    so :func:`parse_type` refuses anything but a ``(vec ...)`` here (E0100) —
+    a primitive and a bare name alike, since a bare name parses to a
+    ``StructRef`` and never to a vector.
+    """
+
+    elem: "Ty"
+
+    def __str__(self) -> str:
+        return f"(ref {self.elem})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +273,7 @@ Ty = (
     | Own
     | Arr
     | Vec
+    | Ref
     | Res
     | Opt
     | FnTy
@@ -295,6 +319,14 @@ def parse_type(node: "Node | Token", *, path: str = "") -> Ty:
         if kind == "opt":
             return Opt(elem)
         return Shared(elem)
+    if kind == "ref":
+        _count(node, 2, where, "ref takes one element type")
+        elem = parse_type(node.items[1], path=where)
+        if not isinstance(elem, Vec):
+            # A ref names a vector and nothing else, so the shape is settled
+            # here: a bare name is a ``StructRef`` and never a vector.
+            raise diag(TYPE_MISMATCH, where, "a ref may name a vector only")
+        return Ref(elem)
     if kind == "res":
         _count(node, 3, where, "res takes an ok type and an error type")
         return Res(
@@ -357,6 +389,8 @@ def compatible(a: Ty, b: Ty) -> bool:
         return isinstance(b, Atomic) and compatible(a.elem, b.elem)
     if isinstance(a, Vec):
         return isinstance(b, Vec) and compatible(a.elem, b.elem)
+    if isinstance(a, Ref):
+        return isinstance(b, Ref) and compatible(a.elem, b.elem)
     if isinstance(a, Arr):
         return isinstance(b, Arr) and a.n == b.n and compatible(a.elem, b.elem)
     if isinstance(a, Res):
@@ -401,7 +435,7 @@ def substitute(ty: Ty, bindings: dict[str, Ty]) -> Ty:
         return bindings.get(ty.name, ty)
     if isinstance(ty, Prim):
         return ty
-    if isinstance(ty, (Ptr, Own, Opt, Shared, Vec, Chan, Atomic)):
+    if isinstance(ty, (Ptr, Own, Opt, Shared, Vec, Ref, Chan, Atomic)):
         return type(ty)(substitute(ty.elem, bindings))
     if isinstance(ty, Arr):
         return Arr(substitute(ty.elem, bindings), ty.n)
@@ -432,7 +466,7 @@ def typevars(ty: Ty) -> list[str]:
         if isinstance(node, TypeVar):
             if node.name not in found:
                 found.append(node.name)
-        elif isinstance(node, (Ptr, Own, Opt, Shared, Vec, Chan, Atomic)):
+        elif isinstance(node, (Ptr, Own, Opt, Shared, Vec, Ref, Chan, Atomic)):
             walk(node.elem)
         elif isinstance(node, Arr):
             walk(node.elem)

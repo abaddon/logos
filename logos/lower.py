@@ -378,6 +378,7 @@ from logos.types import (
     Own,
     Prim,
     Ptr,
+    Ref,
     Res,
     Shared,
     StructRef,
@@ -582,7 +583,7 @@ def _named_types(ty: Ty) -> Iterator[str]:
     """Every struct or enum name one type spelling mentions, outermost first."""
     if isinstance(ty, (StructRef, EnumRef)):
         yield ty.name
-    elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+    elif isinstance(ty, (Arr, Ptr, Own, Vec, Ref, Opt, Shared, Chan, Atomic)):
         yield from _named_types(ty.elem)
     elif isinstance(ty, Res):
         yield from _named_types(ty.ok)
@@ -668,7 +669,7 @@ def _unlowered(
     vector cannot be a field at all — the checker refuses that before this
     runs — so the case is here to keep the message true, not to allow it.)
     """
-    if isinstance(ty, (Ptr, Own)):
+    if isinstance(ty, (Ptr, Own, Ref)):
         bad, _ = _unlowered(ty.elem, structs, enums, stack)
         return bad, None
     if isinstance(ty, Vec):
@@ -1212,7 +1213,7 @@ class _Lower:
             return type(ty)(self.type_name(ty.name, owner))
         if isinstance(ty, Arr):
             return Arr(self.qualify_type(ty.elem, owner), ty.n)
-        if isinstance(ty, (Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        if isinstance(ty, (Ptr, Own, Vec, Ref, Opt, Shared, Chan, Atomic)):
             return type(ty)(self.qualify_type(ty.elem, owner))
         if isinstance(ty, Res):
             return Res(
@@ -1410,7 +1411,7 @@ class _Lower:
             words = enum_words(plain, enums, structs, memo)
             llvm.register_enum(spelled, words)
             self.enum_widths[spelled] = words
-        elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        elif isinstance(ty, (Arr, Ptr, Own, Vec, Ref, Opt, Shared, Chan, Atomic)):
             self._register_enums(ty.elem, stack, owner)
         elif isinstance(ty, Res):
             self._register_enums(ty.ok, stack, owner)
@@ -1490,7 +1491,7 @@ class _Lower:
             for _, payload in enums.get(plain, ()):
                 if payload is not None:
                     self._collect(payload, stack + (spelled,), namespace)
-        elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        elif isinstance(ty, (Arr, Ptr, Own, Vec, Ref, Opt, Shared, Chan, Atomic)):
             self._collect(ty.elem, stack, owner)
         elif isinstance(ty, Res):
             self._collect(ty.ok, stack, owner)
@@ -2405,15 +2406,28 @@ class _Fn:
         return dest
 
     def vector(self, item: Node | Token, where: str, what: str) -> tuple[Vec, str]:
-        """A vector operand: its type and its descriptor value."""
+        """A vector operand: its type and its descriptor value.
+
+        A ref names the caller's descriptor through a pointer, so its value is
+        loaded twice — the pointer, then the descriptor it addresses — and the
+        form reads the same ``Vec`` a plain binding would give it.
+        """
         ty = self.type_of_item(item, where)
+        through = isinstance(ty, Ref)
+        if through:
+            ty = ty.elem
         if not isinstance(ty, Vec):
             raise diag(
                 TYPE_MISMATCH,
                 _path_of(item, where),
                 f"'{what}' needs a (vec T), found {ty}",
             )
-        return ty, self.value(item, where)
+        whole = self.value(item, where)
+        if through:
+            descriptor = self.temp()
+            self.emit(("load", descriptor, ty, whole))
+            whole = descriptor
+        return ty, whole
 
     def vec_len(self, node: Node) -> str:
         """``(vec-len v)``: the length field."""
@@ -2479,7 +2493,14 @@ class _Fn:
         self.emit(("store", ty, "zeroinitializer", slot))
 
     def vec_binding(self, node: Node, arity: int, shape: str) -> tuple[Vec, str]:
-        """The vector place a mutating form writes through: binding or parameter."""
+        """The vector place a mutating form writes through: binding or parameter.
+
+        A ref binding's slot holds a pointer to the caller's descriptor rather
+        than the descriptor itself. When it does, the returned place is that
+        pointer: the caller's ``alloca`` for a plain vector and the loaded ref
+        value for a ref parameter address the same three words either way, so a
+        load reads the descriptor and a store rewrites the caller's copy.
+        """
         items = node.items
         if len(items) != arity:
             raise diag(WRONG_ARITY, node.path, shape)
@@ -2488,12 +2509,18 @@ class _Fn:
         binding = self.vars.get(items[1].value)
         if binding is None:
             raise diag(NOT_FOUND, node.path, f"unknown name '{items[1].value}'")
-        ty, slot = binding
+        held, slot = binding
+        through_pointer = isinstance(held, Ref)
+        ty = held.elem if through_pointer else held
+        if through_pointer:
+            pointer = self.temp()
+            self.emit(("load", pointer, held, slot))
+            slot = pointer
         if not isinstance(ty, Vec):
             raise diag(
                 TYPE_MISMATCH,
                 node.path,
-                f"'{node.kind}' needs a (vec T), found {ty}",
+                f"'{node.kind}' needs a (vec T), found {held}",
             )
         return ty, slot
 
@@ -3901,7 +3928,10 @@ class _Fn:
                     node.path,
                     f"no monomorphised copy named '{target}' was checked",
                 )
-            args = tuple(self.value(arg, node.path) for arg in node.items[1:])
+            args = tuple(
+                self.argument(arg, ty, node.path)
+                for arg, ty in zip(node.items[1:], instance.params)
+            )
             dest = "" if _is_void(instance.ret) else self.temp()
             self.emit(
                 (
@@ -3924,10 +3954,40 @@ class _Fn:
                 f"'{self.cm.module.name}'",
             )
         sig = self.cm.fn_sigs[node.kind]
-        args = tuple(self.value(arg, node.path) for arg in node.items[1:])
+        args = tuple(
+            self.argument(arg, ty, node.path)
+            for arg, ty in zip(node.items[1:], sig.params)
+        )
         dest = "" if _is_void(sig.ret) else self.temp()
         self.emit(("call", dest, symbol, args))
         return dest
+
+    def argument(self, item: Node | Token, ty: Ty, where: str) -> str:
+        """One argument at a call: a value, or the address a ref parameter takes.
+
+        A ref parameter's slot holds a pointer to the caller's descriptor, so
+        an argument that is a mutable vector binding passes the address of its
+        own slot. An argument that is itself a ref parameter passes the pointer
+        it already holds: loading its slot gives exactly that address, and
+        taking the address of the slot would hand the callee a pointer to a
+        pointer. Nothing is copied and no descriptor is cleared.
+        """
+        if not isinstance(ty, Ref):
+            return self.value(item, where)
+        if not isinstance(item, Token):
+            raise diag(
+                TYPE_MISMATCH, where, "a ref argument must name a mutable binding"
+            )
+        binding = self.vars.get(item.value)
+        if binding is None:
+            raise diag(NOT_FOUND, where, f"unknown name '{item.value}'")
+        held, slot = binding
+        if not isinstance(held, Ref):
+            # A ``letmut`` vector binding: its slot is the descriptor itself.
+            return slot
+        pointer = self.temp()
+        self.emit(("load", pointer, held, slot))
+        return pointer
 
     def extern_call(self, node: Node, sig: FnTy) -> str:
         """One call to a C function the module declared with ``extern``.
@@ -3993,7 +4053,13 @@ class _Fn:
         params = (_VOID_PTR, *sig.params)
         pointer = self.temp()
         self.emit(("fnptr", pointer, sig.ret, params, code))
-        args = (env, *(self.value(arg, node.path) for arg in node.items[1:]))
+        args = (
+            env,
+            *(
+                self.argument(arg, ty, node.path)
+                for arg, ty in zip(node.items[1:], sig.params)
+            ),
+        )
         dest = "" if _is_void(sig.ret) else self.temp()
         self.emit(("icall", dest, sig.ret, params, pointer, args))
         return dest
@@ -4300,7 +4366,7 @@ def _has_typevar(ty: Ty) -> bool:
     """
     if isinstance(ty, TypeVar):
         return True
-    if isinstance(ty, (Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+    if isinstance(ty, (Ptr, Own, Vec, Ref, Opt, Shared, Chan, Atomic)):
         return _has_typevar(ty.elem)
     if isinstance(ty, Arr):
         return _has_typevar(ty.elem)
@@ -4385,7 +4451,9 @@ def sizeof_of(
     if isinstance(ty, (Chan, Atomic)):
         # One opaque pointer to the runtime object.
         return 8
-    if isinstance(ty, (Ptr, Own)):
+    if isinstance(ty, (Ptr, Own, Ref)):
+        # A ref is one pointer to the caller's descriptor: an address, never
+        # the descriptor itself.
         return 8
     if isinstance(ty, FnTy):
         # ``{ i8*, i8* }``: the environment and the code pointer.
@@ -4430,7 +4498,8 @@ def align_of(
         return align_of(ty.elem, structs, enums, memo)
     if isinstance(ty, (Chan, Atomic)):
         return 8
-    if isinstance(ty, (Ptr, Own)):
+    if isinstance(ty, (Ptr, Own, Ref)):
+        # A ref is one pointer, so its alignment is the pointer's.
         return 8
     if isinstance(ty, FnTy):
         # Two pointers: the alignment is the pointer's, not the size.

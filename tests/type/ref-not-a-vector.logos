@@ -1,0 +1,6 @@
+(mod ref-not-a-vector)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn move :void ((v (ref point)))
+  (ret))

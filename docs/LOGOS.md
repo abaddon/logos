@@ -34,7 +34,7 @@ Machine-readable: `logosc guide --json` prints the manifest (forms, types, opera
 
 ## Manual
 
-17 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
+18 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
 
 ### 1. Values and literals
 
@@ -604,6 +604,37 @@ Expected stdout, exit 0:
 9
 ```
 
+### 18. Ref parameters
+
+```logos
+(mod ref-parameters)
+
+(fn grow :void ((v (ref (vec :i64))) (x :i64))
+  (vec-push v x))
+
+(test ref-parameters
+  (expect (out "1\n7\n2\n")
+    (code 0)
+    (leaks 0))
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (grow v 7)
+  (println (vec-len v))
+  (println (vec-get v 0))
+  (vec-push v 9)
+  (println (vec-len v))
+  (vec-free v))
+```
+
+Expected stdout, exit 0:
+
+```text
+1
+7
+2
+```
+
 ## Reference
 
 ### The ten rules, and where the compiler enforces them
@@ -703,6 +734,7 @@ Expected stdout, exit 0:
 | `arr` | 2 | `(arr T n)` a fixed array of n values of T |
 | `vec` | 1 | `(vec T)` a growable array owned by a three-word descriptor |
 | `own` | 1 | `(own T)` an owning pointer, released by `free` |
+| `ref` | 1 | `(ref (vec T))` a non-owning reference to a caller's mutable vector |
 | `fn*` | 2 | `(fn* (T...) R)` a capturing closure, confined to its frame |
 | `res` | 2 | `(res T E)` an ok T or an error E; must be handled |
 | `opt` | 1 | `(opt T)` some T or none |
@@ -788,6 +820,8 @@ Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant
 | `E0301` | free of a non-owning pointer |
 | `E0302` | move out of an immutable binding |
 | `E0303` | move of a binding declared outside a loop |
+| `E0304` | ref argument is not a mutable binding |
+| `E0305` | ref escapes the call |
 | `E0400` | index type mismatch |
 | `E0401` | string not a str |
 | `E0402` | vector value not copyable |

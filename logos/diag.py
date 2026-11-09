@@ -77,6 +77,8 @@ CODES = {
     "E0301": "free of a non-owning pointer",
     "E0302": "move out of an immutable binding",
     "E0303": "move of a binding declared outside a loop",
+    "E0304": "ref argument is not a mutable binding",
+    "E0305": "ref escapes the call",
     "E0400": "index type mismatch",
     "E0401": "string not a str",
     "E0402": "vector value not copyable",
@@ -122,6 +124,19 @@ MOVE_IMMUTABLE = "E0302"
 #: body is checked once, so iteration two would read a slot the first pass
 #: emptied: releasing there must happen after the loop instead.
 LOOP_MOVE = "E0303"
+
+#: A ``(ref (vec T))`` argument that is not a mutable binding. A ref borrows
+#: the caller's descriptor instead of taking it, so the argument must name a
+#: ``letmut`` vector or another ref parameter; anything else has no slot the
+#: callee may write back through.
+REF_ARGUMENT = "E0304"
+
+#: A ref that would outlive the call that received it: returned, stored in a
+#: field or a container, held in an enum payload, captured by a closure, or
+#: handed to a parameter that is not a ref. A ref is a pointer into the
+#: caller's frame, so keeping one would leave every later use pointing at a
+#: binding that may already be gone.
+REF_ESCAPE = "E0305"
 INDEX_TYPE = "E0400"
 NOT_A_STR = "E0401"
 VEC_MOVE = "E0402"
