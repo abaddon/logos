@@ -1,8 +1,9 @@
 (mod run)
 
 (test run
-  (expect (out "0\nhi\n")
-    (code 0))
+  (expect (out "0\nhi\n0\noops\n")
+    (code 0)
+    (leaks 0))
   (letmut a
     (vec :str)
     (make (vec :str)))
@@ -11,4 +12,13 @@
   (vec-push a "echo hi")
   (let r (run "sh" a))
   (println (run-status r))
-  (print (run-out r)))
+  (print (run-out r))
+  (letmut b
+    (vec :str)
+    (make (vec :str)))
+  (vec-push b "sh")
+  (vec-push b "-c")
+  (vec-push b "echo oops 1>&2")
+  (let r2 (run "sh" b))
+  (println (run-status r2))
+  (print (run-err r2)))

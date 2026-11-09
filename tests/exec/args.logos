@@ -2,5 +2,8 @@
 
 (test args
   (expect (out "true\n")
-    (code 0))
-  (println (>= (vec-len (args)) 1)))
+    (code 0)
+    (leaks 0))
+  (letmut a (args))
+  (println (>= (vec-len a) 1))
+  (vec-free a))

@@ -142,7 +142,12 @@ hex for every float, so both compilers only ever format an integer.
 
 
 `(run prog args)` details: `prog` is a `:str`, `args` is a `(vec :str)` that may be
-empty. The vec is moved, so the caller passes a name. The call uses no shell:
+empty. The vec is moved, so the caller passes a name. The move is a release: the form
+copies each element into a NUL-terminated C string, frees the descriptor's buffer and
+keeps the C strings for the process lifetime, so the caller must not free it and it never
+appears in the leak report; `(args)` returns an ordinary tracked vector the caller frees,
+while the `:run` handle, its `out` and `err` buffers are process-lifetime and untracked.
+The call uses no shell:
 arguments are handed to `execve` one by one, so a path with a space is safe. It
 returns an opaque `:run` handle, a process-lifetime value in the shape `:thread` and
 `:mutex` already have; its status, stdout and stderr are read by `(run-status r)`,

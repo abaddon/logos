@@ -212,6 +212,11 @@ line, the program's own path first. `(run prog args)` starts a process with no s
 captures its output, and returns a `:run` handle whose status, stdout and stderr are read by
 `(run-status r)`, `(run-out r)` and `(run-err r)`. Nothing here hides a failure: a file
 that cannot be read is a value, and a program that cannot start is a diagnostic.
+`(run prog args)` moves and releases its `args` vector — each element is copied into a
+NUL-terminated C string, the descriptor's buffer is freed, and the strings live for the
+process lifetime — so the caller neither frees it nor sees it in the leak report; `(args)`
+returns an ordinary tracked vector that the caller frees, while the `:run` handle and its
+`out` and `err` buffers are process-lifetime and untracked.
 
 Three smaller forms sit beside them: `(str-byte s i)` is the byte at `i` as a `:u8`,
 `(str-from-i64 v)` formats an integer as a `:str`, and `(f64-bits v)` is the IEEE 754

@@ -15,7 +15,8 @@
 - Every commit carries `Signed-off-by:` matching its author (`git commit -s`).
 - Six forms and one new primitive type, exactly: `(read-file p)`, `(args)`, `(str-byte s i)`, `(str-from-i64 v)`, `(f64-bits v)`, `(run prog args)`, and `:run` with `(run-status r)`, `(run-out r)`, `(run-err r)`.
 - `(read-file p)` is `(res :str :i64)`: the ok arm is the whole file, the err arm is `errno`. It panics on nothing.
-- `(run prog args)` takes a `:str` and a `(vec :str)`; no shell; the args vec is moved. `status` is the exit code, or `128 + signal`. A spawn failure is `R0006` with the program name. The child is killed after 30 s and reports 124.
+- `(run prog args)` takes a `:str` and a `(vec :str)`; no shell; the args vec is **moved and released by the form**, the same contract as any other callee that receives a container: it copies each argument into a NUL-terminated C string, frees the descriptor's buffer, and keeps the C strings for the process lifetime. `status` is the exit code, or `128 + signal`. A spawn failure is `R0006` with the program name. The child is killed after 30 s and reports 124.
+- `(args)` returns an ordinary tracked vector (the caller frees it with `vec-free`), whose elements point into a process-lifetime copy of the command line. The `:run` handle and its `out` and `err` buffers are process-lifetime and untracked, because no form releases a handle; that is the shortcut the runtime states in a comment.
 - A new runtime function never prints and never exits: it returns, or it calls `rt_panic` with a code and a path.
 - Every form rejects a wrong argument type with `E0100` at the argument, and a wrong arity with `E0102`.
 - No IR change for a program that uses none of these forms.
@@ -177,7 +178,7 @@ git commit -s -m "feat: runtime for files, arguments and child processes"
 
 - [ ] **Step 2: `:run` as an opaque primitive**, beside `:thread` and `:mutex`, with its IR type a pointer to the runtime's struct.
 
-- [ ] **Step 3: The form and the accessors**, lowered to `rt_run_start` and the three readers.
+- [ ] **Step 3: The form and the accessors**, lowered to `rt_run_start` and the three readers. The form releases the moved args vector: copy each element into a NUL-terminated C string, then free the descriptor's buffer through the same call `vec-free` makes, then start the child. A program that runs a child must not leak, and it cannot free the vector itself because the call took it.
 
 - [ ] **Step 4: `R0006`**, with the code table line and the manual regeneration.
 
