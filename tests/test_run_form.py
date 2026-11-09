@@ -270,6 +270,43 @@ class RunLoweringTest(unittest.TestCase):
         frees_after = [i for i in frees if i > start]
         self.assertEqual(len(frees_after), 3, instrs)
 
+    def test_the_vector_slot_is_zeroed_after_the_release(self):
+        # The form released the vector's own descriptor buffer, so the frame
+        # must hold no second name for it: the slot the descriptor was read
+        # from is zeroed once, after all three frees, exactly as `vec-free`
+        # zeroes it. Harmless today because a second use is E0300; cheap to
+        # keep true if that rule ever loosens.
+        fn = main_of(lowered(self.SOURCE))
+        instrs = flat(fn)
+        zeroed = [
+            i for i, instr in enumerate(instrs)
+            if instr[0] == "store" and instr[2] == "zeroinitializer"
+        ]
+        self.assertEqual(len(zeroed), 1, instrs)
+        at = zeroed[0]
+        ty, slot = instrs[at][1], instrs[at][3]
+        self.assertEqual(ty, Vec(Prim("str")))
+        # It is the slot the run form loaded the descriptor from.
+        start = next(
+            i
+            for i, instr in enumerate(instrs)
+            if instr[0] == "call" and instr[2] == "rt_run_start"
+        )
+        descriptor_reads = [
+            i
+            for i, instr in enumerate(instrs[:start])
+            if instr[0] == "load" and instr[2] == Vec(Prim("str"))
+        ]
+        self.assertTrue(descriptor_reads, instrs)
+        self.assertEqual(instrs[descriptor_reads[-1]][3], slot, instrs)
+        # And the zeroing follows every release.
+        last_free = max(
+            i
+            for i, instr in enumerate(instrs)
+            if instr[0] == "call" and instr[2] == "rt_free"
+        )
+        self.assertGreater(at, last_free, instrs)
+
     def test_the_node_path_is_the_call_s_own(self):
         cm = checked(self.SOURCE)
         module = lower.lower_module(cm)
@@ -326,16 +363,54 @@ class RunExecTest(unittest.TestCase):
             "  (println (run-status r)))\n",
             encoding="utf-8",
         )
-        binary = driver.build(str(source), str(BUILD / "run-spawn"))
-        done = subprocess.run([binary], capture_output=True, timeout=60)
-        self.assertEqual(done.returncode, 2, done.stderr)
-        self.assertEqual(done.stdout, b"", done.stderr)
-        self.assertIn(
-            b"R0006: could not start definitely-not-a-program-xyz", done.stderr
-        )
-        # The location is the `run` node, not the runtime: the path is the one
-        # the lowerer emitted for the call.
-        self.assertIn(b"spawn/main/3/1: R0006", done.stderr)
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                binary = driver.build(
+                    str(source), str(BUILD / f"run-spawn-{opt[1:]}"), opt=opt
+                )
+                done = subprocess.run([binary], capture_output=True, timeout=60)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertEqual(done.stdout, b"", done.stderr)
+                self.assertIn(
+                    b"R0006: could not start definitely-not-a-program-xyz",
+                    done.stderr,
+                )
+                # The location is the `run` node, not the runtime: the path is
+                # the one the lowerer emitted for the call.
+                self.assertIn(b"spawn/main/3/1: R0006", done.stderr)
+
+    def test_a_nonzero_and_a_signalled_status_are_reported(self):
+        # Both are the child's status, not the test process's: only pinning
+        # `0` would let a reader that always returned 0 stay green.
+        for case, expected in (
+            ("nonzero-status", b"7\n"),
+            ("signalled-status", b"143\n"),
+        ):
+            for opt in ("-O0", "-O2"):
+                with self.subTest(case=case, opt=opt):
+                    done = subprocess.run(
+                        [self.build("run", case, opt)],
+                        capture_output=True,
+                        timeout=60,
+                    )
+                    self.assertEqual(done.stdout, expected, done.stderr)
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertNotIn(b"LEAK", done.stderr)
+
+    def test_a_run_handle_crosses_a_thread_boundary(self):
+        # The handle is written once and never mutated, so it is copyable
+        # across a thread like any scalar; the runtime's handle is
+        # process-lifetime, so the copy stays valid.
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                done = subprocess.run(
+                    [self.build("run", "run-across-a-thread", opt)],
+                    capture_output=True,
+                    timeout=60,
+                )
+                self.assertEqual(done.stdout, b"5\n", done.stderr)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertNotIn(b"LEAK", done.stderr)
 
     def test_a_child_writing_200_kib_on_both_streams_does_not_deadlock(self):
         source = BUILD / "run-chatty.logos"
