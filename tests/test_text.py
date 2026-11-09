@@ -33,7 +33,7 @@ LONG = "0123456789" * 30
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -936,11 +936,24 @@ class FormattingLoweringTest(unittest.TestCase):
         self.assertNotIn("rt_println", callees(m.functions[0]))
 
     def test_a_float_literal_is_spelled_the_way_llvm_reads_it(self):
+        # A decimal is re-read by the assembler and may land a bit away from
+        # the value the compiler held; the bit pattern cannot.
         text = emitted("(mod m)(fn f :void () (println 2.0))")
-        self.assertIn("double 2.0", text)
+        self.assertIn("double 0x4000000000000000", text)
+        self.assertNotIn("double 2.0", text)
         text = emitted("(mod m)(fn f :void () (println 1e300))")
-        self.assertIn("double 1.0e+300", text)
-        self.assertNotIn("1e+300", text.replace("1.0e+300", ""))
+        self.assertIn("double 0x7E37E43C8800759C", text)
+        self.assertNotIn("1.0e+300", text)
+        # The double nearest 0.1, not a decimal that names it approximately.
+        text = emitted("(mod m)(fn f :void () (println 0.1))")
+        self.assertIn("double 0x3FB999999999999A", text)
+
+    def test_an_f32_literal_is_rounded_once_and_still_hexadecimal(self):
+        # Rounding to single precision happens at compile time; the constant
+        # then names the bits of the double that holds that float value.
+        text = emitted("(mod m)(fn f :f32 () (ret 0.1))")
+        self.assertIn("float 0x3FB99999A0000000", text)
+        self.assertNotIn("0.1", text.replace("0x3FB99999A0000000", ""))
 
     def test_float_arithmetic_is_a_single_ieee_instruction(self):
         # ``+`` on a float is one ``fadd``: no check, no branch, and no
@@ -971,9 +984,9 @@ class FormattingLoweringTest(unittest.TestCase):
             "(mod m)(fn f :void () (println (< 1.5 2.0))"
             ' (println (= 1.5 1.5)) (println (< -1.5 -2.0)))'
         )
-        self.assertIn("fcmp olt double 1.5, 2.0", text)
-        self.assertIn("fcmp oeq double 1.5, 1.5", text)
-        self.assertIn("fcmp olt double -1.5, -2.0", text)
+        self.assertIn("fcmp olt double 0x3FF8000000000000, 0x4000000000000000", text)
+        self.assertIn("fcmp oeq double 0x3FF8000000000000, 0x3FF8000000000000", text)
+        self.assertIn("fcmp olt double 0xBFF8000000000000, 0xC000000000000000", text)
         self.assertNotIn("icmp", text)
 
     def test_modulo_on_a_float_is_refused(self):

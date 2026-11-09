@@ -26,11 +26,11 @@ from importlib import resources
 from pathlib import Path
 
 from logos import llvm, lower
-from logos.check import check_module
+from logos.check import CheckedModule, check_program
 from logos.ir import TRIPLE, IrModule
 from logos.nodes import Node
 from logos.parser import parse
-from logos.resolve import Module, resolve
+from logos.resolve import Module, reachable, resolve, program as resolve_program
 
 #: The C compiler that turns IR text plus the runtime into an ELF.
 CLANG = "clang"
@@ -83,14 +83,45 @@ def load(src_path: str) -> Module:
     """
     path = Path(src_path)
     root = parse(_read(path), str(path))
+    trees: dict[str, Node] = {}
 
-    def loader(name: str) -> Node:
+    def loader(name: str, asker: str) -> Node:
+        """Answer ``name`` from the loading file's directory.
+
+        ``asker`` is accepted because the resolver always names the file that
+        wrote the ``use``; ``load`` resolves one root, and every import in
+        its graph is answered beside that one file. A sibling is parsed once:
+        the resolver asks for a name every time it is imported, and a diamond
+        must not become two module nodes for one file.
+        """
         sibling = path.parent / f"{name}.logos"
+        key = str(sibling)
+        cached = trees.get(key)
+        if cached is not None:
+            return cached
         if not sibling.is_file():
             raise FileNotFoundError(name)
-        return parse(_read(sibling), str(sibling))
+        tree = parse(_read(sibling), key)
+        trees[key] = tree
+        return tree
 
     return resolve(root, loader, str(path))
+
+
+def load_program(paths: list[str]) -> list[Module]:
+    """Parse every file in ``paths`` and resolve them as one build set.
+
+    The modules named here answer each other's ``use`` before the file system
+    is asked: a name in no set falls back to ``<name>.logos`` beside the file
+    that asked for it, which is the single-file rule. The roots are returned in
+    the order given. A file that cannot be read or parsed fails the build the
+    way :func:`load` does.
+    """
+    roots: list[Node] = []
+    for path in paths:
+        source = Path(path)
+        roots.append(parse(_read(source), str(source)))
+    return resolve_program(roots)
 
 
 def ir_path(src_path: str) -> Path:
@@ -98,10 +129,60 @@ def ir_path(src_path: str) -> Path:
     return BUILD_DIR / f"{Path(src_path).stem}.ll"
 
 
+def checked_program(src_path: str) -> list[CheckedModule]:
+    """Parse and check ``src_path`` together with every module it imports.
+
+    A build set is the root and every module its ``use`` forms reach, each
+    once, by module name: the resolver answers an import from the asking
+    file's own directory, so a test or a build of one file still finds its
+    siblings exactly where a single-module load found them. The checker judges
+    the whole set, so a call into a sibling is legal and a call into anything
+    else stays E0103.
+    """
+    return check_program(reachable(load_program([src_path])))
+
+
 def test_ir_path(src_path: str, test_name: str) -> Path:
     """Where :func:`run_test` writes its IR, beside the build's but not over it."""
     safe = test_name.replace("/", "_").replace("\\", "_")
     return BUILD_DIR / f"{Path(src_path).stem}.{safe}.ll"
+
+
+def build_program(
+    paths: list[str],
+    out: str | None = None,
+    opt: str = "-O2",
+    keep_ir: bool = True,
+    *,
+    debug: bool = False,
+) -> str:
+    """Compile every file in ``paths`` into one native binary; return its path.
+
+    The files are one build set: each answers the others' ``use``, so a
+    ``main`` in one file may call a function in another, and the set's import
+    closure is lowered once into one translation unit. ``main`` must appear
+    exactly once across the set; the checker refuses two, and a set with none
+    is :class:`BuildError`.
+
+    ``out`` defaults to ``build/<first file's name>`` and the IR is written to
+    ``build/<first file's name>.ll``, so a one-file build lands exactly where
+    :func:`build` always did. A failed build leaves no artefact behind: the
+    binary and the ``.ll`` at the output paths are removed before the error is
+    re-raised. ``keep_ir=False`` removes the IR after a success.
+    """
+    if not paths:
+        raise BuildError("no source file to build")
+    target = out if out is not None else str(BUILD_DIR / Path(paths[0]).stem)
+    ll = ir_path(paths[0])
+    try:
+        checked = check_program(reachable(load_program(paths)))
+        if not any("main" in cm.module.fns for cm in checked):
+            raise BuildError(f"{paths[0]}: no 'main' function to build")
+        module = lower.lower_program(checked, debug=debug)
+        return _link(module, ll, target, opt, keep_ir, debug=debug)
+    except BaseException:
+        _discard(ll, Path(target))
+        raise
 
 
 def build(
@@ -114,25 +195,14 @@ def build(
 ) -> str:
     """Compile ``src_path`` to a native binary and return its path.
 
-    ``out`` defaults to ``build/<name>``. A failed build leaves no artefact
-    behind: the binary and the ``.ll`` at the output paths are removed before
-    the error is re-raised, so nothing can run a stale program or be read as
-    the text that failed. ``keep_ir=False`` removes the IR after a success.
+    This is :func:`build_program` on one file, so there is one build path and
+    a single file is the smallest build set. ``out`` defaults to
+    ``build/<name>``.
 
     ``debug`` makes ``main`` report every block still live at exit. A release
     build does not, because its stderr belongs to the program.
     """
-    target = out if out is not None else str(BUILD_DIR / Path(src_path).stem)
-    ll = ir_path(src_path)
-    try:
-        cm = check_module(load(src_path))
-        if "main" not in cm.module.fns:
-            raise BuildError(f"{src_path}: no 'main' function to build")
-        module = lower.lower_module(cm, debug=debug)
-        return _link(module, ll, target, opt, keep_ir, debug=debug)
-    except BaseException:
-        _discard(ll, Path(target))
-        raise
+    return build_program([src_path], out, opt=opt, keep_ir=keep_ir, debug=debug)
 
 
 def run_test(
@@ -147,11 +217,16 @@ def run_test(
     A test build is a debug build by default: its ``main`` reports every block
     still live at exit, which is what makes a leaked block visible to the
     runner instead of silently passing.
+
+    The file's imports are part of the build: a test body may call a sibling
+    module's function, and that body has to be in the binary for the call to
+    resolve.
     """
     ll = test_ir_path(src_path, test_name)
     try:
-        cm = check_module(load(src_path))
-        module = lower.lower_test(cm, test_name, debug=debug)
+        module = lower.lower_test_program(
+            checked_program(src_path), test_name, debug=debug
+        )
         return _link(module, ll, out, opt, True, debug=debug)
     except BaseException:
         _discard(ll, Path(out))

@@ -63,8 +63,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", metavar="command")
 
-    build = sub.add_parser("build", help="compile a Logos source file to a native binary")
-    build.add_argument("file", metavar="FILE", help="Logos source file")
+    build = sub.add_parser("build", help="compile Logos source files to a native binary")
+    build.add_argument(
+        "file",
+        metavar="FILE",
+        nargs="+",
+        help="Logos source file; several are built as one program",
+    )
     build.add_argument("-o", dest="out", metavar="OUT", help="path of the output binary")
     build.add_argument(
         "--opt",
@@ -303,14 +308,16 @@ def _guide(as_json: bool, check: bool) -> int:
     return 0
 
 
-def _build(source: str, out: str | None, opt: str) -> int:
-    """Compile one file and report a failure the way every other pass does.
+def _build(sources: list[str], out: str | None, opt: str) -> int:
+    """Compile one or more files into one binary, reporting failure in one line.
 
-    The IR is always kept: it is the artefact a person reads when a program
-    misbehaves, so ``--keep-ir`` is accepted but changes nothing today.
+    The files are one build set: a ``main`` in one may call a function in
+    another, and the binary is the set's import closure. The IR is always
+    kept: it is the artefact a person reads when a program misbehaves, so
+    ``--keep-ir`` is accepted but changes nothing today.
     """
     try:
-        driver.build(source, out, opt=opt, keep_ir=True)
+        driver.build_program(sources, out, opt=opt, keep_ir=True)
     except driver.BuildError as error:
         print(f"logos: {error}", file=sys.stderr)
         return 1

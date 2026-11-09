@@ -1,0 +1,3 @@
+(mod deep)
+
+(type point (struct (x :i64)))

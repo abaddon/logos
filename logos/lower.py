@@ -292,6 +292,23 @@ code pointer is ``bitcast`` to its real type — ``R (i8*, T...)``, the
 environment first — and the call passes the environment ahead of the declared
 arguments. A named function used as a value is the same pair with a null
 environment, so both cross the boundary the same way.
+
+Build sets
+----------
+A build set is lowered into one translation unit: one ``IrModule``, one string
+table and one counter for generated names, because the object file is one.
+Each module is lowered with its own type record and its own symbol map, so a
+call into a sibling emits the sibling's symbol — ``lg.<module>.<name>`` —
+whether it is written as a call, as a function value or as a ``spawn`` target.
+The thunk a function value becomes calls the module that owns the body, not the
+one that took its address.
+
+A set of one module keeps bare struct and enum names, so its IR is exactly what
+this backend produced before build sets existed. A set of several modules
+spells a named type ``<module>.<name>``, because two roots may each declare a
+private ``point`` and one LLVM identified type cannot stand for both. The
+module named is the one that declared the type, which for an imported type is
+its own module, not the one that used it.
 """
 
 from __future__ import annotations
@@ -299,7 +316,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import math
 import struct
-from typing import Iterator
+from typing import Iterator, cast
 
 from logos import llvm
 from logos.check import (
@@ -349,6 +366,7 @@ from logos.ir import (
 )
 from logos.lexer import ATOM, NUMBER, STRING, Token
 from logos.nodes import Node
+from logos.resolve import Module
 from logos.types import (
     INTEGERS,
     Arr,
@@ -364,6 +382,7 @@ from logos.types import (
     Shared,
     StructRef,
     Ty,
+    TypeVar,
     Vec,
     compatible,
 )
@@ -559,11 +578,51 @@ _RT_ATOMIC_STORE = IrDecl(
 )
 
 
+def _named_types(ty: Ty) -> Iterator[str]:
+    """Every struct or enum name one type spelling mentions, outermost first."""
+    if isinstance(ty, (StructRef, EnumRef)):
+        yield ty.name
+    elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        yield from _named_types(ty.elem)
+    elif isinstance(ty, Res):
+        yield from _named_types(ty.ok)
+        yield from _named_types(ty.err)
+    elif isinstance(ty, FnTy):
+        for param in ty.params:
+            yield from _named_types(param)
+        yield from _named_types(ty.ret)
+
+
+class _Layouts:
+    """One namespace's struct or enum declarations, read by name.
+
+    The size, alignment and validation helpers walk a type by name through a
+    pair of tables. A name the namespace cannot see — one a sibling's signature
+    carries from its own import — has to resolve through the module that
+    declares it, and a flattened dict cannot answer that, so each ``get`` goes
+    to the declaring module's table instead.
+    """
+
+    def __init__(self, lower: "_Lower", owner: CheckedModule, kind: str) -> None:
+        self._lower = lower
+        self._owner = owner
+        self._kind = kind
+
+    def get(self, name: str, default: object = None) -> object:
+        found = self._lower._declaration(name, self._owner)
+        if found is None:
+            return default
+        _, plain, structs, enums, _ = found
+        table = structs if self._kind == "structs" else enums
+        value = table.get(plain)
+        return default if value is None else value
+
+
 def lowered_type(
     ty: Ty,
     path: str,
-    structs: dict[str, tuple[tuple[str, Ty], ...]] | None = None,
-    enums: dict[str, tuple[tuple[str, Ty | None], ...]] | None = None,
+    structs: dict[str, tuple[tuple[str, Ty], ...]] | "_Layouts" | None = None,
+    enums: dict[str, tuple[tuple[str, Ty | None], ...]] | "_Layouts" | None = None,
 ) -> Ty:
     """Return ``ty`` if the printer has a layout for it, else raise E0002.
 
@@ -590,8 +649,8 @@ def lowered_type(
 
 def _unlowered(
     ty: Ty,
-    structs: dict[str, tuple[tuple[str, Ty], ...]],
-    enums: dict[str, tuple[tuple[str, Ty | None], ...]],
+    structs: dict[str, tuple[tuple[str, Ty], ...]] | "_Layouts",
+    enums: dict[str, tuple[tuple[str, Ty | None], ...]] | "_Layouts",
     stack: tuple[str, ...],
 ) -> tuple[Ty | None, str | None]:
     """The first type in ``ty`` with no layout, and any value cycle found.
@@ -702,6 +761,81 @@ def _unlowered(
     return None, None
 
 
+def lower_program(checked: list[CheckedModule], *, debug: bool = False) -> IrModule:
+    """Lower a whole build set into one translation unit.
+
+    Every module of ``checked`` is lowered into the same :class:`IrModule`, in
+    the order given: one ``ir``, one string table and one generated-name
+    counter for the unit, because the unit is one object file. Each module's
+    bodies are lowered with that module's own type record and symbol map, so a
+    call into a sibling emits the sibling's symbol — ``lg.<module>.<name>`` —
+    and a named type is spelled by the module that declared it.
+
+    ``main`` is lowered from whichever module defines it; the checker has
+    already refused a build set with two.
+
+    A single-module unit is the ordinary build: its IR is byte for byte what
+    :func:`lower_module` produced before build sets existed, and its struct and
+    enum names stay bare, because one module cannot disagree with itself about
+    what ``point`` means.
+    """
+    if not checked:
+        raise diag(UNKNOWN_NODE, "", "no module to lower")
+    llvm.reset_structs()
+    unit = frozenset(cm.module.name for cm in checked)
+    lowering = _Lower(checked[0], debug=debug, unit=unit, checked=checked)
+    for cm in checked:
+        lowering.lower_bodies(cm)
+    return lowering.close()
+
+
+def lower_test_program(
+    checked: list[CheckedModule], test_name: str, *, debug: bool = True
+) -> IrModule:
+    """Lower one ``(test ...)`` body of the first module into ``main``.
+
+    The rest of the build set is lowered beside it, because the test body may
+    call a sibling's function and that body has to exist in the unit. Every
+    module-level ``main`` is skipped: the test body is the entry point, and two
+    definitions of ``@main`` cannot coexist.
+
+    A test build is a debug build: its ``main`` reports every live block at
+    exit, which is what lets a ``(leaks 0)`` expectation be checked.
+    """
+    if not checked:
+        raise diag(NOT_FOUND, "", f"no module holds the test '{test_name}'")
+    cm = checked[0]
+    node = cm.module.tests.get(test_name)
+    if node is None:
+        raise diag(
+            NOT_FOUND,
+            "",
+            f"no test named '{test_name}' in module '{cm.module.name}'",
+        )
+    llvm.reset_structs()
+    unit = frozenset(module.module.name for module in checked)
+    lowering = _Lower(cm, debug=debug, unit=unit, checked=checked)
+    lowering.forget_main()
+    for module in checked:
+        lowering.lower_bodies(module, skip_main=True)
+    # The test body is the root's, whatever module was lowered last.
+    lowering.enter(cm)
+    start = len(lowering.ir.functions)
+    fn = IrFn("main", [], _ENTRY_RET, [IrBlock("entry")], symbol="main")
+    builder = _Fn(lowering, fn, path=node.path, ret=Prim("void"), is_main=True)
+    builder.body(
+        [
+            item
+            for item in node.items[2:]
+            if not (isinstance(item, Node) and item.kind in DIRECTIVES)
+        ]
+    )
+    builder.finish()
+    lowering.ir.functions.append(fn)
+    lowering.qualify(start)
+    return lowering.close()
+
+
 def lower_module(cm: CheckedModule, *, debug: bool = False) -> IrModule:
     """Lower every function of ``cm``; a module with a ``main`` is a program.
 
@@ -713,19 +847,16 @@ def lower_module(cm: CheckedModule, *, debug: bool = False) -> IrModule:
 
     A generic definition has no body here — only the copies the checker made
     for its call sites do, and they are lowered after every ordinary function.
+
+    This is a build set of one module: :func:`lower_program` is the general
+    form, and an imported module has no body in this unit, so a call into one
+    stays the checker's E0103 rather than a symbol the linker cannot find.
     """
-    lowering = _Lower(cm, debug=debug)
-    for name, node in cm.module.fns.items():
-        if name in cm.generic:
-            continue
-        lowering.fn(name, node)
-    for instance in cm.instances.values():
-        lowering.instance(instance)
-    return lowering.close()
+    return lower_program([cm], debug=debug)
 
 
 def lower_test(cm: CheckedModule, test_name: str, *, debug: bool = True) -> IrModule:
-    """Lower one ``(test ...)`` body into ``main``.
+    """Lower one ``(test ...)`` body of ``cm`` into ``main``.
 
     The body's harness directives are skipped, because they are instructions to
     the runner and not expressions. Everything else is ordinary grammar.
@@ -738,57 +869,97 @@ def lower_test(cm: CheckedModule, test_name: str, *, debug: bool = True) -> IrMo
     A test build is a debug build: its ``main`` reports every live block at
     exit, which is what lets a ``(leaks 0)`` expectation be checked.
     """
-    node = cm.module.tests.get(test_name)
-    if node is None:
-        raise diag(
-            NOT_FOUND,
-            "",
-            f"no test named '{test_name}' in module '{cm.module.name}'",
-        )
-    lowering = _Lower(cm, debug=debug)
-    lowering.symbols.pop("main", None)
-    for name, fn_node in cm.module.fns.items():
-        if name == "main" or name in cm.generic:
-            continue
-        lowering.fn(name, fn_node)
-    for instance in cm.instances.values():
-        lowering.instance(instance)
-    fn = IrFn("main", [], _ENTRY_RET, [IrBlock("entry")], symbol="main")
-    builder = _Fn(lowering, fn, path=node.path, ret=Prim("void"), is_main=True)
-    builder.body(
-        [
-            item
-            for item in node.items[2:]
-            if not (isinstance(item, Node) and item.kind in DIRECTIVES)
-        ]
-    )
-    builder.finish()
-    lowering.ir.functions.append(fn)
-    return lowering.close()
+    return lower_test_program([cm], test_name, debug=debug)
 
 
 class _Lower:
-    """One module's shared state: its globals, its declarations, its IR."""
+    """One translation unit's shared state: its globals, declarations and IR."""
 
-    def __init__(self, cm: CheckedModule, *, debug: bool = False) -> None:
-        # The layout registry answers by name alone, so it describes exactly
-        # one module at a time: drop whatever an earlier module left there
-        # before this one registers its structs.
-        llvm.reset_structs()
-        self.cm = cm
+    def __init__(
+        self,
+        cm: CheckedModule,
+        *,
+        debug: bool = False,
+        unit: frozenset[str] | None = None,
+        checked: list[CheckedModule] | None = None,
+    ) -> None:
         self.debug = debug
         self.ir = IrModule(TRIPLE, [], [])
         self.strings: dict[bytes, str] = {}
         self.declares: list[IrDecl] = []
+        #: Every checked module of this unit, by module name. A type name is
+        #: read in the namespace of the module that declares it, and that
+        #: module may be one the module being lowered cannot see — the second
+        #: hop of a signature it calls. The resolver refused a duplicate name
+        #: among roots, so one name is one entry here.
+        self._checked: dict[str, CheckedModule] = {}
+        for module in checked or ():
+            self._checked[module.module.name] = module
+        self._checked.setdefault(cm.module.name, cm)
+        #: The modules that share this object file, by name. A module outside
+        #: the unit has no lowered body here, so nothing it declares is a
+        #: symbol a call may reach.
+        self._unit = unit if unit is not None else frozenset({cm.module.name})
+        #: Whether named types carry their module's name. One module cannot
+        #: disagree with itself about what ``point`` means, so the bare name is
+        #: kept and the IR stays exactly what it was; two roots may each
+        #: declare a private ``point``, so each is spelled ``<module>.point``.
+        self._qualify = len(self._unit) > 1
         #: Structs a function materialises, in dependency-first order. A
         #: declaration nothing uses is not emitted: its layout may name a type
         #: this backend cannot spell, and a module should not fail to build
-        #: over a struct it never touched.
+        #: over a struct it never touched. Keyed by the unit's spelling, so two
+        #: modules' ``point``s are two entries.
         self.structs: dict[str, tuple[tuple[str, Ty], ...]] = {}
         #: Every enum a function materialises, by name, with its payload width
         #: in eight-byte words. Like ``structs`` it is dependency-first and only
         #: holds what was used: a declaration nothing touches is not emitted.
         self.enum_widths: dict[str, int] = {}
+        #: Every type spelling this lowerer produced, mapped to the
+        #: declaration it was made from: ``deep.inner`` -> ``("deep", "inner")``.
+        #: A spelling is an identity, so a qualified type read back from a
+        #: record still names the one struct it was made from.
+        self._spelled: dict[str, tuple[str, str]] = {}
+        #: The width memo of each declaring module, keyed by its name. A plain
+        #: enum name means one width inside the module that declares it, and
+        #: two modules may both call theirs ``tone``; the unit-wide table above
+        #: is keyed by the spelled name, which the arithmetic here must not see.
+        self._enum_memos: dict[str, dict[str, int]] = {}
+        #: Every source function a module of this unit can call, by module
+        #: then by plain name, mapped to its symbol. See :meth:`prepare`.
+        self._symbol_maps: dict[str, dict[str, str]] = {}
+        #: Whether the entry point is a test body, and so no module's ``main``
+        #: is lowered or callable.
+        self._entry_is_test = False
+        #: Every visible C declaration, by name, for the module whose bodies
+        #: are being lowered. A call to one is emitted as a ``declare`` of the
+        #: bare name: no mangle, no ``define``, and the linker finds the symbol
+        #: in libc. Kept apart from the symbol maps because an extern has no
+        #: body to lower and its name must not be prefixed. ``enter`` replaces
+        #: it with the current module's set, so a module at any import depth
+        #: can call what it declared.
+        self.externs: dict[str, FnTy] = {}
+        #: The ``$lambda$<n>`` names closures have been given so far.
+        self.lambdas = 0
+        self.lambda_names: set[str] = set()
+        #: The wrapper each named function used as a value got, by the symbol
+        #: of the function it wraps: one function, one wrapper, whichever
+        #: module asked for it.
+        self.wrappers: dict[str, str] = {}
+        self.enter(cm)
+        self.prepare(cm)
+
+    def enter(self, cm: CheckedModule) -> None:
+        """Make ``cm`` the module whose bodies are being lowered.
+
+        Its expression types, call targets and closures are what every body
+        below reads, and its declarations are what :meth:`type_name` spells
+        against, so a module's bodies are never lowered under another module's
+        record. Its ``extern`` declarations are swapped in beside its body
+        record: an extern is module-local, and one module's set must not make
+        another's call fail as if it had never been declared.
+        """
+        self.cm = cm
         #: The type record shared by everything that is not a copy: the
         #: module's own functions and its tests.
         self.body = Types(
@@ -798,37 +969,297 @@ class _Lower:
             cm.declared,
             cm.literal_types,
         )
-        #: Every source function this module can call, mapped to its symbol.
-        #: Built before any body is lowered, so source order is irrelevant and
-        #: a call to a name that is not here is E0103 in the lowerer. A generic
-        #: definition is left out: it has no body of its own, and calling it
-        #: goes through the copy the checker recorded for the call site.
-        self.symbols: dict[str, str] = {
-            name: self.symbol(name)
-            for name in cm.module.fns
-            if name not in cm.generic
-        }
-        #: Every visible C declaration, by name. A call to one is emitted as a
-        #: ``declare`` of the bare name: no mangle, no ``define``, and the
-        #: linker finds the symbol in libc. Kept apart from ``symbols`` because
-        #: an extern has no body to lower and its name must not be prefixed.
-        self.externs: dict[str, FnTy] = dict(cm.externs)
-        #: The ``$lambda$<n>`` names closures have been given so far.
-        self.lambdas = 0
-        self.lambda_names: set[str] = set()
-        #: The wrapper each named function used as a value got, by source name.
-        self.wrappers: dict[str, str] = {}
+        self.externs = dict(cm.externs)
 
-    def symbol(self, name: str) -> str:
-        """The linker-visible symbol for a program function.
+    def prepare(self, cm: CheckedModule) -> None:
+        """Record every function name ``cm`` can call, mapped to its symbol.
+
+        The module's own definitions come first, then the ones it imports;
+        both are keyed by plain name, because that is how the source spells
+        them. The symbol is ``lg.<owner>.<name>``, so the same function called
+        from two modules is one symbol and a private name in each of them is
+        two. An import from outside the unit is left out: no body here defines
+        it, and mapping it would be a call the linker could not resolve.
+
+        A generic definition is left out: it has no body of its own, and
+        calling it goes through the copy the checker recorded for the call
+        site. An imported generic has no copy in this unit at all — the
+        checker refuses it before the backend runs.
+        """
+        module = cm.module
+        table: dict[str, str] = {}
+        for other in module.imports.values():
+            if other.name not in self._unit:
+                continue
+            for name in other.fns:
+                if name == "main" and self._entry_is_test:
+                    # The test body is the entry point; no module's ``main``
+                    # has a lowered body, so mapping it would re-add the one
+                    # symbol ``forget_main`` removed and emit a call to the
+                    # test entry itself.
+                    continue
+                sig = cm.fn_sigs.get(name)
+                if sig is None or _has_typevar(sig):
+                    continue
+                table[name] = self.symbol(other.name, name)
+        for name in module.fns:
+            if name in cm.generic:
+                continue
+            if name == "main" and self._entry_is_test:
+                continue
+            table[name] = self.symbol(module.name, name)
+        self._symbol_maps[module.name] = table
+
+    def forget_main(self) -> None:
+        """Drop every module's ``main``: a test build's entry is the test body."""
+        self._entry_is_test = True
+        for table in self._symbol_maps.values():
+            table.pop("main", None)
+
+    def lower_bodies(self, cm: CheckedModule, *, skip_main: bool = False) -> None:
+        """Lower one module's functions and generic copies into the unit.
+
+        The functions go in source order, then the copies the checker made,
+        exactly as they always have: source order is what makes the IR of a
+        single-module build identical to the one this backend produced before
+        build sets existed.
+        """
+        if cm is not self.cm:
+            self.prepare(cm)
+            self.enter(cm)
+        start = len(self.ir.functions)
+        for name, node in cm.module.fns.items():
+            if name in cm.generic or (skip_main and name == "main"):
+                continue
+            self.fn(name, node)
+        for instance in cm.instances.values():
+            self.instance(instance)
+        self.qualify(start)
+
+    def function(self, name: str) -> str | None:
+        """The symbol a visible function name lowers to, or ``None``.
+
+        ``None`` means no module in the unit defines that name, which is what
+        turns a call into a diagnostic at the call rather than a symbol the
+        linker would fail to find.
+        """
+        return self._symbol_maps.get(self.cm.module.name, {}).get(name)
+
+    def symbol(self, module: str, name: str) -> str:
+        """The linker-visible symbol for a function of ``module``.
 
         ``main`` keeps its name and its external linkage: it is the C entry
-        point. Everything else is internal and mangled, so no source name can
-        interpose on libc or on the runtime.
+        point, and the checker has already refused a set that declares it
+        twice. Everything else is internal and mangled, so no source name can
+        interpose on libc or on the runtime, and no two modules' private names
+        can collide.
         """
         if name == "main":
             return "main"
-        return f"lg.{self.cm.module.name}.{name}"
+        return f"lg.{module}.{name}"
+
+    def type_name(self, name: str, owner: CheckedModule | None = None) -> str:
+        """The name a struct or an enum is spelled by in this unit.
+
+        A single module keeps the bare name, so its IR is unchanged. In a unit
+        of several modules the declaring module's name goes in front, because
+        two roots may each declare a private ``point`` and one LLVM identified
+        type cannot be both.
+
+        ``owner`` is the module whose namespace ``name`` was written in; it
+        decides which declaration the spelling refers to when a type is reached
+        through a callee. It defaults to the module being lowered. A name this
+        method already spelled comes back unchanged, so qualifying twice is
+        harmless.
+        """
+        if not self._qualify:
+            return name
+        found = self._declared(name, owner)
+        if found is None:
+            return f"{(owner or self.cm).module.name}.{name}"
+        declared, plain, _ = found
+        spelled = f"{declared}.{plain}"
+        self._spelled[spelled] = (declared, plain)
+        return spelled
+
+    # -- which module declares a type ------------------------------------
+
+    def _declared(
+        self, name: str, owner: CheckedModule | None = None
+    ) -> tuple[str, str, CheckedModule | None] | None:
+        """``(module, plain name, checked form)`` for one type spelling.
+
+        A module sees its own types and its imports' — the resolver refused a
+        duplicate — so the search is a depth-first walk of ``owner``'s import
+        closure, own declarations first. That is also the chain a callee's
+        signature reaches a type through: ``program`` may call a function of
+        ``shapes`` whose signature names a type ``shapes`` imported from
+        ``deep``, and ``program`` never sees ``deep`` itself.
+
+        A spelling this lowerer produced (``deep.inner``) resolves straight to
+        the declaration it was made from, so a struct field's type can be
+        qualified once and still be read, compared and qualified again by
+        everything downstream.
+
+        The checked form is ``None`` when the declaring module is not one this
+        build lowers, because its field list — the layout — was computed by the
+        checker and only a checked module holds it. A name no module of the
+        closure declares falls back to a unique declaration elsewhere in the
+        unit; two is ambiguous, and reported rather than guessed.
+        """
+        known = self._spelled.get(name)
+        if known is not None:
+            module, plain = known
+            return module, plain, self._checked.get(module)
+        if owner is None:
+            owner = self.cm
+        declared = self._declares(owner.module, name, set())
+        if declared is not None:
+            return declared.name, name, self._checked.get(declared.name)
+        found = [cm for cm in self._checked.values() if name in cm.module.types]
+        if len(found) == 1:
+            return found[0].module.name, name, found[0]
+        return None
+
+    def _declares(self, module: Module, name: str, seen: set[str]) -> Module | None:
+        """The first module of ``module``'s import closure declaring ``name``."""
+        if module.name in seen:
+            return None
+        seen.add(module.name)
+        if name in module.types:
+            return module
+        for imported in module.imports.values():
+            found = self._declares(imported, name, seen)
+            if found is not None:
+                return found
+        return None
+
+    def _declaration(
+        self, name: str, owner: CheckedModule | None = None
+    ) -> tuple[str, str, dict, dict, CheckedModule] | None:
+        """The declaration tables one type spelling is read from.
+
+        A checked module holds its own declarations and, in the same tables,
+        the ones it inherited from its imports. So a type declared by a module
+        this build does not lower is still readable from the module of the unit
+        that imported it — that is the declaration the checker validated, and
+        the only one that exists. The namespace is then that importing module:
+        the best the lowerer has for a name whose declaring module has no
+        checked form here.
+        """
+        if owner is None:
+            owner = self.cm
+        found = self._declared(name, owner)
+        if found is None:
+            return None
+        declared, plain, cm = found
+        if cm is not None:
+            return declared, plain, cm.structs, cm.enums, cm
+        if plain not in owner.structs and plain not in owner.enums:
+            return None
+        return declared, plain, owner.structs, owner.enums, owner
+
+    def fields(self, name: str, owner: CheckedModule | None = None):
+        """``name``'s fields, from the module that declares it, spelled here.
+
+        The field types are qualified in the declaring module's namespace, not
+        the current one: a field of type ``inner`` means that module's
+        ``inner``, whatever the module holding the value calls its own.
+        """
+        found = self._declaration(name, owner)
+        if found is None:
+            return None
+        _, plain, structs, _, namespace = found
+        fields = structs.get(plain)
+        if fields is None:
+            return None
+        return tuple(
+            (field, self.qualify_type(ty, namespace)) for field, ty in fields
+        )
+
+    def variants(self, name: str, owner: CheckedModule | None = None):
+        """``name``'s enum variants, from the module that declares it."""
+        found = self._declaration(name, owner)
+        if found is None:
+            return None
+        _, plain, _, enums, _ = found
+        return enums.get(plain)
+
+    def enum_width(self, name: str, owner: CheckedModule | None = None) -> int:
+        """The payload width in words of enum ``name``, from its declaration."""
+        found = self._declaration(name, owner)
+        if found is None:
+            return 0
+        declared, plain, structs, enums, _ = found
+        memo = self._enum_memos.setdefault(declared, {})
+        return enum_words(plain, enums, structs, memo)
+
+    def layouts(self, owner: CheckedModule | None = None) -> tuple["_Layouts", "_Layouts"]:
+        """The struct and enum tables ``owner``'s namespace reads, by name.
+
+        The size and alignment helpers take one table pair and a name, so a
+        name the namespace cannot see has to resolve through the module that
+        declares it: that is what a signature of a sibling can name.
+        """
+        owner = owner or self.cm
+        return _Layouts(self, owner, "structs"), _Layouts(self, owner, "enums")
+
+    def qualify_type(self, ty: Ty, owner: CheckedModule | None = None) -> Ty:
+        """``ty`` with every named type spelled by the module that declared it."""
+        if not self._qualify:
+            return ty
+        if isinstance(ty, (StructRef, EnumRef)):
+            return type(ty)(self.type_name(ty.name, owner))
+        if isinstance(ty, Arr):
+            return Arr(self.qualify_type(ty.elem, owner), ty.n)
+        if isinstance(ty, (Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+            return type(ty)(self.qualify_type(ty.elem, owner))
+        if isinstance(ty, Res):
+            return Res(
+                self.qualify_type(ty.ok, owner), self.qualify_type(ty.err, owner)
+            )
+        if isinstance(ty, FnTy):
+            return FnTy(
+                tuple(self.qualify_type(param, owner) for param in ty.params),
+                self.qualify_type(ty.ret, owner),
+                ty.captures,
+            )
+        return ty
+
+    def qualify_operand(self, value: object, owner: CheckedModule | None = None) -> object:
+        """Qualify every type inside one instruction or terminator tuple.
+
+        The IR's vocabulary is a flat tuple per instruction, and a type is an
+        object in it, so the rewrite is a walk of the tuple rather than a case
+        for each opcode: a new opcode carrying a type cannot be forgotten here.
+        """
+        if isinstance(value, tuple):
+            return tuple(self.qualify_operand(item, owner) for item in value)
+        if isinstance(value, list):
+            return [self.qualify_operand(item, owner) for item in value]
+        if isinstance(value, (StructRef, EnumRef)):
+            return self.qualify_type(value, owner)
+        return value
+
+    def qualify(self, start: int) -> None:
+        """Spell the types of the functions lowered since ``start``.
+
+        Runs after a module's bodies are complete and before the next module's
+        begin, because the spelling depends on which module declared the type
+        and that is a fact about the module being lowered.
+        """
+        if not self._qualify:
+            return
+        for fn in self.ir.functions[start:]:
+            fn.ret = self.qualify_type(fn.ret)
+            fn.params = [(name, self.qualify_type(ty)) for name, ty in fn.params]
+            for block in fn.blocks:
+                block.instrs = [
+                    cast(tuple, self.qualify_operand(instr))
+                    for instr in block.instrs
+                ]
+                if block.term is not None:
+                    block.term = cast(tuple, self.qualify_operand(block.term))
 
     def intern(self, data: bytes) -> str:
         """The global holding ``data``, created on first use."""
@@ -872,10 +1303,18 @@ class _Lower:
         return (EnumRef(enum), index, payload)
 
     def declare(self, decl: IrDecl) -> None:
+        """Record one ``declare``, with its signature spelled for the unit."""
+        decl = IrDecl(
+            decl.name,
+            tuple(self.qualify_type(ty) for ty in decl.params),
+            self.qualify_type(decl.ret),
+        )
         if decl not in self.declares:
             self.declares.append(decl)
 
-    def use_type(self, ty: Ty, path: str) -> None:
+    def use_type(
+        self, ty: Ty, path: str, owner: CheckedModule | None = None
+    ) -> None:
         """Refuse a type with no layout, and record the types it needs.
 
         Validation is the public :func:`lowered_type`, which descends into
@@ -885,57 +1324,118 @@ class _Lower:
         top to bottom. An enum is registered before validation because its
         layout is ``{ i32, [K x i64] }`` and ``K`` is a fact about the
         declaration the type spelling cannot read for itself.
-        """
-        self._register_enums(ty)
-        lowered_type(ty, path, self.cm.structs, self.cm.enums)
-        self._collect(ty)
 
-    def _register_enums(self, ty: Ty, stack: tuple[str, ...] = ()) -> None:
+        ``owner`` is the namespace ``ty`` was written in; it defaults to the
+        module being lowered. A type read from a sibling's signature was not
+        written here, and every name inside it means what the sibling's module
+        — or the module it imported that type from — says it means.
+        """
+        self._refuse_unknown(ty, path, owner)
+        self._register_enums(ty, owner=owner)
+        structs, enums = self.layouts(owner)
+        lowered_type(ty, path, structs, enums)
+        self._collect(ty, owner=owner)
+
+    def _refuse_unknown(
+        self, ty: Ty, path: str, owner: CheckedModule | None = None
+    ) -> None:
+        """Report a named type this build cannot materialise.
+
+        The name is resolved in the namespace ``ty`` was written in, so the
+        message says which module declares it — even when that module is not
+        part of the build, which is the one case where a type a caller can
+        reach through a sibling's signature still has no layout here. Naming
+        the type alone would blame the expression that merely mentioned it.
+        """
+        for name in _named_types(ty):
+            found = self._declared(name, owner)
+            if found is None:
+                raise diag(
+                    UNKNOWN_NODE,
+                    path,
+                    f"type '{name}' is declared by no module of this build",
+                )
+            if self._declaration(name, owner) is None:
+                raise diag(
+                    UNKNOWN_NODE,
+                    path,
+                    f"type '{name}' is declared by module '{found[0]}', "
+                    "which this build does not lower",
+                )
+
+    def _register_enums(
+        self,
+        ty: Ty,
+        stack: tuple[str, ...] = (),
+        owner: CheckedModule | None = None,
+    ) -> None:
         """Record the payload width of every enum ``ty`` names, innermost first.
 
         ``K`` is the largest payload of the enum, in eight-byte words, so a
         payload that is itself an enum has to be measured first. ``stack``
         holds the type names being walked, which is what stops a struct that
         points at itself from walking forever.
+
+        ``owner`` is the namespace ``ty`` was written in. The width is
+        arithmetic over the declarations of that namespace, memoised per
+        declaring module; the unit's table records it under the name the type
+        is spelled by, which is what tells two modules' ``tone``s apart.
         """
+        if owner is None:
+            owner = self.cm
         if isinstance(ty, EnumRef):
-            if ty.name in stack:
+            found = self._declaration(ty.name, owner)
+            if found is None:
                 return
-            finished = self.enum_widths.get(ty.name)
+            declared, plain, structs, enums, namespace = found
+            spelled = self.type_name(ty.name, owner)
+            if spelled in stack:
+                return
+            variants = enums.get(plain)
+            if variants is None:
+                return
+            memo = self._enum_memos.setdefault(declared, {})
+            finished = memo.get(plain)
             if finished is not None:
                 # Measured already: re-walking the payloads would be the same
                 # answer, and a payload graph that reached back here would
                 # never finish (the checker refuses such an enum, but the
                 # lowerer must not depend on that to terminate).
-                llvm.register_enum(ty.name, finished)
-                return
-            variants = self.cm.enums.get(ty.name)
-            if variants is None:
+                llvm.register_enum(spelled, finished)
+                self.enum_widths[spelled] = finished
                 return
             for _, payload in variants:
                 if payload is not None:
-                    self._register_enums(payload, stack + (ty.name,))
-            words = enum_words(
-                ty.name, self.cm.enums, self.cm.structs, self.enum_widths
-            )
-            llvm.register_enum(ty.name, words)
-            self.enum_widths[ty.name] = words
+                    self._register_enums(payload, stack + (spelled,), namespace)
+            words = enum_words(plain, enums, structs, memo)
+            llvm.register_enum(spelled, words)
+            self.enum_widths[spelled] = words
         elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
-            self._register_enums(ty.elem, stack)
+            self._register_enums(ty.elem, stack, owner)
         elif isinstance(ty, Res):
-            self._register_enums(ty.ok, stack)
-            self._register_enums(ty.err, stack)
+            self._register_enums(ty.ok, stack, owner)
+            self._register_enums(ty.err, stack, owner)
         elif isinstance(ty, FnTy):
             for param in ty.params:
-                self._register_enums(param, stack)
-            self._register_enums(ty.ret, stack)
+                self._register_enums(param, stack, owner)
+            self._register_enums(ty.ret, stack, owner)
         elif isinstance(ty, StructRef):
-            if ty.name in stack:
+            found = self._declaration(ty.name, owner)
+            if found is None:
                 return
-            for _, field in self.cm.structs.get(ty.name, ()):
-                self._register_enums(field, stack + (ty.name,))
+            spelled = self.type_name(ty.name, owner)
+            if spelled in stack:
+                return
+            _, plain, structs, _, namespace = found
+            for _, field in structs.get(plain, ()):
+                self._register_enums(field, stack + (spelled,), namespace)
 
-    def _collect(self, ty: Ty, stack: tuple[str, ...] = ()) -> None:
+    def _collect(
+        self,
+        ty: Ty,
+        stack: tuple[str, ...] = (),
+        owner: CheckedModule | None = None,
+    ) -> None:
         """Record every struct and enum ``ty`` names, dependencies first.
 
         A struct reached only through a pointer is collected too: a signature,
@@ -950,43 +1450,69 @@ class _Lower:
         payload names a struct spells that struct's identified type inside the
         value, so the definition has to be emitted too. It has no definition
         line of its own — ``{ i32, [K x i64] }`` is a literal.
+
+        The fields are read from the module that declares the struct and are
+        spelled in that module's namespace as they are recorded, so a struct
+        whose field names another module's ``point`` points at that module's
+        definition rather than at a same-named copy of its own — and a field
+        type that is itself imported is read from *its* declaring module, all
+        the way down.
         """
+        if owner is None:
+            owner = self.cm
         if isinstance(ty, StructRef):
-            if ty.name in self.structs or ty.name in stack:
+            found = self._declaration(ty.name, owner)
+            if found is None:
                 return
-            fields = self.cm.structs.get(ty.name)
+            spelled = self.type_name(ty.name, owner)
+            if spelled in self.structs or spelled in stack:
+                return
+            _, plain, structs, _, namespace = found
+            fields = structs.get(plain)
             if fields is None:
                 return
             for _, field in fields:
-                self._collect(field, stack + (ty.name,))
-            self.structs[ty.name] = fields
-            llvm.register_struct(ty.name, tuple(fty for _, fty in fields))
+                self._collect(field, stack + (spelled,), namespace)
+            spelled_fields = tuple(
+                (field, self.qualify_type(fty, namespace))
+                for field, fty in fields
+            )
+            self.structs[spelled] = spelled_fields
+            llvm.register_struct(spelled, tuple(fty for _, fty in spelled_fields))
         elif isinstance(ty, EnumRef):
-            if ty.name in stack:
+            found = self._declaration(ty.name, owner)
+            if found is None:
                 return
-            for _, payload in self.cm.enums.get(ty.name, ()):
+            spelled = self.type_name(ty.name, owner)
+            if spelled in stack:
+                return
+            _, plain, _, enums, namespace = found
+            for _, payload in enums.get(plain, ()):
                 if payload is not None:
-                    self._collect(payload, stack + (ty.name,))
+                    self._collect(payload, stack + (spelled,), namespace)
         elif isinstance(ty, (Arr, Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
-            self._collect(ty.elem, stack)
+            self._collect(ty.elem, stack, owner)
         elif isinstance(ty, Res):
-            self._collect(ty.ok, stack)
-            self._collect(ty.err, stack)
+            self._collect(ty.ok, stack, owner)
+            self._collect(ty.err, stack, owner)
         elif isinstance(ty, FnTy):
             for param in ty.params:
-                self._collect(param, stack)
-            self._collect(ty.ret, stack)
+                self._collect(param, stack, owner)
+            self._collect(ty.ret, stack, owner)
 
     def next_name(self, prefix: str) -> str:
         """A fresh source-level name for a generated function: ``$lambda$1``.
 
-        ``$`` and the counter keep it apart from any ordinary definition, and
-        the loop skips a source name that happens to spell the same thing.
+        ``$`` and one counter for the whole unit keep it apart from any
+        ordinary definition: a thunk belongs to the unit, not to the module
+        that happened to ask for it, and two modules' generated names must not
+        meet.
         """
         while True:
             self.lambdas += 1
             name = f"{prefix}${self.lambdas}"
-            if name not in self.symbols and name not in self.lambda_names:
+            taken = any(name in table for table in self._symbol_maps.values())
+            if not taken and name not in self.lambda_names:
                 self.lambda_names.add(name)
                 return name
 
@@ -1018,7 +1544,7 @@ class _Lower:
                 [],
                 ret,
                 [IrBlock("entry")],
-                symbol=self.symbol(name),
+                symbol=self.symbol(self.cm.module.name, name),
                 internal=True,
             )
         builder = _Fn(self, fn, path=node.path, ret=ret, is_main=is_main)
@@ -1035,6 +1561,10 @@ class _Lower:
         none. Its body is lowered from the same source node as the original,
         but its type record is the copy's, so every path resolves to the types
         this instantiation fixed.
+
+        A copy belongs to the module being lowered: an imported generic has no
+        copy in this unit, because the checker never instantiates one in the
+        caller's namespace.
         """
         node = self.cm.module.fns[instance.fn]
         _, params, start = fn_shape(node, self.cm.types)
@@ -1046,7 +1576,7 @@ class _Lower:
             [],
             instance.ret,
             [IrBlock("entry")],
-            symbol=self.symbol(instance.name),
+            symbol=self.symbol(self.cm.module.name, instance.name),
             internal=True,
         )
         builder = _Fn(
@@ -1066,7 +1596,12 @@ class _Lower:
         self.ir.functions.append(fn)
 
     def close(self) -> IrModule:
-        """Finish the module: its struct and enum definitions, then its declares."""
+        """Finish the unit: its struct and enum definitions, then its declares.
+
+        Every definition is already spelled by the module that declared it, so
+        two modules' private ``point``s are two lines here rather than one
+        line that describes neither.
+        """
         self.ir.structs = [
             IrStruct(name, tuple(fty for _, fty in fields))
             for name, fields in self.structs.items()
@@ -1433,7 +1968,7 @@ class _Fn:
         self.emit(("store", Prim("i32"), str(index), tag_address))
         area = self.temp()
         self.emit(("gep", area, ty, slot, (("i32", "0"), ("i32", "1"))))
-        words = enum_words(ty.name, self.cm.enums, self.cm.structs)
+        words = self.lowering.enum_width(ty.name)
         address = self.temp()
         pointer = Ptr(Arr(Prim("i64"), words))
         self.emit(("bitcast", address, pointer, Ptr(payload), area))
@@ -1519,7 +2054,7 @@ class _Fn:
                 raise diag(
                     UNKNOWN_NODE, path, "a variant binding needs the enum in memory"
                 )
-            words = enum_words(tested.name, self.cm.enums, self.cm.structs)
+            words = self.lowering.enum_width(tested.name)
             area = self.temp()
             self.emit(
                 ("gep", area, tested, memory, (("i32", "0"), ("i32", "1")))
@@ -1561,7 +2096,7 @@ class _Fn:
             return self.empty_vector(ty, node.path)
         values = [self.value(item, node.path) for item in items[start:]]
         if isinstance(ty, StructRef):
-            fields = self.cm.structs.get(ty.name, ())
+            fields = self.lowering.fields(ty.name) or ()
             parts = [(value, fty) for value, (_, fty) in zip(values, fields)]
         elif isinstance(ty, Arr):
             parts = [(value, ty.elem) for value in values]
@@ -2015,14 +2550,14 @@ class _Fn:
         self.panic(node.path, ARRAY_BOUNDS, "vector capacity overflows")
 
         self.new_block(room)
-        size = sizeof_of(ty.elem, self.cm.structs, self.cm.enums)
+        size = sizeof_of(ty.elem, *self.lowering.layouts())
         self.no_overflow(bigger, size, node.path)
         if size == 1:
             bytes_ = bigger
         else:
             bytes_ = self.temp()
             self.emit(("mul", bytes_, Prim("i64"), bigger, str(size)))
-        align = align_of(ty.elem, self.cm.structs, self.cm.enums)
+        align = align_of(ty.elem, *self.lowering.layouts())
         self.lowering.declare(_RT_ALLOC)
         raw = self.temp()
         path = self._c_argument(node.path)
@@ -2099,7 +2634,7 @@ class _Fn:
                 WRONG_ARITY, node.path, "alloc takes a type and an element count"
             )
         count = self.index64(items[2], node.path, "alloc count")
-        size = sizeof_of(ty.elem, self.cm.structs, self.cm.enums)
+        size = sizeof_of(ty.elem, *self.lowering.layouts())
         self.no_overflow(count, size, node.path)
         if size == 1:
             bytes_ = count
@@ -2107,7 +2642,7 @@ class _Fn:
             bytes_ = self.temp()
             self.emit(("mul", bytes_, Prim("i64"), count, str(size)))
         path = self._c_argument(node.path)
-        align = align_of(ty.elem, self.cm.structs, self.cm.enums)
+        align = align_of(ty.elem, *self.lowering.layouts())
         self.lowering.declare(_RT_ALLOC)
         raw = self.temp()
         self.emit(("call", raw, "rt_alloc", (bytes_, str(align), path)))
@@ -2219,7 +2754,7 @@ class _Fn:
                 UNKNOWN_NODE, node.path, "spawn needs the name of a module function"
             )
         name = items[1].value
-        symbol = self.lowering.symbols.get(name)
+        symbol = self.lowering.function(name)
         sig = self.cm.fn_sigs.get(name)
         if symbol is None or sig is None:
             raise diag(
@@ -2241,9 +2776,10 @@ class _Fn:
         values = tuple(self.value(arg, node.path) for arg in args)
         for field in fields:
             self.lowering.use_type(field, node.path)
-        size = _fields_size(fields, self.cm.structs, self.cm.enums) if fields else 0
+        structs, enums = self.lowering.layouts()
+        size = _fields_size(fields, structs, enums) if fields else 0
         align = (
-            max(align_of(field, self.cm.structs, self.cm.enums) for field in fields)
+            max(align_of(field, structs, enums) for field in fields)
             if fields
             else 1
         )
@@ -2275,7 +2811,7 @@ class _Fn:
         takes the address of. Returns the thunk's address as an ``i8*``.
         """
         name = self.lowering.next_name("$spawn")
-        symbol = self.lowering.symbol(name)
+        symbol = self.lowering.symbol(self.cm.module.name, name)
         fn = IrFn(
             name,
             [],
@@ -2381,7 +2917,7 @@ class _Fn:
                 UNKNOWN_NODE, node.path, f"'chan' did not produce a channel, found {ty}"
             )
         self.lowering.use_type(elem, node.path)
-        size = sizeof_of(elem, self.cm.structs, self.cm.enums)
+        size = sizeof_of(elem, *self.lowering.layouts())
         capacity = self.index64(items[2], node.path, "channel capacity")
         path = self._c_argument(node.path)
         self.lowering.declare(_RT_CHAN_NEW)
@@ -2522,7 +3058,7 @@ class _Fn:
 
     def field(self, ty: StructRef, name: str, where: str) -> tuple[int, Ty]:
         """The declaration index and type of one field."""
-        fields = self.cm.structs.get(ty.name)
+        fields = self.lowering.fields(ty.name)
         if fields is None:
             raise diag(UNKNOWN_NODE, where, f"struct '{ty.name}' is not lowered yet")
         for index, (field, field_ty) in enumerate(fields):
@@ -2714,7 +3250,7 @@ class _Fn:
         if token.kind == NUMBER:
             if "." in token.value or "e" in token.value or "E" in token.value:
                 # The checker recorded the width this literal was checked at;
-                # an ``:f32`` needs single-precision spelling (see below).
+                # an ``:f32`` is rounded to single precision before spelling.
                 return _float_text(
                     token.value, where, self.record.literal_types.get(token)
                 )
@@ -3149,7 +3685,7 @@ class _Fn:
         if isinstance(tested, Prim) and tested.name in INTEGERS:
             tag_ty, tag_value = tested, value
         elif isinstance(tested, EnumRef):
-            variants = self.cm.enums.get(tested.name)
+            variants = self.lowering.variants(tested.name)
             if variants is None:
                 raise diag(UNKNOWN_TYPE, node.path, f"unknown type '{tested.name}'")
             tag_ty = Prim("i32")
@@ -3367,12 +3903,19 @@ class _Fn:
                 )
             args = tuple(self.value(arg, node.path) for arg in node.items[1:])
             dest = "" if _is_void(instance.ret) else self.temp()
-            self.emit(("call", dest, self.lowering.symbol(target), args))
+            self.emit(
+                (
+                    "call",
+                    dest,
+                    self.lowering.symbol(self.cm.module.name, target),
+                    args,
+                )
+            )
             return dest
         extern = self.lowering.externs.get(node.kind)
         if extern is not None:
             return self.extern_call(node, extern)
-        symbol = self.lowering.symbols.get(node.kind)
+        symbol = self.lowering.function(node.kind)
         if symbol is None:
             raise diag(
                 UNKNOWN_FUNCTION,
@@ -3465,9 +4008,9 @@ class _Fn:
         interchangeable values.
         """
         sig = self.cm.fn_sigs[name]
-        wrapper = self.lowering.wrappers.get(name)
+        symbol = self.lowering.function(name)
+        wrapper = self.lowering.wrappers.get(symbol or "")
         if wrapper is None:
-            symbol = self.lowering.symbols.get(name)
             if symbol is None:
                 raise diag(
                     UNKNOWN_FUNCTION,
@@ -3480,7 +4023,7 @@ class _Fn:
                 [],
                 sig.ret,
                 [IrBlock("entry")],
-                symbol=self.lowering.symbol(helper),
+                symbol=self.lowering.symbol(self.cm.module.name, helper),
                 internal=True,
             )
             builder = _Fn(
@@ -3509,8 +4052,8 @@ class _Fn:
                 builder.block.term = ("ret", Prim("void"), None)
             builder.finish()
             self.lowering.ir.functions.append(fn)
-            wrapper = self.lowering.symbol(helper)
-            self.lowering.wrappers[name] = wrapper
+            wrapper = self.lowering.symbol(self.cm.module.name, helper)
+            self.lowering.wrappers[symbol] = wrapper
         code = self.temp()
         self.emit(("faddr", code, wrapper))
         return self.fn_pair(sig, "null", code)
@@ -3538,7 +4081,7 @@ class _Fn:
                 UNKNOWN_NODE, node.path, "the checker recorded no closure here"
             )
         name = self.lowering.next_lambda()
-        symbol = self.lowering.symbol(name)
+        symbol = self.lowering.symbol(self.cm.module.name, name)
         env = self.environment(info, node.path)
         code = self.temp()
         self.emit(("faddr", code, symbol))
@@ -3747,6 +4290,27 @@ _SIZES = {
 _FLOATS = ("f32", "f64")
 
 
+def _has_typevar(ty: Ty) -> bool:
+    """Whether ``ty`` still names a type variable, so it has no single layout.
+
+    A generic definition has a signature like that and no body of its own; the
+    checker makes one copy per call site instead. The lowerer asks this of an
+    imported signature only, to leave the definition out of the symbol map: a
+    name mapped to a symbol nothing defines is a call the linker cannot answer.
+    """
+    if isinstance(ty, TypeVar):
+        return True
+    if isinstance(ty, (Ptr, Own, Vec, Opt, Shared, Chan, Atomic)):
+        return _has_typevar(ty.elem)
+    if isinstance(ty, Arr):
+        return _has_typevar(ty.elem)
+    if isinstance(ty, Res):
+        return _has_typevar(ty.ok) or _has_typevar(ty.err)
+    if isinstance(ty, FnTy):
+        return any(_has_typevar(param) for param in ty.params) or _has_typevar(ty.ret)
+    return False
+
+
 def enum_words(
     name: str,
     enums: dict[str, tuple[tuple[str, Ty | None], ...]],
@@ -3929,22 +4493,21 @@ def _path_of(item: Node | Token, where: str) -> str:
 
 
 def _float_text(text: str, where: str, widened: Ty | None = None) -> str:
-    """Spell a float literal the way LLVM reads an operand of its width.
+    """Spell a float literal as its bit pattern, which LLVM reads exactly.
 
-    LLVM's decimal form needs a digit, a dot and then whatever exponent the
-    value has, so ``2.0`` stays ``2.0`` and ``1e300`` becomes ``1.0e+300``.
-    Python's ``repr`` is the shortest text that reads back as the same double,
-    which is also what the runtime prints, so a literal and the value it
-    formats agree.
+    ``0x`` plus the sixteen hex digits of the double's bits names one number,
+    so nothing between the compiler and the assembler can round it: a decimal
+    is re-read and rounded by whoever consumes the IR, and Python's ``repr`` is
+    the shortest text that round-trips as a *double*, not necessarily the text
+    LLVM turns back into the same bits. The error had both directions at once
+    — a decimal could land one ulp away, and a decimal written for a ``float``
+    operand that is not exactly single precision is refused outright as
+    "floating point constant invalid for type" (``0.1`` at ``:f32``).
 
-    One decimal cannot serve both widths. LLVM accepts a decimal constant for a
-    ``float`` only when the value is exactly single precision, so ``0.1`` at
-    ``:f32`` is refused as "floating point constant invalid for type". The
-    checker records the width each literal was checked at, and a value the
-    ``float`` cannot hold exactly is spelled in hexadecimal: the bits of the
-    double that *is* the single-precision value, a form LLVM reads at either
-    width because it names an exact number. The rounding happens here once, at
-    compile time, instead of being left for LLVM to reject.
+    The checker records the width each literal was checked at. An ``:f32``
+    literal is rounded to single precision here, once, at compile time, and
+    then spelled as the bits of the double that holds that value; LLVM reads
+    that constant at either width because it names an exact number.
     """
     value = float(text)
     if value != value or value in (float("inf"), float("-inf")):
@@ -3952,18 +4515,8 @@ def _float_text(text: str, where: str, widened: Ty | None = None) -> str:
             LITERAL_RANGE, where, f"float literal '{text}' is not a finite :f64"
         )
     if isinstance(widened, Prim) and widened.name == "f32":
-        single = _single(value)
-        if single != value:
-            return _hex_float(single)
-    spelled = repr(value)
-    if "e" in spelled or "E" in spelled:
-        mantissa, _, exponent = spelled.partition("e")
-        if "." not in mantissa:
-            mantissa += ".0"
-        return f"{mantissa}e{exponent}"
-    if "." not in spelled:
-        return spelled + ".0"
-    return spelled
+        return _hex_float(_single(value))
+    return _hex_float(value)
 
 
 def _single(value: float) -> float:
@@ -3975,7 +4528,11 @@ def _single(value: float) -> float:
 
 
 def _hex_float(value: float) -> str:
-    """``value`` as LLVM's hexadecimal double literal, ``0x3FF19999A0000000``."""
+    """``value`` as LLVM's hexadecimal double literal.
+
+    ``0x3FF199999999999A`` is the double ``1.1``; the single-precision value
+    ``_single`` produces for ``:f32`` is widened to its own exact double first.
+    """
     return "0x{:016X}".format(struct.unpack("<Q", struct.pack("<d", value))[0])
 
 

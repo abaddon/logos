@@ -28,12 +28,14 @@ from logos.types import Prim
 ROOT = Path(__file__).resolve().parents[1]
 HELLO = ROOT / "examples" / "hello.logos"
 EXEC_HELLO = ROOT / "tests" / "exec" / "hello.logos"
+VEC = ROOT / "tests" / "exec" / "vec.logos"
+GOLDEN_VEC = ROOT / "tests" / "golden" / "vec.ll"
 
 
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -303,6 +305,17 @@ class EmitterTest(unittest.TestCase):
             text.index("declare i64 @rt_write(i32, i64)"),
             text.index("define i32 @main()"),
         )
+
+    def test_a_float_constant_is_hexadecimal(self):
+        # A decimal spelling has to be re-read and rounded by the assembler;
+        # the bit pattern names one exact number at either width.
+        text = llvm.emit(
+            lower.lower_module(
+                checked("(mod m)\n(fn main :i64 () (println 1.5) (ret 0))\n")
+            )
+        )
+        self.assertIn("double 0x3FF8000000000000", text)
+        self.assertNotIn("double 1.5", text)
 
     def test_an_unknown_instruction_is_a_loud_failure(self):
         m = ir.IrModule(
@@ -673,7 +686,7 @@ class CallResolutionTest(unittest.TestCase):
             "(mod main)\n\n(use other)\n\n(fn main :i64 ()\n  (ret (helper)))\n",
             "main.logos",
         )
-        module = resolve(root, lambda name: other, "main.logos")
+        module = resolve(root, lambda name, _asker: other, "main.logos")
         with self.assertRaises(LogosError) as caught:
             check_module(module)
         self.assertEqual(caught.exception.code, "E0103")
@@ -739,6 +752,23 @@ class IRNameTest(unittest.TestCase):
             ],
         )
         self.assertIn('define i32 @"lg.a?b.f"()', llvm.emit(m))
+
+
+class GoldenIRTest(unittest.TestCase):
+    """The whole single-module IR text of ``vec.logos``, pinned byte for byte.
+
+    ``tests/golden/vec.ll`` is a deliberate snapshot of the emitter's output
+    for one module. It is regenerated only when the IR format changes, by
+    running the lowering below and writing the text to the file; a failure
+    here means the format moved, so read the diff before regenerating.
+    """
+
+    def test_the_single_module_ir_text_is_unchanged(self):
+        module = lower.lower_module(check_module(driver.load(str(VEC))))
+        emitted = llvm.emit(module)
+        self.assertEqual(
+            emitted, GOLDEN_VEC.read_text(encoding="utf-8"), "IR text drifted"
+        )
 
 
 class I64MainTest(unittest.TestCase):

@@ -33,19 +33,33 @@ E0002 unknown node, E0003 duplicate definition, E0004 circular import,
 E0005 name not found. The last covers a module the loader cannot supply and a
 loaded module that declares a different name; the other codes the compiler
 uses live in :mod:`logos.diag`.
+
+Build set
+---------
+``program`` resolves several files as one build: the modules named on the
+command line answer each other's ``use`` before the file system is asked, and
+a name in no set falls back to a ``<name>.logos`` beside the file that asked.
+Two roots that declare one module name are E0003 at the second, because one
+name cannot be two files.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from logos.diag import CIRCULAR, DUPLICATE, NOT_FOUND, UNKNOWN_NODE, LogosError, diag
 from logos.lexer import ATOM, Token
 from logos.nodes import Node
+from logos.parser import parse
 
-#: ``loader(name)`` returns the parsed tree of another module.
-Loader = Callable[[str], Node]
+#: ``loader(name, asker)`` returns the parsed tree of another module.
+#:
+#: ``asker`` is the path of the file that wrote the ``use``, so a loader can
+#: answer from that file's own directory rather than from the build's roots;
+#: it is ``""`` when the tree that asked has no source path.
+Loader = Callable[[str, str], Node]
 
 
 @dataclass(slots=True)
@@ -76,7 +90,8 @@ class Module:
 def resolve(root: Node, loader: Loader, file: str = "") -> Module:
     """Resolve ``root`` and everything it imports.
 
-    ``loader`` supplies the parsed tree of another module and is called at most
+    ``loader`` supplies the parsed tree of another module, given the module
+    name and the path of the file that asked for it, and is called at most
     once per module name. A name it cannot supply raises E0005; a parse
     diagnostic raised by it propagates unchanged.
 
@@ -93,12 +108,139 @@ def resolve(root: Node, loader: Loader, file: str = "") -> Module:
     return _Resolver(loader, file).module(root, None, "")
 
 
+def program(roots: list[Node]) -> list[Module]:
+    """Resolve several parsed files as one build set, in the order given.
+
+    The set answers every ``use`` before the file system does: a module named
+    on the command line is loaded from its root, not from a sibling file. A
+    name in no set is looked for as ``<name>.logos`` beside the file that
+    asked for it, which is the single-file rule; a name nobody can supply is
+    E0005 at the ``use``. Because the loader is told which file asked, one
+    root's directory never answers another root's import.
+
+    Two roots that declare one module name are E0003 at the second, naming
+    both files: one name cannot answer for two trees.
+    """
+    table: dict[str, Node] = {}
+    origins: dict[str, str] = {}
+    for root in roots:
+        form = _module_form(root)
+        if form is None:
+            # ``resolve`` reports the missing ``(mod ...)`` below.
+            continue
+        name = form.name
+        if name is None:
+            # ``resolve`` reports the nameless ``(mod ...)`` below.
+            continue
+        first = table.get(name)
+        if first is not None:
+            raise diag(
+                DUPLICATE,
+                form.path,
+                f"duplicate module '{name}': {_origin(first, origins[name])} "
+                f"and {_origin(root, root.file)}",
+            )
+        table[name] = root
+        origins[name] = root.file
+
+    loader = _set_loader(table)
+    #: The file that answered each module name anywhere in this build. One
+    #: registry for every root, so a name answered by two files is refused
+    #: whichever root was listed first.
+    files: dict[str, str] = {}
+    return [
+        _Resolver(loader, root.file, files).module(root, None, "")
+        for root in roots
+    ]
+
+
+def reachable(modules: list[Module]) -> list[Module]:
+    """Every module ``modules`` and their imports reach, each once, stable order.
+
+    The result starts with the roots in the order given, then each root's
+    imports depth first in source order. One name is one module, so a diamond
+    — two modules importing the same third — is one entry here: a build set
+    lowers its functions once, and a second copy would be a second definition
+    of the same symbol.
+
+    This is the import closure a build set is lowered from. It lives here
+    because it is a fact about the resolved graph, not about the driver, and
+    a later build path reuses it unchanged.
+    """
+    seen: dict[str, Module] = {}
+    order: list[Module] = []
+
+    def walk(current: Module) -> None:
+        if current.name in seen:
+            return
+        seen[current.name] = current
+        order.append(current)
+        for imported in current.imports.values():
+            walk(imported)
+
+    for module in modules:
+        walk(module)
+    return order
+
+
+def _set_loader(table: dict[str, Node]) -> Loader:
+    """A loader that answers from ``table``, then from the asker's directory.
+
+    A sibling file is parsed at most once: a diamond import asks for one name
+    twice, and both answers have to be the same tree, so the module graph holds
+    one node for one file.
+    """
+
+    trees: dict[str, Node] = {}
+
+    def loader(name: str, asker: str) -> Node:
+        tree = table.get(name)
+        if tree is not None:
+            return tree
+        if not asker:
+            raise FileNotFoundError(name)
+        sibling = Path(asker).parent / f"{name}.logos"
+        key = str(sibling)
+        cached = trees.get(key)
+        if cached is not None:
+            return cached
+        if sibling.is_file():
+            tree = parse(sibling.read_text(encoding="utf-8"), key)
+            trees[key] = tree
+            return tree
+        raise FileNotFoundError(name)
+
+    return loader
+
+
+def _same_file(first: str, second: str) -> bool:
+    """Whether two module origins name one file, by path rather than by name."""
+    return Path(first).resolve() == Path(second).resolve()
+
+
+def _origin(root: Node, file: str) -> str:
+    """Name a root in a duplicate-module message: its file, or its path."""
+    return file or root.path or "<unknown>"
+
+
 class _Resolver:
-    def __init__(self, loader: Loader, file: str = "") -> None:
+    def __init__(
+        self,
+        loader: Loader,
+        file: str = "",
+        files: dict[str, str] | None = None,
+    ) -> None:
         self.loader = loader
         self.file = file
         self.done: dict[str, Module] = {}
         self.active: list[str] = []
+        #: The tree each (module name, asking directory) was answered with, so
+        #: one import site is loaded once and two directories still get their
+        #: own answer.
+        self.asked: dict[tuple[str, str], Node] = {}
+        #: The file that answered each module name so far. ``program`` shares
+        #: one of these across its roots; a single load is a set of one.
+        self.files: dict[str, str] = files if files is not None else {}
 
     def module(self, root: Node, expected: str | None, origin: str) -> Module:
         """Resolve a parsed file, which must declare the expected name."""
@@ -120,6 +262,7 @@ class _Resolver:
                 origin,
                 f"module '{expected}' declares itself '{declared}'",
             )
+        self._claim(declared, form, root.file)
 
         self.active.append(declared)
         try:
@@ -128,6 +271,27 @@ class _Resolver:
             self.active.pop()
         self.done[declared] = module
         return module
+
+    def _claim(self, name: str, form: Node, file: str) -> None:
+        """Record the file that answers ``name``; a second one is E0003.
+
+        A module name is an address: ``(use util)`` has exactly one answer, and
+        a build where ``util`` is two files would lower one body under the
+        other file's name — silently, because both declare the same symbols.
+        The comparison is on the resolved path, so one file reached twice
+        through a diamond is the same module and not a duplicate.
+        """
+        first = self.files.get(name)
+        if first is None or not first:
+            self.files[name] = file
+            return
+        if not file or _same_file(first, file):
+            return
+        raise diag(
+            DUPLICATE,
+            form.path,
+            f"duplicate module '{name}': {first} and {file}",
+        )
 
     def _build(self, root: Node, form: Node, name: str) -> Module:
         module = Module(name, root, {}, {}, {}, {}, {})
@@ -165,14 +329,23 @@ class _Resolver:
         if name in self.active:
             raise diag(CIRCULAR, node.path, "circular import: " + _cycle(self.active, name))
 
-        imported = self.done.get(name)
-        if imported is None:
+        # The loader is asked once per (module name, asking directory), not
+        # once per name: two files in different directories may ask for one
+        # name and be answered by two different files, which is exactly the
+        # silent collapse ``_claim`` refuses. Reusing the first answer by name
+        # would hide it.
+        key = (name, str(Path(module.root.file).parent) if module.root.file else "")
+        root = self.asked.get(key)
+        if root is None:
             try:
-                root = self.loader(name)
+                root = self.loader(name, module.root.file)
             except (KeyError, OSError):
                 raise diag(NOT_FOUND, node.path, f"unknown module '{name}'") from None
             if not isinstance(root, Node):
                 raise diag(NOT_FOUND, node.path, f"unknown module '{name}'")
+            self.asked[key] = root
+        imported = self.done.get(name)
+        if imported is None or not _same_file(imported.root.file, root.file):
             imported = self.module(root, name, node.path)
 
         _merge(imported, defs, node.path)
@@ -227,7 +400,7 @@ def _define(module: Module, node: Node, kind: str, defs: dict[str, Node]) -> Non
     if name is None:
         raise diag(UNKNOWN_NODE, node.path, f"{kind} needs a name")
     if name in defs:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, defs[name], node, node.path)
     defs[name] = node
     table = module.types if kind == "type" else module.fns
     table[name] = node
@@ -250,7 +423,7 @@ def _define_extern(module: Module, node: Node, defs: dict[str, Node]) -> None:
             "extern needs (extern fn name :ret ((p :type) ...))",
         )
     if name in defs:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, defs[name], node, node.path)
     defs[name] = node
     module.externs[name] = node
 
@@ -260,7 +433,7 @@ def _define_test(module: Module, node: Node, tests: dict[str, Node]) -> None:
     if name is None:
         raise diag(UNKNOWN_NODE, node.path, "test needs a name")
     if name in tests:
-        raise diag(DUPLICATE, node.path, f"duplicate definition '{name}'")
+        raise _duplicate(name, tests[name], node, node.path)
     tests[name] = node
     module.tests[name] = node
 
@@ -268,10 +441,27 @@ def _define_test(module: Module, node: Node, tests: dict[str, Node]) -> None:
 def _merge(imported: Module, defs: dict[str, Node], path: str) -> None:
     """Make the imported module's definitions visible, refusing collisions."""
     for table in (imported.types, imported.fns, imported.externs):
-        for name in table:
+        for name, node in table.items():
             if name in defs:
-                raise diag(DUPLICATE, path, f"duplicate definition '{name}'")
-            defs[name] = table[name]
+                raise _duplicate(name, defs[name], node, path)
+            defs[name] = node
+
+
+def _duplicate(name: str, first: Node, second: Node, path: str) -> LogosError:
+    """E0003 for one name declared twice, naming both declarations.
+
+    A collision through an import is only useful if it says both sides: the
+    definition the module already had and the one the import brought in. When
+    both spellings collapse to one node path — two definitions of one name in
+    one module — the short form is the one that can be acted on.
+    """
+    if first.path and second.path and first.path != second.path:
+        return diag(
+            DUPLICATE,
+            path,
+            f"duplicate definition '{name}': {first.path} and {second.path}",
+        )
+    return diag(DUPLICATE, path, f"duplicate definition '{name}'")
 
 
 def _cycle(active: list[str], name: str) -> str:

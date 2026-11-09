@@ -781,6 +781,7 @@ Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant
 | `E0105` | missing return |
 | `E0106` | integer literal out of range |
 | `E0107` | unused binding |
+| `E0108` | the entry point is not callable |
 | `E0200` | unknown field |
 | `E0201` | field type mismatch |
 | `E0300` | use after move |

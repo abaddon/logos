@@ -68,11 +68,12 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from logos import driver
-from logos.check import check_module
+from logos.check import check_program
 from logos.diag import LogosError
 from logos.lexer import ATOM, NUMBER, STRING, Token
 from logos.nodes import Node
 from logos.parser import parse
+from logos.resolve import reachable
 
 #: The categories, in the order the suite runs them. The order is fixed so a
 #: run is byte-for-byte reproducible; the files inside a category are sorted.
@@ -456,10 +457,18 @@ def _expected_from_sidecar(path: Path) -> tuple[str | None, str | None]:
 def _run_negative(
     path: Path, category: str, relative: str, expected: str, summary: Summary
 ) -> None:
-    """A file that must fail the checker with ``expected`` and no other code."""
+    """A file that must fail the checker with ``expected`` and no other code.
+
+    The file is judged as the build it is: the root plus every module its
+    ``use`` forms reach, which is the set ``check_program`` is handed when the
+    program is compiled. A single-module fixture is that set alone, so its
+    answer does not change; a fixture whose defect only appears beside a
+    sibling — a type that arrives through an import's signature — needs the set
+    to be judged at all.
+    """
     case_id = f"{category}/{relative}"
     try:
-        check_module(driver.load(str(path)))
+        check_program(reachable(driver.load_program([str(path)])))
     except LogosError as error:
         if error.code == expected:
             _record(summary, case_id, None)

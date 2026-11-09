@@ -1,0 +1,6 @@
+(mod shapes)
+
+(use deep)
+
+(fn take :i64 ((p point))
+  (ret (get p x)))

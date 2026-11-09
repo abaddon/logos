@@ -179,9 +179,12 @@ PASS regress/int-overflow/int-min-divided-by-minus-one-wraps -
 PASS regress/libc-interposition/a-user-write-does-not-take-over-printing -
 PASS regress/loop-condition -
 PASS regress/loop-release -
+PASS regress/main-call -
+PASS regress/multi-module/program/program -
 PASS regress/owner-place-read -
+PASS regress/print-small-numbers/every-small-width -
 PASS regress/recursive-enum -
 PASS regress/reserved-name -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
+PASS regress/struct-owner-mismatch/program -
 PASS regress/vec-place-copy -
-PASS regress/print-small-numbers/every-small-width -

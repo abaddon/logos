@@ -11,7 +11,7 @@ from pathlib import Path
 
 from logos.diag import LogosError
 from logos.parser import parse
-from logos.resolve import Module, resolve
+from logos.resolve import Module, reachable, resolve
 
 PARSE = Path(__file__).parent / "parse"
 
@@ -26,7 +26,7 @@ def resolve_src(src: str, files: dict[str, str] | None = None) -> Module:
     """
     sources = dict(files or {})
 
-    def loader(module: str):
+    def loader(module: str, _asker: str):
         if module not in sources:
             raise FileNotFoundError(module)
         return parse(sources[module], f"{module}.logos")
@@ -76,7 +76,7 @@ class ModuleTest(unittest.TestCase):
     def test_a_missing_module_form_without_a_file_name_has_no_location(self):
         # Backward compatibility: the two-argument call is still supported and
         # simply has no source to point at.
-        def loader(name: str):
+        def loader(name: str, _asker: str):
             raise FileNotFoundError(name)
 
         with self.assertRaises(LogosError) as caught:
@@ -113,6 +113,28 @@ class DuplicateTest(unittest.TestCase):
             resolve_src("(mod m)(type p (struct))(type p (struct))")
         self.assertEqual(caught.exception.code, "E0003")
         self.assertEqual(caught.exception.path, "m/p")
+
+    def test_a_duplicate_through_an_import_names_both_paths(self):
+        # The module's own ``f`` and the one the import brought in are two
+        # declarations; the message has to say which, or a reader cannot tell
+        # which one to rename.
+        other = {"other": "(mod other)(fn f :i64 () (ret 1))"}
+        with self.assertRaises(LogosError) as caught:
+            resolve_src("(mod m)(use other)(fn f :i64 () (ret 0))", other)
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertEqual(error.path, "m/f")
+        self.assertIn("other/f", error.message)
+        self.assertIn("m/f", error.message)
+
+    def test_a_duplicate_through_an_import_names_both_paths_in_either_order(self):
+        other = {"other": "(mod other)(fn f :i64 () (ret 1))"}
+        with self.assertRaises(LogosError) as caught:
+            resolve_src("(mod m)(fn f :i64 () (ret 0))(use other)", other)
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertIn("other/f", error.message)
+        self.assertIn("m/f", error.message)
 
     def test_a_fn_and_a_type_may_not_share_a_name(self):
         with self.assertRaises(LogosError) as caught:
@@ -178,7 +200,7 @@ class ImportTest(unittest.TestCase):
             "d": "(mod d)(fn h :i64 () (ret 0))",
         }
 
-        def loader(name: str):
+        def loader(name: str, _asker: str):
             loaded.append(name)
             return parse(sources[name], f"{name}.logos")
 
@@ -257,6 +279,28 @@ class CycleTest(unittest.TestCase):
                 {"b": "(mod b)(use c)", "c": "(mod c)(use b)"},
             )
         self.assertIn("b -> c -> b", caught.exception.message)
+
+
+class ReachableTest(unittest.TestCase):
+    """The import closure a build set lowers, root first and each name once."""
+
+    def test_a_root_and_a_two_hop_chain_are_each_answered_once(self):
+        root = resolve_src(
+            "(mod a)(use b)(fn fa :i64 () (ret 1))",
+            {
+                "b": "(mod b)(use c)(fn fb :i64 () (ret 2))",
+                "c": "(mod c)(fn fc :i64 () (ret 3))",
+            },
+        )
+        modules = reachable([root])
+        self.assertEqual([module.name for module in modules], ["a", "b", "c"])
+        self.assertEqual(len(modules), len({module.name for module in modules}))
+
+    def test_two_roots_share_one_answer_for_a_diamond(self):
+        left = resolve_src("(mod left)(use base)", {"base": "(mod base)"})
+        right = resolve_src("(mod right)(use base)", {"base": "(mod base)"})
+        modules = reachable([left, right])
+        self.assertEqual([module.name for module in modules], ["left", "base", "right"])
 
 
 class UnknownNodeTest(unittest.TestCase):

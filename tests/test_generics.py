@@ -45,7 +45,7 @@ GENERICS = ROOT / "tests" / "generics"
 def checked(source: str) -> CheckedModule:
     """Parse and check one inline module, which imports nothing."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         raise FileNotFoundError(name)
 
     return check_module(resolve(parse(source, "m.logos"), loader))
@@ -54,7 +54,7 @@ def checked(source: str) -> CheckedModule:
 def checked_with(source: str, files: dict[str, str]) -> CheckedModule:
     """Check one inline module whose ``(use ...)`` forms come from ``files``."""
 
-    def loader(name: str):
+    def loader(name: str, _asker: str):
         if name not in files:
             raise FileNotFoundError(name)
         return parse(files[name], f"{name}.logos")
@@ -715,7 +715,7 @@ class ClosureCheckTest(unittest.TestCase):
             {"b": "(mod b)(fn ping :void () (println 1))"},
         )
         self.assertEqual(error.code, "E0103")
-        self.assertIn("module boundary", error.message)
+        self.assertIn("not part of this build", error.message)
 
     def test_a_closure_body_may_name_a_type_variable_of_its_generic(self):
         cm = checked(

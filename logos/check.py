@@ -165,10 +165,13 @@ and the functions of its direct imports therefore all have a type by the time a
 call is checked, which makes source order irrelevant: a function can call one
 defined later. Because imports are not merged into ``Module.fns``, walking
 ``Module.imports`` is what builds the visible namespace, and a caller sees the
-definitions of the modules it names, never the ones they name. Only this
-module's definitions are lowered, so a call to an imported function is
-**E0103**, ``imported functions are not lowered yet: 'name'``, at the call:
-the callee's symbol lives in an object file the program is not built with.
+definitions of the modules it names, never the ones they name. A call to a
+function whose **declaring module** is not part of the build is **E0103**,
+``imported functions are not lowered yet: 'name'``, at the call:
+``check_program`` names the build set, because those modules share one object
+file, and a module checked alone lowers only its own definitions. A generic
+declared elsewhere is never instantiated in the caller's namespace, so a call
+to one is the same E0103 however large the build set is.
 
 Reserved names
 --------------
@@ -324,7 +327,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Callable, Iterator
+from typing import Callable, Collection, Iterator
 
 from logos.diag import (
     CIRCULAR,
@@ -336,6 +339,7 @@ from logos.diag import (
     INSTANTIATION_LIMIT,
     LITERAL_RANGE,
     LOOP_MOVE,
+    MAIN_NOT_CALLABLE,
     MISSING_RETURN,
     MOVE_IMMUTABLE,
     NON_EXHAUSTIVE,
@@ -410,9 +414,10 @@ class Types:
     declared: dict[str, Ty] = field(default_factory=dict)
     #: The width each numeric literal was checked at, keyed by the token
     #: itself. A literal has no width in the syntax, and the backend has to
-    #: spell it before it knows what the enclosing form expects — but LLVM
-    #: accepts a decimal float constant only when it is exactly the target
-    #: width's value, so ``0.1`` at ``:f32`` needs the single-precision bits.
+    #: spell it before it knows what the enclosing form expects — but the width
+    #: decides which bits the constant is. The backend prints a float as its
+    #: bit pattern in hexadecimal, and ``0.1`` at ``:f32`` must be the
+    #: single-precision value, not the double one the source also spells.
     #: Each copy of a generic body carries its own map, exactly as it carries
     #: its own ``expr_types``: one source token can be ``:f32`` in one
     #: instantiation and ``:f64`` in another.
@@ -589,9 +594,50 @@ def _escape_name(name: str) -> str:
     )
 
 
-def check_module(m: Module) -> CheckedModule:
-    """Check ``m`` and return its checked form, or raise ``LogosError``."""
-    return _Checker(m).run()
+def check_module(m: Module, *, build: Collection[str] | None = None) -> CheckedModule:
+    """Check ``m`` and return its checked form, or raise ``LogosError``.
+
+    ``build`` names every module of the build set: those are the modules that
+    share one object file, so a call is legal exactly when the module that
+    *declared* the signature the call resolves to is one of them. ``None``
+    means this module alone, which keeps the "imported functions are not
+    lowered yet" refusal for every import.
+    """
+    return _Checker(m, build).run()
+
+
+def check_program(modules: list[Module]) -> list[CheckedModule]:
+    """Check several modules as one build set, in the order given.
+
+    ``modules`` is exactly the set that will be lowered: the driver passes the
+    root's whole import closure, not the files named on the command line, so a
+    module a root imports from disk is a member here. A call into a module of
+    the set is legal, because every module of the set is lowered into one
+    object file; a call into a module outside it keeps the E0103 refusal.
+    Plain names may repeat across roots — every symbol is qualified by its
+    module — except ``main``: the entry point is one symbol, so two roots that
+    define it would emit it twice. That duplicate is E0003 at the second
+    definition, naming both.
+    """
+    _refuse_duplicate_main(modules)
+    build = frozenset(module.name for module in modules)
+    return [check_module(module, build=build) for module in modules]
+
+
+def _refuse_duplicate_main(modules: list[Module]) -> None:
+    """Raise E0003 at the second ``main``, naming both definitions' paths."""
+    first: Node | None = None
+    for module in modules:
+        node = module.fns.get("main")
+        if node is None:
+            continue
+        if first is not None:
+            raise diag(
+                DUPLICATE,
+                node.path,
+                f"duplicate definition 'main': {first.path} and {node.path}",
+            )
+        first = node
 
 
 def fn_shape(
@@ -1403,8 +1449,11 @@ _LET_SHAPE = "takes a name, an optional type and a value"
 
 
 class _Checker:
-    def __init__(self, module: Module) -> None:
+    def __init__(self, module: Module, build: Collection[str] | None = None) -> None:
         self.module = module
+        #: The modules whose bodies this build emits, by name; ``run`` falls
+        #: back to this module alone when the caller named no build set.
+        self._given_build = build
         self.expr_types: dict[str, Ty] = {}
         self.call_targets: dict[str, str] = {}
         self.closures: dict[str, Closure] = {}
@@ -1428,10 +1477,10 @@ class _Checker:
             self.declared,
             self.literal_types,
         )
-        #: The source functions a call may instantiate. Only this module's own
-        #: definitions, because a copy's body is emitted from here; a generic
-        #: reached through an import has no body this module can lower.
-        self._bodies: dict[str, Node] = {}
+        #: The modules this build lowers, by name. A call is legal exactly
+        #: when the module that declared the signature it resolves to is in
+        #: here, because only those modules emit the body's symbol.
+        self._build: frozenset[str] = frozenset()
         #: Every visible name that is a C declaration rather than a body. A
         #: call to one is not the "imported functions are not lowered yet"
         #: refusal: a ``declare`` needs no body in this module at all.
@@ -1457,7 +1506,11 @@ class _Checker:
                 # source can answer, so the ambiguity is reported where the
                 # constructor is used.
                 self._variants.setdefault(variant, []).append((enum_name, payload))
-        self._bodies = {name: node for name, node in self.module.fns.items()}
+        self._build = (
+            frozenset(self._given_build)
+            if self._given_build is not None
+            else frozenset({self.module.name})
+        )
         self._externs = dict(visible.externs)
         for node in self.module.fns.values():
             self._check_fn(node, visible.fns)
@@ -1510,7 +1563,8 @@ class _Checker:
                 inherited_enums.update(visible.own_enums)
                 inherited_externs.update(visible.own_externs)
             own_types = {
-                name: _declared(name, node) for name, node in module.types.items()
+                name: _declared(name, node, module.name)
+                for name, node in module.types.items()
             }
             for name, node in module.types.items():
                 if reserved_name(name):
@@ -1579,6 +1633,25 @@ class _Checker:
             self._active.pop()
         self._seen[module.name] = visible
         return visible
+
+    def _owner(self, name: str) -> Module | None:
+        """The module that declared the signature a call to ``name`` reaches.
+
+        ``_visible`` merges this module's own definitions and its direct
+        imports' into one namespace, refusing collisions, so the first table
+        that holds ``name`` is the one the call resolves into. Imports are not
+        transitive, so one level is the whole search.
+        """
+        if name in self.module.fns:
+            return self.module
+        for imported in self.module.imports.values():
+            if name in imported.fns:
+                return imported
+        return None
+
+    def _in_build(self, owner: Module | None) -> bool:
+        """Whether ``owner`` is one of the modules this build lowers."""
+        return owner is not None and owner.name in self._build
 
     def _signature(
         self,
@@ -1932,17 +2005,17 @@ class _Checker:
                         where,
                         f"{token.value} is generic: a call fixes its type variables",
                     )
-                if token.value not in self._bodies:
+                if not self._in_build(self._owner(token.value)):
                     # The lowerer emits a ``$fnvalue`` wrapper beside the
-                    # definition it wraps. An imported (or test-local) name has
-                    # no definition in this module, so there is no wrapper to
-                    # call and lowering would fail with E0103 after checking.
+                    # definition it wraps. A function outside this build — a
+                    # test-local helper, or an import from a module the build
+                    # does not lower — has no wrapper to call, so lowering
+                    # would fail.
                     raise diag(
                         UNKNOWN_FUNCTION,
                         where,
-                        f"cannot use '{token.value}' as a function value: only "
-                        "a function defined in this module can be passed across "
-                        "a module boundary",
+                        f"cannot use '{token.value}' as a function value: "
+                        f"'{token.value}' is not part of this build",
                     )
                 return bare
             variant = self._variant_type(token.value, where)
@@ -1957,7 +2030,7 @@ class _Checker:
                         f"variant '{token.value}' holds a value: "
                         f"write ({token.value} name)",
                     )
-                return EnumRef(enum)
+                return self._enum_ref(enum)
             raise diag(NOT_FOUND, where, f"unknown name '{token.value}'")
         raise diag(UNKNOWN_NODE, where, "expected a value")
 
@@ -3312,19 +3385,19 @@ class _Checker:
                 _at(target, node),
                 "main is the entry point and cannot be started as a thread",
             )
-        if name not in self._bodies:
+        owner = self._owner(name)
+        if not self._in_build(owner):
             # Two different reasons share this rule. A test-local helper is
             # checked but not lowered: its symbol does not exist, so a thunk
-            # calling it could not link. An imported function is a module
-            # function, but in another module — this module lowers only its own
-            # definitions, so that symbol is not in this object file. Both are
-            # E0103, like a function value; the message says which.
-            if any(name in module.fns for module in self.module.imports.values()):
+            # calling it could not link. A function declared in a module the
+            # build does not lower has no symbol either. Both are E0103, like
+            # a function value; the message says which.
+            if owner is not None:
                 raise diag(
                     UNKNOWN_FUNCTION,
                     _at(target, node),
-                    f"cannot start '{name}' as a thread: imported functions "
-                    "are not lowered yet",
+                    f"cannot start '{name}' as a thread: '{name}' is not part "
+                    "of this build",
                 )
             raise diag(
                 UNKNOWN_FUNCTION,
@@ -3369,7 +3442,7 @@ class _Checker:
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects {param}, found {ty}",
+                    _argument_message(index, name, param, ty),
                 )
             if isinstance(param, Res):
                 # The thread's body is checked for the obligation, exactly as
@@ -3893,6 +3966,17 @@ class _Checker:
             )
         return found[0]
 
+    def _enum_ref(self, name: str) -> EnumRef:
+        """The declared enum ``name`` spells, carrying its declaring module.
+
+        Every constructor's type is one of these: the value it builds has the
+        declaration the variant came from, not merely the name the caller's
+        namespace happens to hold. A name the caller cannot see keeps the bare
+        spelling, which is what every construction without a namespace has.
+        """
+        declared = self._types.get(name)
+        return declared if isinstance(declared, EnumRef) else EnumRef(name)
+
     def _construct(self, node: Node, env: _Env) -> Ty | None:
         """``(variant v)`` or ``variant``: a value of the enum that declares it.
 
@@ -3927,7 +4011,7 @@ class _Checker:
             # The payload area holds the value by copy, so anything owning
             # moves into the variant and the source is empty afterwards.
             self._consume(args[0], env, node.path)
-        return EnumRef(enum)
+        return self._enum_ref(enum)
 
     def _printer(self, node: Node, env: _Env) -> Ty:
         """``print``/``println`` of one scalar the runtime formats.
@@ -3985,15 +4069,30 @@ class _Checker:
             if constructed is not None:
                 return constructed
             raise diag(UNKNOWN_FUNCTION, node.path, f"unknown function '{name}'")
+        if name == "main":
+            # The entry point is the system's to call: it passes no arguments
+            # and takes an ``:i32`` back. A call from another definition would
+            # emit a call to the C entry point under a Logos signature, which
+            # clang refuses at one end and the linker owns at the other, and
+            # across modules it is one symbol every module can name.
+            raise diag(MAIN_NOT_CALLABLE, node.path, "the entry point is not callable")
         if name in self._externs:
             # A C declaration has no body to lower and no module to link
             # against: the backend emits its ``declare`` and the linker finds
             # the symbol in libc. The argument rules are a body's.
             return self._arguments(node, env, name, found)
-        if name not in self._bodies:
-            # The signature is visible because the module imports it, but only
-            # this module's own definitions are lowered: the callee's symbol
-            # lives in another object file the program is not built with.
+        owner = self._owner(name)
+        # A body has a symbol only when the module that declared it is part of
+        # this build; a generic is additionally instantiated only from its own
+        # module, because a copy made here would resolve the body's names
+        # against this caller's definitions. Both refusals are the same E0103.
+        if not self._in_build(owner) or (
+            owner is not self.module and name in self._params
+        ):
+            # The signature is visible because the module imports it, but no
+            # module in this build emits its symbol: a module checked alone
+            # lowers only its own definitions, and a build set would have
+            # named the owner.
             raise diag(
                 UNKNOWN_FUNCTION,
                 node.path,
@@ -4046,7 +4145,7 @@ class _Checker:
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects {param}, found {ty}",
+                    _argument_message(index, name, param, ty),
                 )
             if self._move_only(param):
                 # The callee owns what it is handed: the argument moves into
@@ -4103,11 +4202,11 @@ class _Checker:
                 raise diag(CLOSURE_ESCAPE, _at(arg, node), _CLOSURE_ESCAPE)
             trial = dict(bindings)
             if _is_void(ty) or not _unify(param, ty, trial):
+                given = substitute(param, bindings)
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects "
-                    f"{substitute(param, bindings)}, found {ty}",
+                    _argument_message(index, name, given, ty),
                 )
             bindings = trial
             concrete = substitute(param, bindings)
@@ -4146,6 +4245,16 @@ class _Checker:
         before the 257th is asked for, and that one is E0500 rather than a
         program whose binary grows with every call site.
         """
+        if self._owner(name) is not self.module:
+            # A generic is instantiated from the definition it was declared
+            # in. Anywhere else its body's names would resolve against the
+            # caller's namespace, so an imported generic is refused exactly as
+            # it was before the build set existed.
+            raise diag(
+                UNKNOWN_FUNCTION,
+                node.path,
+                f"imported functions are not lowered yet: '{name}'",
+            )
         order = self._params[name]
         missing = [var for var in order if var not in bindings]
         if missing:
@@ -4173,7 +4282,7 @@ class _Checker:
                 node.path,
                 f"cannot name a copy of '{name}': '{target}' is already defined",
             )
-        body = self._bodies.get(name)
+        body = self.module.fns.get(name)
         if body is None:
             raise diag(
                 UNKNOWN_FUNCTION,
@@ -4218,8 +4327,14 @@ class _Checker:
             self._check_instance(self._instances[target], fns)
 
     def _check_instance(self, instance: Instance, fns: dict[str, FnTy]) -> None:
-        """Check one copy's body under its own substitution and type record."""
-        node = self._bodies[instance.fn]
+        """Check one copy's body under its own substitution and type record.
+
+        A copy is only ever queued by ``_instantiate``, which refuses an
+        imported generic, so ``instance.fn`` is always one of this module's own
+        definitions. Reading the body from ``module.fns`` makes that the only
+        table a copy can be checked against.
+        """
+        node = self.module.fns[instance.fn]
         _, _, start = fn_shape(node, self._types, structs=self._structs, enums=self._enums)
         subst = dict(zip(self._params[instance.fn], instance.args))
         env = _Env(
@@ -4398,17 +4513,45 @@ def _operand_message(kind: str, ty: Ty, operand: Ty) -> str:
     return f"cannot {_ARITH[kind]} {operand} to {ty}"
 
 
-def _declared(name: str, node: Node) -> Ty:
-    """The type a ``(type name ...)`` definition introduces."""
+def _argument_message(index: int, name: str, param: Ty, found: Ty) -> str:
+    """The E0100 text for one argument that is not the parameter's type.
+
+    Two named types that spell one name but were declared by different modules
+    are the case bare names cannot tell apart — ``point`` would be the same
+    word on both sides — so the sentence names both declarations instead.
+    """
+    if (
+        isinstance(param, (StructRef, EnumRef))
+        and isinstance(found, type(param))
+        and param.name == found.name
+        and param.owner
+        and found.owner
+        and param.owner != found.owner
+    ):
+        return (
+            f"argument {index} of '{name}': {param} from module "
+            f"'{param.owner}' is not {found} from module '{found.owner}'"
+        )
+    return f"argument {index} of '{name}' expects {param}, found {found}"
+
+
+def _declared(name: str, node: Node, owner: str = "") -> Ty:
+    """The type a ``(type name ...)`` definition introduces.
+
+    ``owner`` is the module whose ``(type ...)`` this is. It travels with the
+    type value, so a name that reaches a caller through a callee's signature or
+    an imported struct's field list still names the declaration it was written
+    under: two modules may each spell ``point``, and they are not one type.
+    """
     if name.startswith(":"):
         raise diag(UNKNOWN_NODE, node.path, "type needs a name")
     body = node.items[2] if len(node.items) > 2 else None
     if not isinstance(body, Node):
         raise diag(UNKNOWN_NODE, node.path, f"type '{name}' needs a struct or enum body")
     if body.kind == "struct":
-        return StructRef(name)
+        return StructRef(name, owner)
     if body.kind == "enum":
-        return EnumRef(name)
+        return EnumRef(name, owner)
     raise diag(UNKNOWN_NODE, body.path, f"unknown type body '{body.kind}'")
 
 

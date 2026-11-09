@@ -61,6 +61,10 @@ class Node:
     path: str = ""
     line: int = 0
     col: int = 0
+    #: The source path passed to ``parse``, on the file node it returned.
+    #: Forms keep it empty: a node path is logical and unique to its module,
+    #: so only the file node needs to know where the file came from.
+    file: str = ""
 
     @property
     def name(self) -> str | None:

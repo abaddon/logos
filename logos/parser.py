@@ -74,7 +74,7 @@ def parse(src: str, file: str) -> Node:
             col=unclosed.col,
         )
 
-    return assign_paths(Node(FILE, tuple(forms), "", 1, 1))
+    return assign_paths(Node(FILE, tuple(forms), "", 1, 1, file))
 
 
 def _kind(node: Node) -> str:
