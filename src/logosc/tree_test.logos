@@ -19,8 +19,6 @@
   (ret (if (str-eq p "") "-" p)))
 
 (fn dump-node :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (depth :i64))
-  (print id)
-  (print " ")
   (print depth)
   (print " ")
   (print (show-path nodes ntexts id))
@@ -43,6 +41,12 @@
   (println (vec-len nodes))
   (dump-node nodes ntexts 0 0))
 
+(fn dump-arena :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (dump-ok nodes ntexts)
+    (print-tree-error t)))
+
 (fn tree-dump :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))))
   (letmut nodes
     (vec node)
@@ -50,10 +54,7 @@
   (letmut ntexts
     (vec :str)
     (make (vec :str)))
-  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
-  (if (tree-ok t)
-    (dump-ok nodes ntexts)
-    (print-tree-error t))
+  (dump-arena kinds texts lines cols nodes ntexts)
   (vec-free nodes)
   (vec-free ntexts))
 
@@ -79,35 +80,97 @@
   (vec-free lines)
   (vec-free cols))
 
+(fn dirty-dump :void ((src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (vec-push ntexts "sentinel")
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (dump-arena kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
 (test mod-alone
-  (expect (out "OK\n4\n0 0 - file\n1 1 a mod\n")
+  (expect (out "OK\n4\n0 - file\n1 a mod\n")
     (code 0)
     (leaks 0))
   (dump-src "(mod a)"))
 
 (test nested-depth-5
-  (expect (out "OK\n20\n0 0 - file\n1 1 d mod\n4 1 d/f fn\n7 2 - t2::i64\n8 2 d/f/1 ()\n9 2 d/f/2 ret\n11 3 d/f/2/0 a\n13 4 d/f/2/0/0 b\n15 5 d/f/2/0/0/0 c\n17 6 d/f/2/0/0/0/0 d\n19 7 - t4:1\n")
+  (expect (out "OK\n20\n0 - file\n1 d mod\n1 d/f fn\n2 - t2::i64\n2 d/f/1 ()\n2 d/f/2 ret\n3 d/f/2/0 a\n4 d/f/2/0/0 b\n5 d/f/2/0/0/0 c\n6 d/f/2/0/0/0/0 d\n7 - t4:1\n")
     (code 0)
     (leaks 0))
   (dump-src "(mod d)\n(fn f :i64 ()\n  (ret (a (b (c (d 1))))))"))
 
 (test sibling-run
-  (expect (out "OK\n19\n0 0 - file\n1 1 s mod\n4 1 s/a fn\n7 2 - t2::i64\n8 2 s/a/1 ()\n9 1 s/b fn\n12 2 - t2::i64\n13 2 s/b/1 ()\n14 1 s/c fn\n17 2 - t2::i64\n18 2 s/c/1 ()\n")
+  (expect (out "OK\n19\n0 - file\n1 s mod\n1 s/a fn\n2 - t2::i64\n2 s/a/1 ()\n1 s/b fn\n2 - t2::i64\n2 s/b/1 ()\n1 s/c fn\n2 - t2::i64\n2 s/c/1 ()\n")
     (code 0)
     (leaks 0))
   (dump-src "(mod s)\n(fn a :i64 ())\n(fn b :i64 ())\n(fn c :i64 ())"))
 
 (test nested-paths
-  (expect (out "OK\n18\n0 0 - file\n1 1 p mod\n4 1 p/f fn\n7 2 - t2::i64\n8 2 p/f/1 ()\n9 3 p/f/1/0 x\n11 4 - t2::i64\n12 2 p/f/2 ret\n14 3 p/f/2/0 +\n16 4 - t2:x\n17 4 - t4:1\n")
+  (expect (out "OK\n18\n0 - file\n1 p mod\n1 p/f fn\n2 - t2::i64\n2 p/f/1 ()\n3 p/f/1/0 x\n4 - t2::i64\n2 p/f/2 ret\n3 p/f/2/0 +\n4 - t2:x\n4 - t4:1\n")
     (code 0)
     (leaks 0))
   (dump-src "(mod p)\n(fn f :i64 ((x :i64)) (ret (+ x 1)))"))
 
 (test unknown-head
-  (expect (out "OK\n8\n0 0 - file\n1 1 u mod\n4 1 u/0 wibble\n6 2 - t4:1\n7 2 - t4:2\n")
+  (expect (out "OK\n8\n0 - file\n1 u mod\n1 u/0 wibble\n2 - t4:1\n2 - t4:2\n")
     (code 0)
     (leaks 0))
   (dump-src "(mod u)\n(wibble 1 2)"))
+
+(test test-name
+  (expect (out "OK\n10\n0 - file\n1 m mod\n1 m/test/t test\n2 m/test/t/0 expect\n3 - t4:1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(test t (expect 1))"))
+
+(test extern
+  (expect (out "OK\n10\n0 - file\n1 x mod\n1 x/getpid extern\n2 - t2::i64\n2 x/getpid/1 ()\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod x)\n(extern fn getpid :i64 ())"))
+
+(test bare-heads
+  (expect (out "OK\n10\n0 - file\n1 h mod\n1 h/0 ()\n2 - t3:s\n2 - t2:x\n1 h/1 ()\n2 - t4:1\n2 - t4:2\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod h)\n(\"s\" x)\n(1 2)"))
+
+(test two-modules
+  (expect (out "OK\n12\n0 - file\n1 a mod\n1 a/b mod\n1 a/f fn\n2 - t2::i64\n2 a/f/1 ()\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod a)\n(mod b)\n(fn f :i64 ())"))
+
+(test dirty-arena
+  (expect (out "OK\n5\n0 - file\n1 a mod\n")
+    (code 0)
+    (leaks 0))
+  (dirty-dump "(mod a)"))
 
 (test lone-close
   (expect (out "E0001\n\n2\n1\nunbalanced ')'\n")

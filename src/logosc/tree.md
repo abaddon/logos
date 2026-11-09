@@ -27,12 +27,19 @@ belong to the resolver and the checker, so `(wibble 1 2)` parses and prints.
 
 `tree-parse` reads the four token vectors the lexer filled and appends one
 `node` per form and per token to `nodes`, with the text of every token and every
-form head appended to `ntexts`. It returns a `tree-error`; the arena is only
-meaningful when `(tree-ok e)` is true.
+form head appended to `ntexts`. It returns a `tree-error`; on success the arena
+holds the whole tree, and on failure it holds the prefix built before the first
+error (see Errors).
 
-`nodes` and `ntexts` must be **empty** on entry: the file node is always id `0`,
-and `tree-path` is called with `root` = `0`. `tree-parse` does not free them;
-the caller frees both.
+`nodes` must be **empty** on entry. `tree-parse` pushes the file node as the
+next entry and hardcodes frame 0 as id `0`, so it assumes that entry is node 0.
+A caller that passes a non-empty `nodes` gets a corrupted arena with no error:
+the top-level forms attach to the caller's node 0 and the file node `tree-parse`
+pushes is left childless, so `tree-path` treats the caller's node 0 as the root.
+Call `tree-path` with `root` = `0`. `ntexts` may be pre-filled — texts are
+appended and addressed by their id in the vector, so earlier entries only shift
+the ids (`dirty-arena` pins both facts). `tree-parse` does not free either
+vector; the caller frees both.
 
 | function | returns | meaning |
 |---|---|---|
@@ -49,11 +56,15 @@ the caller frees both.
 ## Arena shape (§D7)
 
 One `(vec node)` holds every form and every token; a `(vec :str)` holds their
-texts. The brief suggested six parallel `(vec :i64)` vectors; D7 names
-`(vec node)` and the brief allows `node` as a struct of `:i64` fields, so this
-module uses the struct. Editing one link is `vec-get`, `set-field`, `vec-set` —
-three statements — and every function passes the two arenas by `(ref …)` and
-ids, never pointers.
+texts. That is the shape the plan's "Shape (§D7)" section and §D7 itself name:
+one `(vec node)` for the tree, children by first-child and next-sibling ids,
+text by id into `(vec :str)`. The plan's sketch of `node` has five `:i64`
+fields; this module needs seven (`text`, `tok`, `first`, `next`, `name`, `line`,
+`col`), and a struct of `:i64` fields is what the plan allows. One struct arena
+plus one text vector keeps each function to two arena `(ref …)` parameters
+instead of a parallel vector per field. Editing one link is `vec-get`,
+`set-field`, `vec-set` — three statements — and every function passes the two
+arenas by `(ref …)` and ids, never pointers.
 
 ```logos
 (type node (struct (text :i64)   ; head atom of a form, or a token's text
@@ -70,6 +81,14 @@ such as `("s" x)`), because such a form has no kind. Token kind codes are the
 lexer's: `2` `ATOM`, `3` `STRING`, `4` `NUMBER`. `LPAREN` and `RPAREN` are never
 stored as nodes — they build and close forms — and `tok = -2` marks the file
 node, `tok = -1` marks every form.
+
+Every form's head atom and every named form's name are allocated as nodes like
+any other token, then retired: `tree-finish-head` sets `first` past them when
+the form closes, so they remain in `nodes` and `ntexts` but appear in no child
+chain. `(mod a)` therefore allocates four entries and has a tree chain of two.
+`(vec-len nodes)` is an allocation count, not a tree-node count — it includes
+the retired head and name entries. `tree-path` and the `first`/`next` chains are
+the tree.
 
 `text` ids are **not** the lexer's token indexes: every text a node needs is
 appended to `ntexts`, which the tree owns. The strings themselves are views into
@@ -130,6 +149,7 @@ Examples, each pinned by `tree_test.logos`:
 | `(mod p)(fn f :i64 ((x :i64)) (ret (+ x 1)))` | `p/f/1` is the parameter list (the `:i64` token is index 0), `p/f/2` the `ret`, `p/f/2/0` the `+` |
 | `(mod u)(wibble 1 2)` | `u/0` — an unknown head still parses and has a path |
 | `(mod m)(test t …)` | the test is `m/test/t` and its `expect` is `m/test/t/0` |
+| `(mod a)(mod b)(fn f :i64 ())` | `mod a` is `a`; the second `mod` is an ordinary named form, `a/b`; the `fn` is `a/f` and its `()` is `a/f/1` |
 | `(x) (y)` with no module | `0`, `1` |
 
 A top-level form with a name uses the name even when no module exists: `(fn a
@@ -202,7 +222,7 @@ there is no explicit limit.
 
 ## `src/logosc/tree_test.logos`
 
-Nine cases, each `(leaks 0)` and each run at `-O0` and `-O2`:
+Fourteen cases, each `(leaks 0)` and each run at `-O0` and `-O2`:
 
 1. `mod-alone` — `(mod a)`, whose module is the whole output.
 2. `nested-depth-5` — six nested forms under `(mod d)`, pinning every numeric
@@ -212,16 +232,29 @@ Nine cases, each `(leaks 0)` and each run at `-O0` and `-O2`:
 4. `nested-paths` — `:i64` and the parameter list make the body `p/f/2`, so the
    token-counts-in-the-index rule is visible.
 5. `unknown-head` — `(wibble 1 2)` parses and prints at `u/0`.
-6. `lone-close` — `)` at line 2 column 1, `path` empty.
-7. `unclosed-form` — `(fn f :i64 ()` under `(mod e)` reports `e/f`.
-8. `unclosed-nested` — `(+ 1` reports `e/f/2/0` at column 20.
-9. `top-level-atom` — `x` reports `form outside parentheses`.
+6. `test-name` — `(mod m)(test t (expect 1))`: the test is `m/test/t` and its
+   `expect` is `m/test/t/0`.
+7. `extern` — `(mod x)(extern fn getpid :i64 ())`: the `extern` is `x/getpid`;
+   the `:i64` return type occupies child 0 and the `()` is `x/getpid/1`.
+8. `bare-heads` — `(mod h)("s" x)(1 2)`: a string and a number as the first item
+   make bare lists at `h/0` and `h/1`, each keeping both children.
+9. `two-modules` — `(mod a)(mod b)(fn f :i64 ())`: the second `mod` is an
+   ordinary named top-level form, `a/b`, and the `fn` is `a/f`.
+10. `dirty-arena` — a pre-filled `nodes` (and `ntexts`) pins the entry
+    precondition: `tree-parse` reports success, the module hangs off the
+    caller's node 0, and the file node it pushed is childless.
+11. `lone-close` — `)` at line 2 column 1, `path` empty.
+12. `unclosed-form` — `(fn f :i64 ()` under `(mod e)` reports `e/f`.
+13. `unclosed-nested` — `(+ 1` reports `e/f/2/0` at column 20.
+14. `top-level-atom` — `x` reports `form outside parentheses`.
 
-Each case prints the arena as `id depth path label` lines, the root first.
-`label` is the form's head atom (`()` for a bare list), or `t<kind>:<text>` for
-a token, so the dump shows the child chain, the sibling order, the ids and the
-paths at once. `vec-len nodes` is printed first, which pins that no node was
-created twice.
+Each case prints the arena as `depth path label` lines, the root first, so the
+child chain, the sibling order and the paths are all visible. `label` is the
+form's head atom (`()` for a bare list), or `t<kind>:<text>` for a token, and a
+token's path prints `-`. `vec-len nodes` is printed ahead of the dump; because
+retired head and name entries stay in the arena this is an allocation count, and
+it pins that no entry was appended twice. Raw ids are not part of the expected
+output: those ids follow from the head/name allocation and are not an invariant.
 
 Beyond the expectations, the module was compared against `logos/parser.py` over
 26 sources: every form's depth, path and kind, and every error's path, line,
@@ -231,7 +264,8 @@ comparison was a throwaway harness, not a committed test, because there is no
 
 ## Before this module existed
 
-`python3 -m logos test src/logosc/tree_test.logos --opt -O0 --opt -O2` failed
-with `0 passed, 9 failed`; every case reported
-`E0005 tree-test/1: unknown module 'tree'` at both levels, because `use tree`
-had no `tree.logos` beside it. After the module: `9 passed, 0 failed, 0 leaked`.
+`python3 -m logos test src/logosc/tree_test.logos --opt -O0 --opt -O2` then (the
+nine cases in the file at the time) failed with `0 passed, 9 failed`; every case
+reported `E0005 tree-test/1: unknown module 'tree'` at both levels, because `use
+tree` had no `tree.logos` beside it. After the module:
+`9 passed, 0 failed, 0 leaked`.
