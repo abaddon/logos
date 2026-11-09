@@ -98,8 +98,12 @@ class ExternSignatureTest(ExternCase):
         self.assertEqual(error.code, "E0003")
         self.assertEqual(error.message, "reserved form name")
 
-    def test_an_rt_name_is_refused(self):
-        error = self.fail_on("(mod m)(extern fn rt_alloc :i64 ())")
+    def test_an_rt_extern_is_accepted_and_a_definition_is_refused(self):
+        # An extern only declares a symbol the runtime already owns; a
+        # definition would emit the same symbol twice, so it stays refused.
+        cm = checked("(mod m)(extern fn rt_create :i64 ((path :str)))")
+        self.assertEqual(cm.fn_sigs["rt_create"], FnTy((Prim("str"),), Prim("i64")))
+        error = self.fail_on("(mod m)(fn rt_create :i64 () (ret 0))")
         self.assertEqual(error.code, "E0003")
         self.assertEqual(error.message, "rt_ names are reserved")
 

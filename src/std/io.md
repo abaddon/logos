@@ -5,47 +5,44 @@ temporary file. Logos has no comments and no doc form, so this file is the
 header documentation the source cannot carry. Read it before calling the
 module.
 
-## The declarations the brief asked for do not compile
+## Why the runtime symbols, not libc `creat`
 
-The plan names `rt_create` and `rt_write` as the two entry points. **Neither can
-be declared from Logos on this branch**, because the checker reserves every name
-beginning `rt_` for the runtime:
+`io-create` and `io-write` call `rt_create` and `rt_write` from
+`logos/runtime/rt.c`, which is linked into every binary. **The runtime is the
+right declaration here, not merely the convenient one:**
 
-```
-(mod t)
-(extern fn rt_create :i64 ((path :str)))
+- `rt_create(path, n)` takes exactly what a Logos `:str` is — a pointer and a
+  byte count. It copies the bytes, appends the NUL that C needs, opens
+  `O_WRONLY | O_CREAT | O_TRUNC` at mode 0644, and releases the copy. libc
+  `creat` takes a C string and a `mode_t`; declaring it as
+  `((path :str) (mode :i64))` passes a **pair** where C expects a pointer and an
+  `int`, so C reads `path` from the data pointer, `mode` from the string's
+  length, and the third argument from `mode`. That appeared to work only when
+  the `:str` buffer happened to hold a zero after the bytes: a computed path
+  with any other byte there creates a different file name or runs off the
+  buffer. `rt_create` has no such window, and its mode is 0644 rather than the
+  path's length.
+- `rt_write(fd, buf, len)` is a full-write loop: it advances over short writes,
+  retries `EINTR`, and returns `-1` on the first real error or a zero-length
+  write. The libc loop this module used before had to reimplement the progress
+  rule and could not retry `EINTR`, because Logos cannot read `errno`.
+- `close` stays libc: `int close(int)` takes one integer and no string, so
+  `(extern fn close :i32 ((fd :i64)))` is exact. It is declared `:i32` and
+  widened with `cast`, because the upper 32 bits of `rax` are undefined for an
+  `int` return. `rt_create` and `rt_write` return `long`, so they are `:i64`.
 
-FAIL exec/t/c -O0: build failed: E0003 t/rt_create: rt_ names are reserved
-```
+An `extern fn` may name an `rt_` symbol — the runtime owns that definition —
+while a `fn` definition of one is still E0003; the manual's "Reserved names"
+section states the rule.
 
-The rule lives in `logos/check.py` in `_extern_signature` (and again for program
-`fn` definitions), and `tests/test_extern.py::test_an_rt_name_is_refused` pins
-it. The reservation exists so a program cannot emit a symbol the linked runtime
-already owns: an `extern fn rt_create` would `declare` the very symbol `rt.c`
-defines, which is safe at the linker but not the namespace this language chose.
-W3 may not change the checker, so the module reaches the same C behaviour
-through libc:
+## The EINTR limit
 
-| wanted | declared here | C signature | why equivalent |
-|---|---|---|---|
-| `rt_create` | `creat` | `int creat(const char *path, mode_t mode)` | `rt_create` is `open(path, O_WRONLY \| O_CREAT \| O_TRUNC, 0644)`; `creat` is exactly that call |
-| `rt_write` | `write` | `ssize_t write(int fd, const void *buf, size_t len)` | `rt_write` is a full-write loop over `write`; `io-write` loops in Logos |
-| `close` | `close` | `int close(int fd)` | the same libc call the brief names |
-
-The visible contract is unchanged: create-or-truncate at mode 0644, write every
-byte, return `-1` on failure. Two differences are worth knowing:
-
-- `io-create` builds the NUL-terminated copy C needs with `alloc`, so an
-  impossible length is the allocator's panic, not `rt_create`'s `-1`. Every real
-  path length fits.
-- `io-write` cannot see `errno`, so it retries **short** writes but reports the
-  first negative or zero write as `-1` without retrying `EINTR`. `rt_write`
-  retries `EINTR`. Nothing else differs; see the two functions below.
-
-`creat` and `close` return C `int`, so they are declared `:i32` and widened with
-`cast`; declaring them `:i64` would read the upper 32 bits of `rax`, which the
-C ABI leaves undefined for an `int` return. `write` returns `ssize_t`, which is
-64-bit, so it is declared `:i64`.
+The library never reads `errno`, so it cannot classify a failure. `rt_write`
+retries `EINTR` inside the runtime; **`rt_create` and `io-close` do not**. An
+interrupted `open` or `close` comes back as `-1` and is reported as an
+ordinary failure, and the caller cannot tell it from a missing directory or a
+bad descriptor. Retrying it would need an errno the language cannot name. For
+regular files on Linux this is theoretical, but it is the limit.
 
 ## API
 
@@ -59,8 +56,7 @@ C ABI leaves undefined for an `int` return. `write` returns `ssize_t`, which is
 
 Everything is a **byte** count or a byte string: `:str` is a pointer and a
 length, never NUL terminated, and these functions never assume otherwise. The
-one place C needs a terminator is `io-create`, which copies the path and adds
-one (below).
+one place C needs a terminator is `io-create`, and `rt_create` adds it (below).
 
 ```logos
 (use io)
@@ -83,12 +79,12 @@ one (below).
 ## `io-create`
 
 Creates or truncates, mode 0644 less the process umask (the `open` behind
-`creat` applies it), and returns the descriptor. The path is
-**copied** into an `alloc` block with a trailing zero byte, because `creat` takes
-a C string and a Logos `:str` is not terminated: passing the raw pointer lets C
-run off the end of the literal and into whatever the data section holds next.
-The copy is released with `free` before returning, so a successful create leaks
-nothing; the descriptor is the caller's to close.
+`rt_create` applies it), and returns the descriptor. The path is **copied**
+inside the runtime into a NUL-terminated C string, because `open` takes a C
+string and a Logos `:str` is not terminated: passing the raw pointer would let
+C run off the end of the buffer. The copy is released before the runtime
+returns, so a successful create leaks nothing; the descriptor is the caller's
+to close.
 
 A path that cannot be opened — a missing directory, a read-only filesystem, a
 name too long — returns `-1`, and **the program continues**. That is the whole
@@ -97,26 +93,20 @@ output must be able to say so. The caller checks `< 0`; `-1` is the only failure
 value.
 
 A path containing a zero byte creates the file its prefix names, because C ends
-the string there. That is the same behaviour `rt_create` has; a path is not a
-binary blob.
+the string there. A path is not a binary blob.
 
 ## `io-write`
 
 Writes the whole of `s`, starting at byte `0`, and returns the total byte count.
-`write` may accept fewer bytes than it was handed, so the loop advances by the
-returned count and calls again with a `str-slice` view of the remainder — it
-does not allocate and it does not copy. A zero-length `s` returns `0` without
-calling `write`.
+`rt_write` owns the loop: a short write advances the runtime's pointer by the
+returned count, `EINTR` is retried, and a zero-length result is an error rather
+than a short success. A zero-length `s` returns `0` without a write.
 
-- A return of `w > 0` is progress; the loop continues.
-- A return of `0` is a failed write, not a short success: `bad` is set and `-1`
-  is returned.
-- A return of `< 0` is a failed write; `-1` is returned.
-
-`io-write` is **not** atomic and **not** a whole-file operation: bytes written by
-earlier calls are already in the file when a later call fails. `fd` may be any
-descriptor, including `1`, so this is also the way to write raw bytes to a pipe;
-it is not `println`.
+The return is `-1` on the first real error, or the total once every byte is
+written. `io-write` is **not** atomic and **not** a whole-file operation: bytes
+written by earlier calls are already in the file when a later call fails. `fd`
+may be any descriptor, including `1`, so this is also the way to write raw
+bytes to a pipe; it is not `println`.
 
 ## `io-close`
 
@@ -157,9 +147,13 @@ every built string; it owns nothing and needs no release.
 
 ## What it does not do
 
-- No append, seek, positional read, `fsync`, rename, stat or unlink. The
+- No append, seek, positional read, `fsync`, rename, stat or **unlink**. The
   compiler writes one output file per run and exits; a file that should be
-  removed is removed by whatever invoked it.
+  removed is removed by whatever invoked it. The library has no `unlink`, so
+  `io_test.logos` **does not clean up**: the round-trip case leaves
+  `/tmp/round-1`, the fragment case `/tmp/frag-2` and the empty-file case
+  `/tmp/empty-3`. Each case owns its own name and a repeated run truncates it,
+  so the suite is re-runnable; it is not hermetic on a shared `/tmp`.
 - No directory creation: a path whose parent is missing is `-1` from
   `io-create`, not a `mkdir -p`.
 - No buffered writer, no error type. `-1` is the whole error vocabulary,
@@ -172,4 +166,7 @@ every built string; it owns nothing and needs no release.
 write, 1 MB (1,048,576 bytes) written through 1,024 fragments of 1 KB and read
 back with the exact length and byte sum, an empty file, a create in a missing
 directory that returns `-1` and lets the program continue, and four
-temp-path comparisons. Every case is `(leaks 0)` at `-O0` and `-O2`.
+temp-path comparisons. Every case is `(leaks 0)` at `-O0` and `-O2`. The
+round-trip, fragment and empty-file paths are computed by `io-temp-path`, not
+written as literals, and each case uses a distinct counter value so no case
+can truncate another's file.

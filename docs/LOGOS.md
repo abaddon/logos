@@ -566,6 +566,8 @@ Expected stdout, exit 0:
 
 (extern fn write :i64 ((fd :i64) (text :str)))
 
+(extern fn rt_create :i64 ((path :str)))
+
 (test extern
   (expect (out "pid ok\nhi2\n")
     (code 0)
@@ -842,6 +844,8 @@ hi
 A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `read-file`, `recv`, `ret`, `run`, `run-err`, `run-out`, `run-status`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
 
 Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant names: `ok`, `err`, `some`, `none`, `try`, `print`, `println`, `spawn`, `join`, `mutex`, `lock`, `unlock`, `chan`, `send`, `recv`, `atomic`, `atomic-add`, `atomic-load`, `atomic-store`.
+
+An `extern fn` may declare an `rt_` symbol — the runtime owns that definition — while a `fn` definition of one is still E0003.
 
 ### Diagnostic codes
 

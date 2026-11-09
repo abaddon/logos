@@ -1,0 +1,4 @@
+(mod rt-definition)
+
+(fn rt_create :i64 ((path :str))
+  (ret -1))
