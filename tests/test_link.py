@@ -172,22 +172,42 @@ class ImportedGenericTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "E0103")
 
 
-class ImportOutsideTheSetTest(unittest.TestCase):
-    def test_a_shared_plain_name_does_not_make_an_unbuilt_import_legal(self):
-        # ``m1`` is loaded from disk, so nothing emits its symbol; ``b``'s
-        # ``helper`` is in the build set but it is not the body the call
-        # reached.
+class UnbuiltImportTest(unittest.TestCase):
+    def test_checking_one_module_alone_refuses_an_imported_call(self):
+        # ``check_module`` names one module, so nothing emits that module's
+        # imports: a call into one is the E0103 refusal. The driver does not
+        # take this path — it passes the import closure to ``check_program``
+        # — which is why this is a statement about ``check_module`` alone.
         directory = Path(tempfile.mkdtemp())
         _parse("(mod m1)(fn helper :i64 ((v :i64)) (ret 7))", "m1", directory)
         a = _parse(
             "(mod a)(use m1)(fn main :i64 () (ret (helper 1)))", "a", directory
         )
-        b = _parse("(mod b)(fn helper :i64 ((v :i64)) (ret 2))", "b", directory)
-        modules = resolve.program([a, b])
         with self.assertRaises(LogosError) as caught:
-            check.check_program(modules)
+            check.check_module(resolve.program([a])[0])
         self.assertEqual(caught.exception.code, "E0103")
         self.assertIn("helper", caught.exception.message)
+
+    def test_a_disk_import_in_the_closure_is_accepted_and_lowered(self):
+        # Only the root is named, so ``util`` reaches the checker through the
+        # closure the driver passes — and is lowered with the root.
+        directory = Path(tempfile.mkdtemp())
+        util = directory / "util.logos"
+        util.write_text(UTIL, encoding="utf-8")
+        program = directory / "program.logos"
+        program.write_text(
+            "(mod program)\n(use util)\n(fn main :void ()\n"
+            "  (println (twice 21)))\n",
+            encoding="utf-8",
+        )
+        out = str(Path(tempfile.mkdtemp()) / "prog")
+        self.assertEqual(driver.build_program([str(program)], out), out)
+        done = subprocess.run([out], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, "42\n")
+        text = driver.ir_path(str(program)).read_text(encoding="utf-8")
+        self.assertIn("define internal i64 @lg.util.twice", text)
+        self.assertIn("define i32 @main()", text)
 
 
 SIBLINGS = (

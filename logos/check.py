@@ -608,12 +608,15 @@ def check_module(m: Module, *, build: Collection[str] | None = None) -> CheckedM
 def check_program(modules: list[Module]) -> list[CheckedModule]:
     """Check several modules as one build set, in the order given.
 
-    A call into a module of the set is legal, because every module of the set
-    is lowered into one object file; a call into a module outside it keeps
-    the E0103 refusal. Plain names may repeat across roots — every symbol is
-    qualified by its module — except ``main``: the entry point is one symbol,
-    so two roots that define it would emit it twice. That duplicate is E0003
-    at the second definition, naming both.
+    ``modules`` is exactly the set that will be lowered: the driver passes the
+    root's whole import closure, not the files named on the command line, so a
+    module a root imports from disk is a member here. A call into a module of
+    the set is legal, because every module of the set is lowered into one
+    object file; a call into a module outside it keeps the E0103 refusal.
+    Plain names may repeat across roots — every symbol is qualified by its
+    module — except ``main``: the entry point is one symbol, so two roots that
+    define it would emit it twice. That duplicate is E0003 at the second
+    definition, naming both.
     """
     _refuse_duplicate_main(modules)
     build = frozenset(module.name for module in modules)
