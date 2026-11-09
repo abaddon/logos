@@ -1,0 +1,23 @@
+(mod io)
+
+(extern fn rt_create :i64 ((path :str)))
+
+(extern fn rt_write :i64 ((fd :i64) (text :str)))
+
+(extern fn close :i32 ((fd :i64)))
+
+(fn io-create :i64 ((path :str))
+  (ret (rt_create path)))
+
+(fn io-write :i64 ((fd :i64) (s :str))
+  (ret (rt_write fd s)))
+
+(fn io-close :i64 ((fd :i64))
+  (ret (cast :i64 (close fd))))
+
+(fn io-read :str ((path :str))
+  (ret (read-file path)))
+
+(fn io-temp-path :str ((stem :str) (n :i64))
+  (ret (str-concat (str-concat "/tmp/" stem)
+         (str-concat "-" (str-from-i64 n)))))

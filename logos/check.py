@@ -1654,7 +1654,10 @@ class _Checker:
                     # The rt_ prefix belongs to the C runtime. A program
                     # definition would be emitted as a symbol the runtime
                     # already owns, so it is refused here rather than at link
-                    # time.
+                    # time. An ``extern fn`` is the other side of that rule:
+                    # it only *declares* a symbol that already exists, so it
+                    # may name one the runtime defines without defining it
+                    # twice (``rt_create`` is how the emitter opens its .ll).
                     raise diag(DUPLICATE, node.path, "rt_ names are reserved")
                 own_fns[name] = self._signature(node, types, structs, enums)
             own_externs: dict[str, FnTy] = {}
@@ -1766,8 +1769,6 @@ class _Checker:
         name = node.name
         if name is None:
             raise diag(UNKNOWN_NODE, node.path, "extern needs a name")
-        if name.startswith("rt_"):
-            raise diag(DUPLICATE, node.path, "rt_ names are reserved")
         if reserved_name(name):
             raise diag(DUPLICATE, node.path, "reserved form name")
         ret, params, _ = fn_shape(_extern_fn(node), types, structs=structs, enums=enums)

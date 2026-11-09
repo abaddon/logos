@@ -4,6 +4,8 @@
 
 (extern fn write :i64 ((fd :i64) (text :str)))
 
+(extern fn rt_create :i64 ((path :str)))
+
 (test extern
   (expect (out "pid ok\nhi2\n")
     (code 0)

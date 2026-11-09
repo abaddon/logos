@@ -564,6 +564,11 @@ def build_markdown() -> str:
         + "."
     )
     lines.append("")
+    lines.append(
+        "An `extern fn` may declare an `rt_` symbol — the runtime owns that "
+        "definition — while a `fn` definition of one is still E0003."
+    )
+    lines.append("")
 
     lines.append("### Diagnostic codes")
     lines.append("")

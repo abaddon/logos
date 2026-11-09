@@ -1,0 +1,22 @@
+(mod extern-rt)
+
+(extern fn rt_create :i64 ((path :str)))
+
+(extern fn rt_write :i64 ((fd :i64) (text :str)))
+
+(extern fn close :i32 ((fd :i64)))
+
+(test runtime-file
+  (expect (out "true\ntrue\n0\ntrue\n29\n")
+    (code 0)
+    (leaks 0))
+  (let path :str (str-concat "/tmp/regress-extern-rt-" (str-from-i64 1)))
+  (let fd :i64 (rt_create path))
+  (println (> fd -1))
+  (let text :str (str-concat "written through the runtime " (str-from-i64 7)))
+  (println (= (rt_write fd text)
+             (str-len text)))
+  (println (cast :i64 (close fd)))
+  (let back :str (read-file path))
+  (println (= back text))
+  (println (str-len back)))
