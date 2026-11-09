@@ -97,5 +97,6 @@ power-of-two bucket count, the multiply-and-add hash of §D8.
 2. Rehash correctness: every live entry re-probed, no duplicate, no lost key.
 3. `str-split`'s empty-field rule, at the start, the middle and the end.
 4. No leaks in paths that allocate (split, join, rehash, read).
-5. Every function documented in the file's header comment: the AI reader needs
-   the contract in the source, not in a manual chapter.
+5. Every function documented in a `.md` file beside its source (`src/std/map.md` is
+the model): Logos has no comments, so the contract the source cannot carry lives
+there, and the AI reader gets it without opening a manual chapter.
