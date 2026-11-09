@@ -16,12 +16,23 @@
 #include "rt.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
+#include <signal.h>
+#include <spawn.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+
+/* The environment a child inherits. POSIX declares this in <unistd.h> only
+ * under wider feature macros than the runtime defines, so it is stated here. */
+extern char **environ;
 
 long rt_write(int fd, const void *buf, size_t len) {
     const unsigned char *p = buf;
@@ -620,6 +631,542 @@ unsigned char *rt_read_all(size_t *out_len, const char *path) {
         *out_len = len;
     }
     return buffer;
+}
+
+/* ---------------------------------------------------------------------------
+ * Files, arguments and child processes
+ *
+ * Every buffer here lives until the process exits and is therefore plain
+ * malloc, never rt_alloc: shortcut: process-lifetime buffers are not tracked;
+ * upgrade if one ever needs releasing. A tracked block that is never released
+ * would print LEAK on every program that reads a file or runs a child, and the
+ * corpus asserts `(leaks 0)`.
+ * ------------------------------------------------------------------------- */
+
+/* A NUL-terminated copy of n bytes, for the C calls that need one. Returns
+ * NULL on an impossible length or failed malloc; the caller decides whether
+ * that is a panic or a -1. */
+static char *rt_cstr(const unsigned char *p, size_t n) {
+    char *s;
+
+    if (n == (size_t)-1) {
+        return NULL;
+    }
+    s = malloc(n + 1);
+    if (s == NULL) {
+        return NULL;
+    }
+    if (n != 0) {
+        memcpy(s, p, n);
+    }
+    s[n] = '\0';
+    return s;
+}
+
+long rt_create(const unsigned char *path, size_t n) {
+    char *cpath = rt_cstr(path, n);
+    int fd;
+
+    if (cpath == NULL) {
+        return -1;
+    }
+    fd = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    free(cpath);
+    return fd < 0 ? -1 : (long)fd;
+}
+
+/* R0007 for a path that could not be read. The location is the path itself:
+ * the form has no node path to offer, and the message has to name the file, so
+ * carrying both is the only thing that makes the line useful. */
+static _Noreturn void rt_read_file_panic(const unsigned char *path, size_t n) {
+    static const char prefix[] = "could not read ";
+    char *cpath = rt_cstr(path, n);
+    char *msg;
+    size_t plen = sizeof prefix - 1;
+
+    if (cpath == NULL || n > (size_t)-1 - sizeof prefix) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    msg = malloc(sizeof prefix + n);
+    if (msg == NULL) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    memcpy(msg, prefix, plen);
+    memcpy(msg + plen, cpath, n);
+    msg[plen + n] = '\0';
+    rt_panic(cpath, "R0007", msg);
+}
+
+size_t rt_read_file(const unsigned char *path, size_t n,
+                    const unsigned char **out) {
+    char *cpath = rt_cstr(path, n);
+    struct stat st;
+    unsigned char *buffer;
+    size_t cap = 4096;
+    size_t len = 0;
+    int fd;
+
+    if (cpath == NULL) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    fd = open(cpath, O_RDONLY);
+    if (fd < 0) {
+        free(cpath);
+        rt_read_file_panic(path, n);
+    }
+    /* A regular file's size is a good first guess and saves the growth loop
+     * for the common case. /proc reports zero, so the guess stays 4096 there
+     * and the read loop grows; a file that changes size underneath us is still
+     * read to its actual end. */
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0 &&
+        (unsigned long long)st.st_size < (unsigned long long)(size_t)-1) {
+        cap = (size_t)st.st_size + 1;
+    }
+    buffer = malloc(cap);
+    if (buffer == NULL) {
+        close(fd);
+        free(cpath);
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    for (;;) {
+        ssize_t got;
+
+        if (len == cap) {
+            unsigned char *grown;
+            if (cap > (size_t)-1 / 2) {
+                free(buffer);
+                close(fd);
+                free(cpath);
+                rt_panic(NULL, "R0003", "file is too large");
+            }
+            grown = realloc(buffer, cap * 2);
+            if (grown == NULL) {
+                free(buffer);
+                close(fd);
+                free(cpath);
+                rt_panic(NULL, "R0003", "out of memory");
+            }
+            buffer = grown;
+            cap *= 2;
+        }
+        got = read(fd, buffer + len, cap - len);
+        if (got < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            free(buffer);
+            close(fd);
+            free(cpath);
+            rt_read_file_panic(path, n);
+        }
+        if (got == 0) {
+            break;
+        }
+        len += (size_t)got;
+    }
+    close(fd);
+    free(cpath);
+    if (out != NULL) {
+        *out = buffer;
+    }
+    return len;
+}
+
+/* The command line, filled once by a constructor so the emitted `main` keeps
+ * its fixed signature. Both the bytes and the array of pairs live until the
+ * process exits; they are plain malloc for the reason in the section comment
+ * above. */
+static rt_arg *rt_argv;
+static size_t rt_argv_count;
+
+__attribute__((constructor)) static void rt_args_init(void) {
+    unsigned char *raw;
+    size_t cap = 4096;
+    size_t len = 0;
+    size_t count = 0;
+    size_t i;
+    int fd;
+
+    fd = open("/proc/self/cmdline", O_RDONLY);
+    if (fd < 0) {
+        return;
+    }
+    raw = malloc(cap);
+    if (raw == NULL) {
+        close(fd);
+        return;
+    }
+    for (;;) {
+        ssize_t got;
+
+        if (len == cap) {
+            unsigned char *grown;
+            if (cap > (size_t)-1 / 2) {
+                free(raw);
+                close(fd);
+                return;
+            }
+            grown = realloc(raw, cap * 2);
+            if (grown == NULL) {
+                free(raw);
+                close(fd);
+                return;
+            }
+            raw = grown;
+            cap *= 2;
+        }
+        got = read(fd, raw + len, cap - len);
+        if (got < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            free(raw);
+            close(fd);
+            return;
+        }
+        if (got == 0) {
+            break;
+        }
+        len += (size_t)got;
+    }
+    close(fd);
+
+    /* The kernel writes each argument followed by NUL, so the number of
+     * arguments is the number of NULs — plus a final segment if the file did
+     * not end on one. An empty argument still has its own NUL and counts. */
+    for (i = 0; i < len; i++) {
+        if (raw[i] == '\0') {
+            count++;
+        }
+    }
+    if (len != 0 && raw[len - 1] != '\0') {
+        count++;
+    }
+    if (count != 0) {
+        rt_arg *args = malloc(count * sizeof *args);
+        if (args == NULL) {
+            free(raw);
+            return;
+        }
+        i = 0;
+        for (size_t k = 0; k < count; k++) {
+            size_t start = i;
+            while (i < len && raw[i] != '\0') {
+                i++;
+            }
+            args[k].ptr = raw + start;
+            args[k].len = i - start;
+            i++; /* the NUL, or one past the end after a final unterminated run */
+        }
+        rt_argv = args;
+    }
+    rt_argv_count = count;
+}
+
+size_t rt_args(const rt_arg **args) {
+    if (args != NULL) {
+        *args = rt_argv;
+    }
+    return rt_argv_count;
+}
+
+struct rt_run {
+    long status;
+    unsigned char *out;
+    size_t out_len;
+    size_t out_cap;
+    unsigned char *err;
+    size_t err_len;
+    size_t err_cap;
+};
+
+/* How long a child may run before it is killed. A constant, not a parameter:
+ * a test that hangs is a bug in the program, and 124 is the shell's code for a
+ * command that timed out. */
+#define RT_RUN_TIMEOUT_MS 30000
+
+/* A child that wrote nothing still gives a `:str` a valid pointer. */
+static const unsigned char rt_run_empty[1] = {0};
+
+static long long rt_monotonic_ms(void) {
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+}
+
+/* R0006 for a child that could not be started, naming the program. */
+static _Noreturn void rt_run_spawn_panic(const char *prog) {
+    static const char prefix[] = "could not start ";
+    size_t plen = sizeof prefix - 1;
+    size_t n = strlen(prog);
+    char *msg = malloc(sizeof prefix + n);
+
+    if (msg == NULL) {
+        rt_panic(NULL, "R0006", "could not start a program");
+    }
+    memcpy(msg, prefix, plen);
+    memcpy(msg + plen, prog, n + 1);
+    rt_panic(NULL, "R0006", msg);
+}
+
+/* Add a close action for fd unless the descriptor is one of the two the child
+ * keeps open; a pipe that landed on 1 or 2 must not be closed after the dup. */
+static int rt_spawn_close(posix_spawn_file_actions_t *actions, int fd,
+                          int keep_a, int keep_b) {
+    if (fd == keep_a || fd == keep_b) {
+        return 0;
+    }
+    return posix_spawn_file_actions_addclose(actions, fd);
+}
+
+/* Append n bytes to a growing process-lifetime buffer. */
+static void rt_append(unsigned char **buf, size_t *len, size_t *cap,
+                      const unsigned char *data, size_t n) {
+    size_t need;
+    size_t want;
+    unsigned char *grown;
+
+    if (n > (size_t)-1 - *len) {
+        rt_panic(NULL, "R0003", "output is too large");
+    }
+    need = *len + n;
+    if (need > *cap) {
+        want = *cap != 0 ? *cap : 64;
+        while (want < need) {
+            if (want > (size_t)-1 / 2) {
+                want = need;
+                break;
+            }
+            want *= 2;
+        }
+        grown = realloc(*buf, want);
+        if (grown == NULL) {
+            rt_panic(NULL, "R0003", "out of memory");
+        }
+        *buf = grown;
+        *cap = want;
+    }
+    if (n != 0) {
+        memcpy(*buf + *len, data, n);
+        *len = need;
+    }
+}
+
+rt_run *rt_run_start(const unsigned char *prog, size_t pn,
+                     const unsigned char **argv, const size_t *argn,
+                     size_t argc) {
+    char *cprog = rt_cstr(prog, pn);
+    char **cargv;
+    rt_run *r;
+    int out_pipe[2];
+    int err_pipe[2];
+    posix_spawn_file_actions_t actions;
+    pid_t pid;
+    size_t i;
+    int rc;
+
+    if (cprog == NULL) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    /* execve needs C strings and the child needs them for as long as it lives,
+     * so each is a process-lifetime copy; the caller's Logos strings are only
+     * read. cargv[0] is the program, then the arguments, then NULL. */
+    cargv = malloc((argc + 2) * sizeof *cargv);
+    if (cargv == NULL) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    cargv[0] = cprog;
+    for (i = 0; i < argc; i++) {
+        cargv[i + 1] = rt_cstr(argv[i], argn[i]);
+        if (cargv[i + 1] == NULL) {
+            rt_panic(NULL, "R0003", "out of memory");
+        }
+    }
+    cargv[argc + 1] = NULL;
+
+    r = malloc(sizeof *r);
+    if (r == NULL) {
+        rt_panic(NULL, "R0003", "out of memory");
+    }
+    r->status = 0;
+    r->out = NULL;
+    r->out_len = 0;
+    r->out_cap = 0;
+    r->err = NULL;
+    r->err_len = 0;
+    r->err_cap = 0;
+
+    if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
+        rt_run_spawn_panic(cprog);
+    }
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        rt_run_spawn_panic(cprog);
+    }
+    rc = posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
+    if (rc == 0) {
+        rc = posix_spawn_file_actions_adddup2(&actions, err_pipe[1],
+                                              STDERR_FILENO);
+    }
+    if (rc == 0) {
+        rc = rt_spawn_close(&actions, out_pipe[0], STDOUT_FILENO, STDERR_FILENO);
+    }
+    if (rc == 0) {
+        rc = rt_spawn_close(&actions, err_pipe[0], STDOUT_FILENO, STDERR_FILENO);
+    }
+    if (rc == 0) {
+        rc = rt_spawn_close(&actions, out_pipe[1], STDOUT_FILENO, STDERR_FILENO);
+    }
+    if (rc == 0) {
+        rc = rt_spawn_close(&actions, err_pipe[1], STDOUT_FILENO, STDERR_FILENO);
+    }
+    if (rc != 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        rt_run_spawn_panic(cprog);
+    }
+    /* posix_spawnp, not posix_spawn: the program is named the way a shell
+     * names it, and the corpus runs `sh` and `false` without a path. */
+    rc = posix_spawnp(&pid, cprog, &actions, NULL, cargv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (rc != 0) {
+        rt_run_spawn_panic(cprog);
+    }
+    /* The child holds the write ends now. Keeping ours would make the read
+     * ends never see EOF, which is exactly the deadlock this loop avoids. */
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+
+    {
+        struct pollfd fds[2];
+        int open_count = 2;
+        long long deadline = rt_monotonic_ms() + RT_RUN_TIMEOUT_MS;
+        int timed_out = 0;
+
+        fds[0].fd = out_pipe[0];
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        fds[1].fd = err_pipe[0];
+        fds[1].events = POLLIN;
+        fds[1].revents = 0;
+
+        while (open_count > 0) {
+            long long remaining = deadline - rt_monotonic_ms();
+            int ready;
+            int idx;
+
+            if (remaining <= 0) {
+                timed_out = 1;
+                break;
+            }
+            /* Both pipes are drained by one poll, so neither stream can fill
+             * and block the child while the other is read. */
+            if (remaining > 1000000) {
+                remaining = 1000000;
+            }
+            ready = poll(fds, 2, (int)remaining);
+            if (ready < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                /* A failed poll on the runtime's own pipes is not something a
+                 * program can act on; stop reading and reap what there is. */
+                break;
+            }
+            for (idx = 0; idx < 2; idx++) {
+                char chunk[65536];
+                ssize_t got;
+
+                if (fds[idx].fd < 0 || fds[idx].revents == 0) {
+                    continue;
+                }
+                got = read(fds[idx].fd, chunk, sizeof chunk);
+                if (got < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    close(fds[idx].fd);
+                    fds[idx].fd = -1;
+                    open_count--;
+                    continue;
+                }
+                if (got == 0) {
+                    close(fds[idx].fd);
+                    fds[idx].fd = -1;
+                    open_count--;
+                    continue;
+                }
+                if (idx == 0) {
+                    rt_append(&r->out, &r->out_len, &r->out_cap,
+                              (const unsigned char *)chunk, (size_t)got);
+                } else {
+                    rt_append(&r->err, &r->err_len, &r->err_cap,
+                              (const unsigned char *)chunk, (size_t)got);
+                }
+            }
+        }
+
+        for (i = 0; i < 2; i++) {
+            if (fds[i].fd >= 0) {
+                close(fds[i].fd);
+                fds[i].fd = -1;
+            }
+        }
+
+        {
+            int st = 0;
+            pid_t reaped;
+
+            if (timed_out) {
+                /* The child outlived its budget. Kill it and reap it, so it is
+                 * not left as a zombie behind a status the program can see. */
+                (void)kill(pid, SIGKILL);
+            }
+            do {
+                reaped = waitpid(pid, &st, 0);
+            } while (reaped < 0 && errno == EINTR);
+
+            if (timed_out) {
+                r->status = 124;
+            } else if (reaped == pid && WIFEXITED(st)) {
+                r->status = WEXITSTATUS(st);
+            } else if (reaped == pid && WIFSIGNALED(st)) {
+                r->status = 128 + WTERMSIG(st);
+            } else {
+                r->status = 0;
+            }
+        }
+    }
+
+    return r;
+}
+
+long rt_run_status(rt_run *r) {
+    if (r == NULL) {
+        rt_panic(NULL, "R0005", "run handle is null");
+    }
+    return r->status;
+}
+
+const unsigned char *rt_run_out(rt_run *r, size_t *n) {
+    if (r == NULL) {
+        rt_panic(NULL, "R0005", "run handle is null");
+    }
+    if (n != NULL) {
+        *n = r->out_len;
+    }
+    return r->out != NULL ? r->out : rt_run_empty;
+}
+
+const unsigned char *rt_run_err(rt_run *r, size_t *n) {
+    if (r == NULL) {
+        rt_panic(NULL, "R0005", "run handle is null");
+    }
+    if (n != NULL) {
+        *n = r->err_len;
+    }
+    return r->err != NULL ? r->err : rt_run_empty;
 }
 
 /* ---------------------------------------------------------------------------
