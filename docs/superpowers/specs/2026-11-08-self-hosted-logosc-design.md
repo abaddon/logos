@@ -122,16 +122,16 @@ first (D4), because the corpus gate runs on Python.
 
 | Surface | Type | Why the compiler needs it |
 |---------|------|---------------------------|
-| `(read-file path)` | `(res :str :i64)` | read `foo.logos`; the error arm carries `errno`, so the CLI prints `logos: nope.logos: No such file or directory` and exits 1 |
+| `(read-file path)` | `:str` | read `foo.logos`; a path that cannot be read is `R0007` at the call, naming the path |
 | `(args)` | `(vec :str)` | see `build`, `test`, `-o`, `--only` |
 | `(str-byte s i)` | `:u8` | the lexer walks bytes; `str-slice` cannot read one byte |
 | `(str-from-i64 v)` | `:str` | `%t<n>` names, node paths, JSON numbers |
 | `(f64-bits v)` | `:i64` | float constants are emitted as hex, from the value's bit pattern |
-| `(run prog args)` | `run` struct | run clang, and run each test binary |
+| `(run prog args)` | `:run` handle | run clang, and run each test binary; status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and `(run-err r)` |
 | `(ref T)` parameter | non-owning | helpers that read and grow the compiler's arenas |
 
-`read-file` is fallible, and it panics on nothing. A missing module is not its job
-either: `use` names a module in the build set (D6), so a missing import is a
+`read-file` panics `R0007` with the path when the file cannot be read. A missing module is
+not its job either: `use` names a module in the build set (D6), so a missing import is a
 resolve error at the `use` node, never a file probe.
 
 `(f64-bits v)` exists because the emitter writes every float constant as an LLVM
@@ -142,11 +142,18 @@ hex for every float, so both compilers only ever format an integer.
 
 
 `(run prog args)` details: `prog` is a `:str`, `args` is a `(vec :str)` that may be
-empty. The vec is moved, so the caller passes a name. The call uses no shell:
+empty. The vec is moved, so the caller passes a name. The move is a release: the form
+copies each element into a NUL-terminated C string, frees the descriptor's buffer and
+keeps the C strings for the process lifetime, so the caller must not free it and it never
+appears in the leak report; `(args)` returns an ordinary tracked vector the caller frees,
+while the `:run` handle, its `out` and `err` buffers are process-lifetime and untracked.
+The call uses no shell:
 arguments are handed to `execve` one by one, so a path with a space is safe. It
-returns `(type run (struct (status :i64) (out :str) (err :str)))`, where `status`
-is the exit code or `128 + signal`. A spawn failure panics `R0006` with the program
-name, which is the clean "clang not found" message.
+returns an opaque `:run` handle, a process-lifetime value in the shape `:thread` and
+`:mutex` already have; its status, stdout and stderr are read by `(run-status r)`,
+`(run-out r)` and `(run-err r)`, where the status is the exit code or `128 + signal`.
+A spawn failure panics `R0006` with the program name, which is the clean "clang not
+found" message.
 
 `(ref T)` details:
 
@@ -364,7 +371,7 @@ These are the answers, settled here so the plan cites them instead of relitigati
 | Do W1 and W2 include the Python side? | Yes, every language wave is Python first, then Logos (D13). |
 | What is `gen2 test`'s contract? | Full harness parity, explicit paths, baseline in W9 (D12). |
 | How does `gen2 test` find the corpus with no arguments? | It does not: the gate passes the list (D12). |
-| How does a missing file become a clean error? | `read-file` returns a result with `errno`; a missing module is `E0005` at `use` (D5). |
+| How does a missing file become a clean error? | `read-file` panics `R0007`, naming the path it could not open; a missing module is `E0005` at `use` (D5). |
 | Is the selfhost check a sixth gate? | Yes, from W4, with `AGENTS.md`, CI and the pinned count amended in that PR (D14). |
 | What does the gate compile, and what does its floor assert? | A frozen manifest of positive corpus files plus `src/`, counted exactly (D14). |
 

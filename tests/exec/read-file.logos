@@ -1,0 +1,8 @@
+(mod read-file)
+
+(test read-file
+  (expect (out "0\n")
+    (code 2)
+    (err-contains "R0007: could not read /nonexistent/logos-w2/read-file.logos"))
+  (println (str-len (read-file "/dev/null")))
+  (let _ :str (read-file "/nonexistent/logos-w2/read-file.logos")))

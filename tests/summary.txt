@@ -28,6 +28,8 @@ PASS type/unknown-name -
 PASS type/unknown-type -
 PASS type/vec-get-place -
 PASS type/widening -
+PASS exec/args/args -
+PASS exec/args/args-elements -
 PASS exec/cast/truncate-i64-to-i32 -
 PASS exec/cast/widen-i32-to-i64 -
 PASS exec/cast/widen-unsigned-zero-extends -
@@ -74,6 +76,7 @@ PASS exec/loops/if-value -
 PASS exec/match/match-returns-a-value -
 PASS exec/match/match-arms-are-statements -
 PASS exec/match/match-arm-has-a-block-body -
+PASS exec/read-file/read-file -
 PASS exec/read/empty-standard-input -
 PASS exec/read/reading-is-not-a-leak -
 PASS exec/ref-param/ref-param -
@@ -98,6 +101,10 @@ PASS exec/results/try-inside-one-expression -
 PASS exec/results/try-inside-a-loop -
 PASS exec/results/owner-in-an-optional -
 PASS exec/results/owner-in-a-binding -
+PASS exec/run/run -
+PASS exec/run/nonzero-status -
+PASS exec/run/signalled-status -
+PASS exec/run/run-across-a-thread -
 PASS exec/shifts/left-shift -
 PASS exec/shifts/right-shift-is-arithmetic -
 PASS exec/shifts/right-shift-unsigned-is-logical -
@@ -105,6 +112,8 @@ PASS exec/shifts/count-equal-to-width-is-masked -
 PASS exec/shifts/count-greater-than-width-is-masked -
 PASS exec/shifts/narrow-width -
 PASS exec/shifts/shift-a-count-that-is-a-value -
+PASS exec/str-tools/str-tools -
+PASS exec/str-tools/str-byte-end -
 PASS exec/strings/multiline -
 PASS exec/strings/byte-count -
 PASS exec/strings/multibyte-length -

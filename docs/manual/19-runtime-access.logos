@@ -1,0 +1,21 @@
+(mod runtime-access)
+
+(test runtime-access
+  (expect (out "1\n0\n98\n-42\n4609434218613702656\n0\nhi\n")
+    (code 0)
+    (leaks 0))
+  (letmut argv (args))
+  (println (vec-len argv))
+  (vec-free argv)
+  (println (str-len (read-file "/dev/null")))
+  (println (str-byte "abc" 1))
+  (println (str-from-i64 -42))
+  (println (f64-bits 1.5))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "echo hi")
+  (let r (run "sh" a))
+  (println (run-status r))
+  (print (run-out r)))

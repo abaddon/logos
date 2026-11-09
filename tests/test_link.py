@@ -593,9 +593,9 @@ class OneModuleTwoFilesTest(unittest.TestCase):
         "(mod a)"
         "(use util)"
         "(use b)"
-        "(fn main :void () (println (answer)) (println (run)))"
+        "(fn main :void () (println (answer)) (println (start)))"
     )
-    B = "(mod b)(use util)(fn run :i64 () (ret (answer)))"
+    B = "(mod b)(use util)(fn start :i64 () (ret (answer)))"
     UTIL = "(mod util)(fn answer :i64 () (ret {value}))"
 
     def _files(self) -> tuple[Path, Path]:
@@ -651,7 +651,7 @@ class TestEntryMainTest(unittest.TestCase):
             directory,
         )
         _parse(
-            "(mod lib)\n(use app)\n(fn run :i64 () (ret (main)))\n",
+            "(mod lib)\n(use app)\n(fn start :i64 () (ret (main)))\n",
             "lib",
             directory,
         )
@@ -661,7 +661,7 @@ class TestEntryMainTest(unittest.TestCase):
         with self.assertRaises(LogosError) as caught:
             driver.checked_program(str(directory / "lib.logos"))
         self.assertEqual(caught.exception.code, "E0108")
-        self.assertEqual(caught.exception.path, "lib/run/2/0")
+        self.assertEqual(caught.exception.path, "lib/start/2/0")
         self.assertIn("entry point is not callable", caught.exception.message)
 
     def test_a_call_to_its_own_main_is_e0108(self):

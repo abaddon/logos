@@ -55,6 +55,10 @@ PRIMITIVES = (
     # a number, and neither has a literal spelling.
     "thread",
     "mutex",
+    # A finished child process, and the third opaque handle. Like the other
+    # two it is a runtime pointer and nothing in the language builds one
+    # except ``(run ...)``.
+    "run",
 )
 
 INTEGERS = PRIMITIVES[:8]

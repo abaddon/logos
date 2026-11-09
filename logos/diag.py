@@ -45,6 +45,16 @@ quote it.
   that could not be created, locked or unlocked, or a condition variable that
   failed while a channel was blocking. The location is the node that asked
   (the ``spawn``, the ``join``, the ``lock``, the ``send`` or the ``recv``).
+* ``R0006`` a program could not be started — raised by ``rt_run_start`` for a
+  ``(run prog args)`` whose program cannot be spawned, or whose pipes cannot be
+  created. Like ``R0007`` it is in ``CODES``: the message is ``could not start
+  <prog>`` and the location is the ``run`` node.
+* ``R0007`` a file could not be read — raised by ``rt_read_file`` for a
+  ``(read-file p)`` whose path cannot be opened or read. Unlike the codes
+  above it is in ``CODES``: the form is part of the language's surface and the
+  manual lists what a program can panic with, so its name and meaning are
+  published rather than described only here. The message is ``could not read
+  <path>`` and the location is the ``read-file`` node.
 
 R0002 and R0004 are runtime names only: nothing in the compiler emits them.
 A runtime check with no node behind it prints ``<runtime>`` in the location
@@ -89,6 +99,8 @@ CODES = {
     "E0601": "try type mismatch",
     "E0602": "unhandled result",
     "E0700": "shared state not marked",
+    "R0006": "a program could not be started",
+    "R0007": "could not read a file",
 }
 
 UNBALANCED = "E0001"

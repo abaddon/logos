@@ -55,6 +55,7 @@ CHAPTER_TITLES = {
     "16-extern": "extern",
     "17-tests": "Tests",
     "18-ref-parameters": "Ref parameters",
+    "19-runtime-access": "Runtime access",
 }
 
 #: The ten rules that decide whether a program compiles. ``text`` is what the
@@ -213,7 +214,16 @@ FORM_DOCS = (
     ("str-concat", "2", "`(str-concat a b)` allocates a new joined string"),
     ("str-eq", "2", "`(str-eq a b)` byte equality of two strings"),
     ("str-slice", "3", "`(str-slice s start end)` bytes `[start, end)`"),
+    ("str-byte", "2", "`(str-byte s i)` one byte of a `:str` as `:u8`, bounds checked"),
+    ("str-from-i64", "1", "`(str-from-i64 v)` the `:i64` v in decimal, as a `:str`"),
+    ("f64-bits", "1", "`(f64-bits v)` the binary64 bit pattern of v, as `:i64`"),
     ("read-all", "0", "`(read-all)` reads standard input to a `:str`"),
+    ("read-file", "1", "`(read-file p)` the whole file p names, as a `:str`"),
+    ("args", "0", "`(args)` the command line, as a tracked `(vec :str)`"),
+    ("run", "2", "`(run prog args)` starts prog with the arguments the vector names"),
+    ("run-status", "1", "`(run-status r)` the child's exit code, or 128 + signal"),
+    ("run-out", "1", "`(run-out r)` the child's standard output, as a `:str`"),
+    ("run-err", "1", "`(run-err r)` the child's standard error, as a `:str`"),
     ("vec-push", "2", "`(vec-push v x)` appends, growing the buffer"),
     ("vec-len", "1", "`(vec-len v)` the element count"),
     ("vec-get", "2", "`(vec-get v i)` reads an element, bounds checked"),
@@ -328,6 +338,9 @@ def _build_types() -> list[dict[str, Any]]:
         elif name == "mutex":
             entry["kind"] = "handle"
             entry["meaning"] = "a lock handle, always `(shared :mutex)` when made"
+        elif name == "run":
+            entry["kind"] = "handle"
+            entry["meaning"] = "a child process handle, made only by `(run prog args)`"
         else:  # pragma: no cover - PRIMITIVES is closed, so this cannot happen
             entry["kind"] = "primitive"
             entry["meaning"] = "a primitive type"
@@ -562,9 +575,11 @@ def build_markdown() -> str:
     )
     lines.append("")
     lines.append(
-        "Runtime panic codes: `R0001` division by zero, `R0003` failed runtime "
-        "check, `R0004` free of an unknown address, `R0005` thread operation "
-        "failed. `R0002` double free is a runtime name only."
+        "Runtime panic codes: `R0001` division by zero, `R0002` double free, "
+        "`R0003` failed runtime check, `R0004` free of an unknown address, "
+        "`R0005` thread operation failed, `R0006` a program could not be "
+        "started, `R0007` a file could not be read. `R0002` and `R0004` are "
+        "runtime names only: nothing in the compiler emits them."
     )
     lines.append("")
 

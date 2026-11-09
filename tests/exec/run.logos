@@ -1,0 +1,62 @@
+(mod run)
+
+(fn report :void ((r :run))
+  (println (run-status r)))
+
+(test run
+  (expect (out "0\nhi\n0\noops\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "echo hi")
+  (let r (run "sh" a))
+  (println (run-status r))
+  (print (run-out r))
+  (letmut b
+    (vec :str)
+    (make (vec :str)))
+  (vec-push b "-c")
+  (vec-push b "echo oops 1>&2")
+  (let r2 (run "sh" b))
+  (println (run-status r2))
+  (print (run-err r2)))
+
+(test nonzero-status
+  (expect (out "7\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "exit 7")
+  (let r (run "sh" a))
+  (println (run-status r)))
+
+(test signalled-status
+  (expect (out "143\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "kill -TERM $$")
+  (let r (run "sh" a))
+  (println (run-status r)))
+
+(test run-across-a-thread
+  (expect (out "5\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "exit 5")
+  (let r (run "sh" a))
+  (let t (spawn report r))
+  (join t))

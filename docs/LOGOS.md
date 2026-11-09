@@ -34,7 +34,7 @@ Machine-readable: `logosc guide --json` prints the manifest (forms, types, opera
 
 ## Manual
 
-18 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
+19 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
 
 ### 1. Values and literals
 
@@ -635,6 +635,44 @@ Expected stdout, exit 0:
 2
 ```
 
+### 19. Runtime access
+
+```logos
+(mod runtime-access)
+
+(test runtime-access
+  (expect (out "1\n0\n98\n-42\n4609434218613702656\n0\nhi\n")
+    (code 0)
+    (leaks 0))
+  (letmut argv (args))
+  (println (vec-len argv))
+  (vec-free argv)
+  (println (str-len (read-file "/dev/null")))
+  (println (str-byte "abc" 1))
+  (println (str-from-i64 -42))
+  (println (f64-bits 1.5))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (vec-push a "echo hi")
+  (let r (run "sh" a))
+  (println (run-status r))
+  (print (run-out r)))
+```
+
+Expected stdout, exit 0:
+
+```text
+1
+0
+98
+-42
+4609434218613702656
+0
+hi
+```
+
 ## Reference
 
 ### The ten rules, and where the compiler enforces them
@@ -684,7 +722,16 @@ Expected stdout, exit 0:
 | `str-concat` | 2 | `(str-concat a b)` allocates a new joined string |
 | `str-eq` | 2 | `(str-eq a b)` byte equality of two strings |
 | `str-slice` | 3 | `(str-slice s start end)` bytes `[start, end)` |
+| `str-byte` | 2 | `(str-byte s i)` one byte of a `:str` as `:u8`, bounds checked |
+| `str-from-i64` | 1 | `(str-from-i64 v)` the `:i64` v in decimal, as a `:str` |
+| `f64-bits` | 1 | `(f64-bits v)` the binary64 bit pattern of v, as `:i64` |
 | `read-all` | 0 | `(read-all)` reads standard input to a `:str` |
+| `read-file` | 1 | `(read-file p)` the whole file p names, as a `:str` |
+| `args` | 0 | `(args)` the command line, as a tracked `(vec :str)` |
+| `run` | 2 | `(run prog args)` starts prog with the arguments the vector names |
+| `run-status` | 1 | `(run-status r)` the child's exit code, or 128 + signal |
+| `run-out` | 1 | `(run-out r)` the child's standard output, as a `:str` |
+| `run-err` | 1 | `(run-err r)` the child's standard error, as a `:str` |
 | `vec-push` | 2 | `(vec-push v x)` appends, growing the buffer |
 | `vec-len` | 1 | `(vec-len v)` the element count |
 | `vec-get` | 2 | `(vec-get v i)` reads an element, bounds checked |
@@ -759,6 +806,7 @@ Expected stdout, exit 0:
 | `:void` | unit | no value; the type of a statement form |
 | `:thread` | handle | a spawned thread handle |
 | `:mutex` | handle | a lock handle, always `(shared :mutex)` when made |
+| `:run` | handle | a child process handle, made only by `(run prog args)` |
 
 ### Operators
 
@@ -791,7 +839,7 @@ Expected stdout, exit 0:
 
 ### Reserved names
 
-A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `break`, `cast`, `continue`, `deref`, `err`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `recv`, `ret`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
+A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `read-file`, `recv`, `ret`, `run`, `run-err`, `run-out`, `run-status`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
 
 Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant names: `ok`, `err`, `some`, `none`, `try`, `print`, `println`, `spawn`, `join`, `mutex`, `lock`, `unlock`, `chan`, `send`, `recv`, `atomic`, `atomic-add`, `atomic-load`, `atomic-store`.
 
@@ -832,8 +880,10 @@ Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant
 | `E0601` | try type mismatch |
 | `E0602` | unhandled result |
 | `E0700` | shared state not marked |
+| `R0006` | a program could not be started |
+| `R0007` | could not read a file |
 
-Runtime panic codes: `R0001` division by zero, `R0003` failed runtime check, `R0004` free of an unknown address, `R0005` thread operation failed. `R0002` double free is a runtime name only.
+Runtime panic codes: `R0001` division by zero, `R0002` double free, `R0003` failed runtime check, `R0004` free of an unknown address, `R0005` thread operation failed, `R0006` a program could not be started, `R0007` a file could not be read. `R0002` and `R0004` are runtime names only: nothing in the compiler emits them.
 
 ### Test categories
 

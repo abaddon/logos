@@ -183,6 +183,107 @@ unsigned char *rt_str_from_i64(long long v, size_t *out_len);
 unsigned char *rt_read_all(size_t *out_len, const char *path);
 
 /* ---------------------------------------------------------------------------
+ * Files, arguments and child processes
+ *
+ * The buffers these functions return live for the life of the process and are
+ * deliberately not tracked by the leak tracker: a Logos `:str` and a `:run`
+ * handle own nothing and have no form that releases them, so a tracked block
+ * that lives until exit would blame every program that read a file or ran a
+ * child for a leak it cannot fix. They are malloc'ed, never rt_alloc.
+ *
+ * A path or program argument is a Logos string: a pointer and a byte count,
+ * never NUL terminated. Where C needs a terminator the runtime copies the
+ * bytes first; that copy is process-lifetime and untracked too.
+ * ------------------------------------------------------------------------- */
+
+/* Open `path` for writing, creating it if absent and truncating it if not,
+ * with mode 0644. `path` is `n` bytes. Returns the descriptor, or -1 when the
+ * file could not be opened. The NUL-terminated copy C needs is released before
+ * returning, so nothing is kept for the life of the process. */
+long rt_create(const unsigned char *path, size_t n);
+
+/* Read the whole of `path` and return its byte count.
+ * Stores a buffer holding exactly the file's bytes in *out. The buffer is
+ * malloc'ed and NEVER released: it lives for the life of the process and is
+ * not tracked by the leak tracker, for the reason above. A zero-length file
+ * yields a zero-length buffer, never NULL.
+ *
+ * Panics with R0007 at `node_path` when the file cannot be opened or read: the
+ * form returns a `:str`, so a failure has nowhere else to go. The message is
+ * `could not read <path>`, naming the file, while the location is the node
+ * that asked, the same shape as a compile error. `node_path` is a
+ * compiler-generated NUL-terminated literal; NULL — or an empty string, which
+ * is what a missing node path degrades to — prints `<runtime>`.
+ *
+ * The buffer comes back through `out` rather than as the return value because
+ * the length is the return value: a two-word return would be an `sret`
+ * argument, and this boundary is kept to scalars and pointers. */
+size_t rt_read_file(const unsigned char *path, size_t n,
+                    const unsigned char **out, const char *node_path);
+
+/* One command-line argument: a pointer into the process-lifetime command line
+ * and its byte count. Two words, pointer then length, so an array of these is
+ * layout-compatible with an array of Logos fat pointers. */
+typedef struct {
+    const unsigned char *ptr;
+    size_t len;
+} rt_arg;
+
+/* The process's arguments, the program's own path first.
+ * Returns the count and stores the address of the process-lifetime array in
+ * *args; the entries point into a process-lifetime copy of
+ * /proc/self/cmdline, so neither the array nor the bytes may be released. The
+ * constructor that fills both runs before `main`, so the emitted `main`
+ * signature does not change. *args is NULL, and the count zero, only when the
+ * command line could not be read at all.
+ *
+ * The array is not a Logos value: a caller that wants one builds its own
+ * tracked `(vec :str)` over these pairs. */
+size_t rt_args(const rt_arg **args);
+
+/* An opaque handle to a finished child process: process-lifetime and not
+ * tracked, like a mutex or a channel, because no form releases it. */
+typedef struct rt_run rt_run;
+
+/* Run `prog` with the `argc` arguments `argv[i]` of `argn[i]` bytes, with no
+ * shell; `prog` is a Logos string of `pn` bytes and is looked up on PATH the
+ * way a shell command is. Each program and argument is
+ * copied into a NUL-terminated C string for execve, and the child's `argv[0]`
+ * is `prog`. Those copies live for the process lifetime and are untracked; the
+ * caller's arguments are only read.
+ *
+ * The child's stdout and stderr are captured into the handle. Returns once the
+ * child has exited and both streams have reached end of file, so a child that
+ * talks a lot on both cannot deadlock against a full pipe. A child still
+ * running after 30 seconds is killed, and its status is then 124; otherwise
+ * the status is the exit code, or 128 + the number of the signal that ended
+ * it. The 30 seconds bound the child as well as the pipes: a child that closes
+ * both streams and then never exits is killed too. A grandchild that inherits
+ * the pipes and keeps them open is not: it can hold the call past the deadline
+ * until it exits, because end of file is what ends the read.
+ * A program that could not be started, or a pipe the runtime could not
+ * create, panics R0006 at `call_path` with the program's name.
+ *
+ * `call_path` is the `run` node path, a compiler-generated NUL-terminated
+ * literal; NULL — or an empty string — prints `<runtime>`. */
+rt_run *rt_run_start(const unsigned char *prog, size_t pn,
+                     const unsigned char **argv, const size_t *argn,
+                     size_t argc, const char *call_path);
+
+/* The status: an exit code, 128 + signal, or 124 after the timeout. Panics
+ * R0005 on a NULL handle, like the two readers below. */
+long rt_run_status(rt_run *r);
+
+/* The child's standard output, and its byte count through *n. The buffer
+ * belongs to the handle and lives as long as it does; a child that wrote
+ * nothing gives a zero-length string, never NULL. Panics R0005 on a NULL
+ * handle. */
+const unsigned char *rt_run_out(rt_run *r, size_t *n);
+
+/* The child's standard error, the same contract as rt_run_out. */
+const unsigned char *rt_run_err(rt_run *r, size_t *n);
+
+/* ---------------------------------------------------------------------------
  * Concurrency
  *
  * Threads, mutexes, channels and atomics are pthreads underneath and opaque

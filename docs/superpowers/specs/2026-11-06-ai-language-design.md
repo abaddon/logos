@@ -204,6 +204,26 @@ Nothing here is undefined behaviour, so a C oracle can check it:
 - A `:str` owns nothing. Concatenation produces a process-lifetime buffer,
   so a slice never frees and a string never appears in the leak report.
 
+### Runtime access
+
+A program can read a file, see its arguments, and run a child process. `(read-file p)` is
+the whole file as a `:str`, and a file that cannot be read is a panic, `R0007` at the call,
+naming the path. `(args)` is the command line, the program's own path first. `(run prog
+args)` starts a process with no shell, captures its output, and returns a `:run` handle
+whose status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and
+`(run-err r)`. Nothing here hides a failure: a file that cannot be read names the path it
+could not open, and a program that cannot start is a diagnostic.
+`(run prog args)` moves and releases its `args` vector — each element is copied into a
+NUL-terminated C string, the descriptor's buffer is freed, and the strings live for the
+process lifetime — so the caller neither frees it nor sees it in the leak report; `(args)`
+returns an ordinary tracked vector that the caller frees, while the `:run` handle and its
+`out` and `err` buffers are process-lifetime and untracked.
+
+Three smaller forms sit beside them: `(str-byte s i)` is the byte at `i` as a `:u8`,
+`(str-from-i64 v)` formats an integer as a `:str`, and `(f64-bits v)` is the IEEE 754
+bit pattern of a float as an `:i64`. A `:run` is opaque, like `:thread` and `:mutex`:
+it is read through its three accessors and never laid out in the source.
+
 ### Ref parameters
 
 A function may take `(ref (vec T))`, a non-owning reference to a caller's
