@@ -12,7 +12,21 @@
                  (= c ""))))))))
 
 (fn wide-space :bool ((s :str) (i :i64))
-  (ret (or (or (or (or (or (or (or (or (or (or (or (or (or (or (= (str-slice s i (+ i 3)) " ") (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) " ")) (= (str-slice s i (+ i 3)) "　"))))
+  (ret (or (or (or (or (or (or (or (or (or (or (or (or (or (or (= (str-slice s i (+ i 3)) " ")
+                                                             (= (str-slice s i (+ i 3)) " "))
+                                                         (= (str-slice s i (+ i 3)) " "))
+                                                     (= (str-slice s i (+ i 3)) " "))
+                                                 (= (str-slice s i (+ i 3)) " "))
+                                             (= (str-slice s i (+ i 3)) " "))
+                                         (= (str-slice s i (+ i 3)) " "))
+                                     (= (str-slice s i (+ i 3)) " "))
+                                 (= (str-slice s i (+ i 3)) " "))
+                             (= (str-slice s i (+ i 3)) " "))
+                         (= (str-slice s i (+ i 3)) " "))
+                     (= (str-slice s i (+ i 3)) " "))
+                 (= (str-slice s i (+ i 3)) " "))
+             (= (str-slice s i (+ i 3)) " "))
+         (= (str-slice s i (+ i 3)) "　"))))
 
 (fn space-length :i64 ((s :str) (i :i64) (size :i64))
   (if (ascii-space (char-at s i))
