@@ -321,10 +321,9 @@ def parse_type(node: "Node | Token", *, path: str = "") -> Ty:
     if kind == "ref":
         _count(node, 2, where, "ref takes one element type")
         elem = parse_type(node.items[1], path=where)
-        if not isinstance(elem, (Vec, StructRef)):
-            # A bare name stays a ``StructRef`` for the checker, which is the
-            # only party that can say whether it names a vector. Everything
-            # else the syntax can produce is closed, so settle it here.
+        if not isinstance(elem, Vec):
+            # A ref names a vector and nothing else, so the shape is settled
+            # here: a bare name is a ``StructRef`` and never a vector.
             raise diag(TYPE_MISMATCH, where, "a ref may name a vector only")
         return Ref(elem)
     if kind == "res":

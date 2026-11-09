@@ -204,12 +204,33 @@ class TypeSyntaxTest(unittest.TestCase):
         self.assertEqual(ty, Ref(Vec(Prim("i64"))))
         self.assertEqual(str(ty), "(ref (vec :i64))")
 
-    def test_a_ref_of_a_named_type_parses_for_the_checker(self):
-        # A bare name is syntax the checker resolves; the closed kinds are
-        # refused here.
-        self.assertEqual(
-            parse_type(type_syntax("(ref point)")), Ref(StructRef("point"))
+    def test_a_ref_of_a_named_type_is_refused(self):
+        # A bare name is a struct or enum reference, never a vector, so the
+        # parser settles it: nothing downstream has to read a Ref it cannot.
+        with self.assertRaises(LogosError) as caught:
+            parse_type(type_syntax("(ref point)"), path="m/f")
+        error = caught.exception
+        self.assertEqual(error.code, "E0100")
+        self.assertTrue(error.path.startswith("m/f"))
+        self.assertEqual(error.message, "a ref may name a vector only")
+
+    def test_a_ref_of_anything_but_a_vector_is_refused(self):
+        for text in ("(ref (ptr :i64))", "(ref (ref (vec :i64)))", "(ref (opt :i64))"):
+            with self.subTest(text=text):
+                with self.assertRaises(LogosError) as caught:
+                    parse_type(type_syntax(text))
+                self.assertEqual(caught.exception.code, "E0100")
+
+    def test_the_checker_reports_E0100_for_a_ref_of_a_named_type(self):
+        # The regression this guards: without the parse-time refusal the
+        # checker meets a Ref it cannot read and raises AttributeError.
+        error = expect_error(
+            "(mod m)"
+            "(type point (struct (x :i64)))"
+            "(fn f :void ((p (ref point))) (ret 0))",
+            "E0100",
         )
+        self.assertEqual(error.message, "a ref may name a vector only")
 
     def test_a_ref_of_a_primitive_is_refused(self):
         with self.assertRaises(LogosError) as caught:
