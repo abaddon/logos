@@ -528,6 +528,64 @@ class SiblingSignatureTypeTest(unittest.TestCase):
         self.assertIn("'deep'", caught.exception.message)
 
 
+class SameNamedTypeFromAnotherModuleTest(unittest.TestCase):
+    """S1: a type that arrives only through a callee's signature keeps its owner.
+
+    ``deep`` declares ``point`` and is imported by ``shapes`` alone. ``shapes``
+    names that type in a signature, so ``program`` — which imports only
+    ``shapes`` — sees the name without seeing the declaration. ``program``
+    declares a ``point`` of its own, and the two are not one type: the checker
+    compared the bare name and accepted the call, which lowering then handed to
+    clang with two different qualified names.
+    """
+
+    DEEP = "(mod deep)\n(type point (struct (x :i64)))\n"
+    SHAPES = (
+        "(mod shapes)\n(use deep)\n"
+        "(fn take :i64 ((p point))\n  (ret (get p x)))\n"
+    )
+    PROGRAM = (
+        "(mod program)\n(use shapes)\n"
+        "(type point (struct (y :i64)))\n"
+        "(fn main :i64 ()\n"
+        "  (let p (make point 7))\n"
+        "  (ret (take p)))\n"
+    )
+
+    def _modules(self, program: str | None = None):
+        return resolve.program(
+            [
+                _parse(self.DEEP, "deep"),
+                _parse(self.SHAPES, "shapes"),
+                _parse(program or self.PROGRAM, "program"),
+            ]
+        )
+
+    def test_a_point_from_another_module_is_e0100(self):
+        with self.assertRaises(LogosError) as caught:
+            check.check_program(self._modules())
+        error = caught.exception
+        self.assertEqual(error.code, "E0100")
+        # The argument node, not the call or the declaration.
+        self.assertEqual(error.path, "program/main/3/0")
+        self.assertIn("'deep'", error.message)
+        self.assertIn("'program'", error.message)
+        self.assertIn("point", error.message)
+
+    def test_importing_the_declaring_module_is_a_duplicate(self):
+        # Naming ``deep`` gives ``program`` a second declaration of ``point``
+        # in one namespace, which the resolver refuses before the checker
+        # ever compares the argument: the shape cannot be written, so the
+        # cross-module call above is the one the checker must answer.
+        program = self.PROGRAM.replace("(use shapes)", "(use shapes)\n(use deep)")
+        with self.assertRaises(LogosError) as caught:
+            check.check_program(self._modules(program))
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertIn("deep/point", error.message)
+        self.assertIn("program/point", error.message)
+
+
 class OneModuleTwoFilesTest(unittest.TestCase):
     """C2: one module name may only ever be answered by one file."""
 

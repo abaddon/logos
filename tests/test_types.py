@@ -225,6 +225,17 @@ class CompatibleTest(unittest.TestCase):
         self.assertFalse(compatible(StructRef("p"), StructRef("q")))
         self.assertFalse(compatible(StructRef("p"), EnumRef("p")))
 
+    def test_a_resolved_name_is_its_declaration(self):
+        # Two modules may each declare ``p``: one name is not one type.
+        self.assertTrue(compatible(StructRef("p", "a"), StructRef("p", "a")))
+        self.assertFalse(compatible(StructRef("p", "a"), StructRef("p", "b")))
+        self.assertFalse(compatible(EnumRef("e", "a"), EnumRef("e", "b")))
+        # An empty owner is "not resolved here", so single-module source, where
+        # nothing records a declaration, keeps comparing by name.
+        self.assertTrue(compatible(StructRef("p"), StructRef("p", "a")))
+        self.assertTrue(compatible(StructRef("p", "a"), StructRef("p")))
+        self.assertTrue(compatible(EnumRef("e"), EnumRef("e", "a")))
+
     def test_no_widening_reaches_inside_a_composite(self):
         self.assertFalse(compatible(Vec(Prim("i32")), Vec(Prim("i64"))))
 

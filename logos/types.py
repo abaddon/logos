@@ -1,7 +1,9 @@
 """Logos types: the vocabulary and the syntax that names it.
 
 A type is a frozen value. Equality is structural for the composites and
-nominal for ``StructRef``/``EnumRef``, which compare by name. There is no
+nominal for ``StructRef``/``EnumRef``, which compare by name; once a name is
+resolved, :func:`compatible` also requires that both sides name a type the same
+module declared, because two modules may each declare a ``point``. There is no
 subtyping and no conversion: :func:`compatible` answers "is this the same
 type", never "can this become that", so a width or a signedness never changes
 under it. A ``TypeVar`` is not a wildcard: it compares by name like any other
@@ -27,7 +29,7 @@ can still locate the error at the form that owns the token.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from logos.diag import UNKNOWN_TYPE, diag
 from logos.lexer import ATOM, NUMBER, Token
@@ -200,9 +202,18 @@ class Atomic:
 
 @dataclass(frozen=True, slots=True)
 class StructRef:
-    """A reference to a named struct, written bare: ``point``."""
+    """A reference to a named struct, written bare: ``point``.
+
+    ``owner`` is the module that declared the type, recorded once the checker
+    has resolved the name through a visible namespace. It is not part of the
+    spelling: ``str`` prints the bare name, and dataclass equality compares the
+    name alone, so every construction that does not know a declaration still
+    reads as before. Declaration identity is the checker's question, and
+    :func:`compatible` is where it is answered.
+    """
 
     name: str
+    owner: str = field(default="", compare=False)
 
     def __str__(self) -> str:
         return self.name
@@ -210,9 +221,13 @@ class StructRef:
 
 @dataclass(frozen=True, slots=True)
 class EnumRef:
-    """A reference to a named enum, written bare: ``parse-error``."""
+    """A reference to a named enum, written bare: ``parse-error``.
+
+    ``owner`` carries the declaring module exactly as ``StructRef`` does.
+    """
 
     name: str
+    owner: str = field(default="", compare=False)
 
     def __str__(self) -> str:
         return self.name
@@ -307,16 +322,27 @@ def compatible(a: Ty, b: Ty) -> bool:
     checker substitutes, never a pattern that matches any type, so a value of
     one kind can never stand in for another through it.
     Everything else must match exactly, including integer width, array length
-    and the name of a named type.
+    and the name of a named type. A named type whose declaration is known must
+    also have been declared by the same module: ``point`` in one module is not
+    ``point`` in another. An empty owner means "not resolved here", so it
+    matches any owner and single-module source behaves exactly as it always did.
     """
     if isinstance(a, TypeVar):
         return isinstance(b, TypeVar) and a.name == b.name
     if isinstance(a, Prim):
         return isinstance(b, Prim) and a.name == b.name
     if isinstance(a, StructRef):
-        return isinstance(b, StructRef) and a.name == b.name
+        return (
+            isinstance(b, StructRef)
+            and a.name == b.name
+            and _same_declaration(a.owner, b.owner)
+        )
     if isinstance(a, EnumRef):
-        return isinstance(b, EnumRef) and a.name == b.name
+        return (
+            isinstance(b, EnumRef)
+            and a.name == b.name
+            and _same_declaration(a.owner, b.owner)
+        )
     if isinstance(a, Ptr):
         return isinstance(b, Ptr) and compatible(a.elem, b.elem)
     if isinstance(a, Own):
@@ -350,6 +376,16 @@ def compatible(a: Ty, b: Ty) -> bool:
             return False
         return compatible(a.ret, b.ret)
     return False
+
+
+def _same_declaration(a: str, b: str) -> bool:
+    """Whether two resolved owners name one declaration.
+
+    An empty owner is "not resolved here" — a type constructed from syntax
+    rather than from a namespace — and matches anything, which is what keeps a
+    single-module program comparing by name exactly as it always did.
+    """
+    return not a or not b or a == b
 
 
 def substitute(ty: Ty, bindings: dict[str, Ty]) -> Ty:

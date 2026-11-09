@@ -1563,7 +1563,8 @@ class _Checker:
                 inherited_enums.update(visible.own_enums)
                 inherited_externs.update(visible.own_externs)
             own_types = {
-                name: _declared(name, node) for name, node in module.types.items()
+                name: _declared(name, node, module.name)
+                for name, node in module.types.items()
             }
             for name, node in module.types.items():
                 if reserved_name(name):
@@ -2029,7 +2030,7 @@ class _Checker:
                         f"variant '{token.value}' holds a value: "
                         f"write ({token.value} name)",
                     )
-                return EnumRef(enum)
+                return self._enum_ref(enum)
             raise diag(NOT_FOUND, where, f"unknown name '{token.value}'")
         raise diag(UNKNOWN_NODE, where, "expected a value")
 
@@ -3441,7 +3442,7 @@ class _Checker:
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects {param}, found {ty}",
+                    _argument_message(index, name, param, ty),
                 )
             if isinstance(param, Res):
                 # The thread's body is checked for the obligation, exactly as
@@ -3965,6 +3966,17 @@ class _Checker:
             )
         return found[0]
 
+    def _enum_ref(self, name: str) -> EnumRef:
+        """The declared enum ``name`` spells, carrying its declaring module.
+
+        Every constructor's type is one of these: the value it builds has the
+        declaration the variant came from, not merely the name the caller's
+        namespace happens to hold. A name the caller cannot see keeps the bare
+        spelling, which is what every construction without a namespace has.
+        """
+        declared = self._types.get(name)
+        return declared if isinstance(declared, EnumRef) else EnumRef(name)
+
     def _construct(self, node: Node, env: _Env) -> Ty | None:
         """``(variant v)`` or ``variant``: a value of the enum that declares it.
 
@@ -3999,7 +4011,7 @@ class _Checker:
             # The payload area holds the value by copy, so anything owning
             # moves into the variant and the source is empty afterwards.
             self._consume(args[0], env, node.path)
-        return EnumRef(enum)
+        return self._enum_ref(enum)
 
     def _printer(self, node: Node, env: _Env) -> Ty:
         """``print``/``println`` of one scalar the runtime formats.
@@ -4133,7 +4145,7 @@ class _Checker:
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects {param}, found {ty}",
+                    _argument_message(index, name, param, ty),
                 )
             if self._move_only(param):
                 # The callee owns what it is handed: the argument moves into
@@ -4190,11 +4202,11 @@ class _Checker:
                 raise diag(CLOSURE_ESCAPE, _at(arg, node), _CLOSURE_ESCAPE)
             trial = dict(bindings)
             if _is_void(ty) or not _unify(param, ty, trial):
+                given = substitute(param, bindings)
                 raise diag(
                     TYPE_MISMATCH,
                     _at(arg, node),
-                    f"argument {index} of '{name}' expects "
-                    f"{substitute(param, bindings)}, found {ty}",
+                    _argument_message(index, name, given, ty),
                 )
             bindings = trial
             concrete = substitute(param, bindings)
@@ -4501,17 +4513,45 @@ def _operand_message(kind: str, ty: Ty, operand: Ty) -> str:
     return f"cannot {_ARITH[kind]} {operand} to {ty}"
 
 
-def _declared(name: str, node: Node) -> Ty:
-    """The type a ``(type name ...)`` definition introduces."""
+def _argument_message(index: int, name: str, param: Ty, found: Ty) -> str:
+    """The E0100 text for one argument that is not the parameter's type.
+
+    Two named types that spell one name but were declared by different modules
+    are the case bare names cannot tell apart — ``point`` would be the same
+    word on both sides — so the sentence names both declarations instead.
+    """
+    if (
+        isinstance(param, (StructRef, EnumRef))
+        and isinstance(found, type(param))
+        and param.name == found.name
+        and param.owner
+        and found.owner
+        and param.owner != found.owner
+    ):
+        return (
+            f"argument {index} of '{name}': {param} from module "
+            f"'{param.owner}' is not {found} from module '{found.owner}'"
+        )
+    return f"argument {index} of '{name}' expects {param}, found {found}"
+
+
+def _declared(name: str, node: Node, owner: str = "") -> Ty:
+    """The type a ``(type name ...)`` definition introduces.
+
+    ``owner`` is the module whose ``(type ...)`` this is. It travels with the
+    type value, so a name that reaches a caller through a callee's signature or
+    an imported struct's field list still names the declaration it was written
+    under: two modules may each spell ``point``, and they are not one type.
+    """
     if name.startswith(":"):
         raise diag(UNKNOWN_NODE, node.path, "type needs a name")
     body = node.items[2] if len(node.items) > 2 else None
     if not isinstance(body, Node):
         raise diag(UNKNOWN_NODE, node.path, f"type '{name}' needs a struct or enum body")
     if body.kind == "struct":
-        return StructRef(name)
+        return StructRef(name, owner)
     if body.kind == "enum":
-        return EnumRef(name)
+        return EnumRef(name, owner)
     raise diag(UNKNOWN_NODE, body.path, f"unknown type body '{body.kind}'")
 
 

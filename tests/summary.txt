@@ -186,4 +186,5 @@ PASS regress/print-small-numbers/every-small-width -
 PASS regress/recursive-enum -
 PASS regress/reserved-name -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
+PASS regress/struct-owner-mismatch/program -
 PASS regress/vec-place-copy -
