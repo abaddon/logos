@@ -1,9 +1,11 @@
-"""The sixth gate runs, and the self-hosted formatter reproduces the corpus.
+"""The sixth gate runs, and the self-hosted front end reproduces canonical source.
 
-`tools/selfhost.sh` builds `gen2` from `src/logosc/*.logos` and compares its
-`fmt` output with every file `tools/selfhost-manifest.txt` lists. This test is
-the smallest one that proves the wiring: it runs the gate and checks its final
-line and exit status, so a script that silently skipped the loop, overran the
+`tools/selfhost.sh` builds `gen2` from `src/logosc/*.logos`, compares its `fmt`
+output with every file `tools/selfhost-manifest.txt` lists, then runs
+`gen2 resolve` on every resolver-owned negative fixture under `tests/parse`
+and compares the code with its `.expect` sidecar. This test is the smallest one
+that proves the wiring: it runs the gate and checks both final lines and the
+exit status, so a script that silently skipped either loop, overran the
 manifest or passed over zero files cannot look green.
 """
 
@@ -18,11 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "selfhost.sh"
 
 #: `selfhost: N files, M differences`, with both numbers present and M zero.
-FINAL_LINE = re.compile(r"^selfhost: (\d+) files, (\d+) differences$")
+SELFHOST_LINE = re.compile(r"^selfhost: (\d+) files, (\d+) differences$")
+#: `resolve: N fixtures, M differences`, the second phase's summary.
+RESOLVE_LINE = re.compile(r"^resolve: (\d+) fixtures, (\d+) differences$")
 
 
 class SelfhostGateTest(unittest.TestCase):
-    def test_gate_formats_every_manifest_file_byte_for_byte(self):
+    def test_gate_formats_every_manifest_file_and_every_resolver_fixture(self):
         result = subprocess.run(
             ["bash", str(SCRIPT)],
             cwd=ROOT,
@@ -31,16 +35,29 @@ class SelfhostGateTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = result.stdout.splitlines()
-        self.assertTrue(lines, "tools/selfhost.sh printed no summary line")
-        match = FINAL_LINE.match(lines[-1])
+        self.assertGreaterEqual(len(lines), 2, "tools/selfhost.sh printed no summaries")
         self.assertIsNotNone(
-            match,
-            f"last line is not the selfhost summary: {lines[-1]!r}",
+            SELFHOST_LINE.match(lines[-2]),
+            f"second-to-last line is not the selfhost summary: {lines[-2]!r}",
         )
-        assert match is not None  # for the type checker, not the test
-        files, differences = (int(group) for group in match.groups())
+        self.assertIsNotNone(
+            RESOLVE_LINE.match(lines[-1]),
+            f"last line is not the resolve summary: {lines[-1]!r}",
+        )
+        selfhost_match = SELFHOST_LINE.match(lines[-2])
+        resolve_match = RESOLVE_LINE.match(lines[-1])
+        assert selfhost_match is not None  # for the type checker, not the test
+        assert resolve_match is not None
+
+        files, differences = (int(group) for group in selfhost_match.groups())
         self.assertGreaterEqual(files, 100, "the manifest is smaller than the corpus")
         self.assertEqual(differences, 0)
+
+        fixtures, resolve_differences = (
+            int(group) for group in resolve_match.groups()
+        )
+        self.assertGreaterEqual(fixtures, 13, "the resolver fixture set was pruned")
+        self.assertEqual(resolve_differences, 0)
 
 
 if __name__ == "__main__":

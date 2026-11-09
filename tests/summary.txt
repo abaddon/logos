@@ -1,7 +1,19 @@
 LEAKS 10
 OPTS -O0 -O2
+PASS parse/duplicate-fn -
+PASS parse/duplicate-test -
+PASS parse/extern-fn-collision -
 PASS parse/fixture/add-wraps -
+PASS parse/multi-module/cycle/root -
+PASS parse/multi-module/merge/root -
+PASS parse/multi-module/unknown-module -
+PASS parse/multi-module/wrong-name -
+PASS parse/nameless-mod -
+PASS parse/no-mod -
+PASS parse/second-mod -
 PASS parse/unknown-node -
+PASS parse/use-no-name -
+PASS parse/use-two-names -
 PASS type/alloc-fn -
 PASS type/alloc-result -
 PASS type/arity -

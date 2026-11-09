@@ -9,11 +9,34 @@ never an E0002 here.
 import unittest
 from pathlib import Path
 
+from logos import driver
 from logos.diag import LogosError
 from logos.parser import parse
 from logos.resolve import Module, reachable, resolve
 
 PARSE = Path(__file__).parent / "parse"
+
+#: Every resolver-owned negative fixture, by path under ``tests/parse``.
+#:
+#: The expected code is also in the fixture's ``.expect`` sidecar; the second
+#: element is the node path the diagnostic must carry. ``None`` means the file
+#: has no node to point at — a file that never declares a module is located by
+#: its source position instead.
+RESOLVER_FIXTURES = {
+    "no-mod.logos": ("E0002", None),
+    "nameless-mod.logos": ("E0002", "0"),
+    "second-mod.logos": ("E0003", "m/n"),
+    "unknown-node.logos": ("E0002", "m/0"),
+    "duplicate-fn.logos": ("E0003", "m/f"),
+    "duplicate-test.logos": ("E0003", "m/test/t"),
+    "extern-fn-collision.logos": ("E0003", "m/get"),
+    "use-no-name.logos": ("E0002", "m/0"),
+    "use-two-names.logos": ("E0002", "m/0"),
+    "multi-module/unknown-module.logos": ("E0005", "missing/0"),
+    "multi-module/wrong-name.logos": ("E0005", "wrong-name/0"),
+    "multi-module/cycle/root.logos": ("E0004", "b/0"),
+    "multi-module/merge/root.logos": ("E0003", "merge/1"),
+}
 
 
 def resolve_src(src: str, files: dict[str, str] | None = None) -> Module:
@@ -318,6 +341,69 @@ class UnknownNodeTest(unittest.TestCase):
         with self.assertRaises(LogosError) as caught:
             resolve_src(source)
         self.assertEqual(caught.exception.code, expected)
+
+
+class ResolverFixturesTest(unittest.TestCase):
+    """The resolver-owned negative corpus, judged as the compiler judges it.
+
+    Each fixture is loaded through the driver, so the test sees the same
+    loader, standard-library path and import walk a build does. The expected
+    code is read from the sidecar rather than restated, and the table above
+    must cover every ``.expect`` under ``tests/parse`` — a new fixture that
+    nobody wired into the table fails instead of sitting unread.
+    """
+
+    def test_the_table_covers_every_negative_fixture(self):
+        found = {
+            path.relative_to(PARSE).as_posix()
+            for path in PARSE.rglob("*.expect")
+        }
+        declared = {
+            key.removesuffix(".logos") + ".expect" for key in RESOLVER_FIXTURES
+        }
+        self.assertEqual(found, declared)
+
+    def test_each_fixture_agrees_with_its_expect_file(self):
+        for relative, (code, path) in RESOLVER_FIXTURES.items():
+            with self.subTest(fixture=relative):
+                fixture = PARSE / relative
+                expected = fixture.with_suffix(".expect").read_text(
+                    encoding="utf-8"
+                ).strip()
+                self.assertEqual(expected, code)
+                with self.assertRaises(LogosError) as caught:
+                    driver.load_program([str(fixture)])
+                error = caught.exception
+                self.assertEqual(error.code, expected)
+                if path is None:
+                    # No node stands for an absent ``(mod ...)``. The source
+                    # position is the only location that can exist, and the
+                    # error must carry it rather than an empty message.
+                    self.assertEqual(error.path, "")
+                    self.assertEqual(error.file, str(fixture))
+                    self.assertEqual(error.location, f"{fixture}:1:1")
+                else:
+                    self.assertEqual(error.path, path)
+
+    def test_the_cycle_fixture_lists_the_whole_cycle(self):
+        with self.assertRaises(LogosError) as caught:
+            driver.load_program(
+                [str(PARSE / "multi-module" / "cycle" / "root.logos")]
+            )
+        self.assertEqual(caught.exception.code, "E0004")
+        self.assertIn("a -> b -> a", caught.exception.message)
+
+    def test_the_merge_fixture_names_both_sides(self):
+        # A collision through a ``use`` is only actionable when the message
+        # says which local definition and which imported one collided.
+        with self.assertRaises(LogosError) as caught:
+            driver.load_program(
+                [str(PARSE / "multi-module" / "merge" / "root.logos")]
+            )
+        error = caught.exception
+        self.assertEqual(error.code, "E0003")
+        self.assertIn("merge/f", error.message)
+        self.assertIn("other/f", error.message)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+(mod m)
+
+(fn get :i64 ()
+  (ret 1))
+
+(extern fn get :i64 ())
