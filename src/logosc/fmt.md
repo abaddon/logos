@@ -32,7 +32,7 @@ from the lexer: the tree owns every text it needs.
 | `fmt-form nodes ntexts id column` | `:i64` | print one form starting at `column`; return its end column |
 | `fmt-token ntexts tok text col` | `:i64` | print one token; a string is quoted and re-escaped |
 | `fmt-string ntexts text col` | `:i64` | print a string token's canonical spelling |
-| `fmt-put col s` | `:i64` | print `s`, return the column after its last byte |
+| `fmt-put col s` | `:i64` | print `s`, return the column after its last code point |
 | `fmt-break column` | `:i64` | print a newline and `column` spaces, return `column` |
 | `fmt-indent n` | `:i64` | print `n` spaces, return `n` |
 | `fmt-breaks nodes ntexts id` | `:bool` | whether this form puts its form children on their own lines |
