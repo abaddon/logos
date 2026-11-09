@@ -4,7 +4,7 @@
 
 **Goal:** a Logos program can read a file, see its own arguments, walk a string byte by byte, turn an integer into text, take a float's bits, and run a child process and read what it said — the six capabilities the Logos-written compiler needs before a single line of it can be written.
 
-**Architecture:** four of the six are small forms over the existing C runtime; `read-file` builds a result; `run` returns a new opaque handle `:run` with three accessors, the same shape `:thread`, `:mutex` and `:chan` already have. The C runtime gains four functions: an open-for-writing, a whole-file read by path, the process arguments, and a spawn-with-two-pipes-and-a-wait.
+**Architecture:** four of the six are small forms over the existing C runtime; `read-file` panics on a path it cannot read; `run` returns a new opaque handle `:run` with three accessors, the same shape `:thread`, `:mutex` and `:chan` already have. The C runtime gains four functions: an open-for-writing, a whole-file read by path, the process arguments, and a spawn-with-two-pipes-and-a-wait.
 
 **Tech Stack:** Python 3.14 standard library, `unittest`, LLVM IR text, clang, `logos/runtime/rt.c` (POSIX).
 
@@ -14,7 +14,7 @@
 
 - Every commit carries `Signed-off-by:` matching its author (`git commit -s`).
 - Six forms and one new primitive type, exactly: `(read-file p)`, `(args)`, `(str-byte s i)`, `(str-from-i64 v)`, `(f64-bits v)`, `(run prog args)`, and `:run` with `(run-status r)`, `(run-out r)`, `(run-err r)`.
-- `(read-file p)` is `(res :str :i64)`: the ok arm is the whole file, the err arm is `errno`. It panics on nothing.
+- `(read-file p)` is a `:str`, the whole file. A path it cannot read panics `R0007` at the call, naming the path; there is no result and no `errno`.
 - `(run prog args)` takes a `:str` and a `(vec :str)`; no shell; the args vec is **moved and released by the form**, the same contract as any other callee that receives a container: it copies each argument into a NUL-terminated C string, frees the descriptor's buffer, and keeps the C strings for the process lifetime. `status` is the exit code, or `128 + signal`. A spawn failure is `R0006` with the program name. The child is killed after 30 s and reports 124.
 - `(args)` returns an ordinary tracked vector (the caller frees it with `vec-free`), whose elements point into a process-lifetime copy of the command line. The `:run` handle and its `out` and `err` buffers are process-lifetime and untracked, because no form releases a handle; that is the shortcut the runtime states in a comment.
 - A new runtime function never prints and never exits: it returns, or it calls `rt_panic` with a code and a path.
@@ -24,7 +24,7 @@
 
 ## Review Focus
 
-1. `(read-file "/dev/null")` is the empty string with errno 0, and a missing path is the err arm, not a panic. (Task 3)
+1. `(read-file "/dev/null")` is the empty string, and a missing path panics `R0007` naming the path, with exit code 2. (Task 3)
 2. A file of 1 MiB reads back byte for byte, and the runtime's buffer is not leaked into the report. (Task 2)
 3. `(run "sh" ["-c" "echo hi"])` gives status 0 and out `hi\n`; `(run "false" …)` gives 1; a chatty child on both streams does not deadlock. (Task 2)
 4. `(run "definitely-not-a-program" …)` is `R0006` with the name and the node path. (Task 2)
@@ -48,12 +48,13 @@
 
 Add to the language spec, after the string section:
 
-> A program can read a file, see its arguments, and run a child process. `(read-file p)` is a
-> result: the ok arm holds the whole file, the err arm an `errno`. `(args)` is the command
-> line, the program's own path first. `(run prog args)` starts a process with no shell,
-> captures its output, and returns a `:run` handle whose status, stdout and stderr are read by
-> `(run-status r)`, `(run-out r)` and `(run-err r)`. Nothing here hides a failure: a file
-> that cannot be read is a value, and a program that cannot start is a diagnostic.
+> A program can read a file, see its arguments, and run a child process. `(read-file p)` is
+> the whole file as a `:str`, and a file that cannot be read is a panic, `R0007` at the call,
+> naming the path. `(args)` is the command line, the program's own path first. `(run prog
+> args)` starts a process with no shell, captures its output, and returns a `:run` handle
+> whose status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and
+> `(run-err r)`. Nothing here hides a failure: a file that cannot be read names the path it
+> could not open, and a program that cannot start is a diagnostic.
 
 And in D5's table row for `run`, replace the struct with the handle and its three accessors.
 
@@ -79,7 +80,7 @@ status and the output. One `(test …)` with the full expected stdout. It must b
   (println (f64-bits 1.5)))
 ```
 
-`tests/exec/read-file.logos`: read `/dev/null` and assert `(str-len (ok (read-file "/dev/null")))` is 0, then read a missing path and assert the err arm is nonzero. `tests/exec/args.logos`: assert `(vec-len (args))` is at least 1. `tests/exec/run.logos`: `(run "sh" […])` is not directly writable, because the args argument is a `letmut (vec :str)` — build it with `vec-push`, run `sh -c "echo hi"`, print the status and the output. Model each on `tests/exec/read/*.logos` and the strings chapter.
+`tests/exec/read-file.logos`: read `/dev/null` and print `(str-len (read-file "/dev/null"))`, which is 0, then read a missing path and assert the panic: `(expect (out "0\n") (code 2) (err-contains "R0007: could not read /nonexistent/logos-w2/read-file.logos"))`. `tests/exec/args.logos`: assert `(vec-len (args))` is at least 1. `tests/exec/run.logos`: `(run "sh" […])` is not directly writable, because the args argument is a `letmut (vec :str)` — build it with `vec-push`, run `sh -c "echo hi"`, print the status and the output. Model each on `tests/exec/read/*.logos` and the strings chapter.
 
 - [ ] **Step 4: Record the failures**
 
@@ -151,13 +152,13 @@ git commit -s -m "feat: runtime for files, arguments and child processes"
 - Test: `tests/test_runtime_forms.py` (new), `tests/exec/{read-file,args,str-tools}.logos`
 
 **Interfaces:**
-- Produces: `(read-file p) :(res :str :i64)`, `(args) :(vec :str)`, `(str-byte s i) :u8`, `(str-from-i64 v :i64) :str`, `(f64-bits v :f64) :i64`.
+- Produces: `(read-file p) :str`, `(args) :(vec :str)`, `(str-byte s i) :u8`, `(str-from-i64 v :i64) :str`, `(f64-bits v :f64) :i64`, and `R0007`, whose message is `could not read <path>` at the node path.
 
 - [ ] **Step 1: Failing unit tests**, one per form, in `tests/test_runtime_forms.py`, each asserting the type the checker gives the form and the wrong-argument diagnostic (`E0100`) and wrong arity (`E0102`).
 
-- [ ] **Step 2: Add the forms to the checker**, in the family that already holds `str-len`, `str-concat`, `str-eq`, `str-slice`: `str-byte` takes `(str, integer)` and returns `:u8`; `str-from-i64` takes an integer and returns `:str`; `f64-bits` takes `:f64` and returns `:i64`; `read-file` takes a `:str` and returns `(res :str :i64)`; `args` takes nothing and returns `(vec :str)`.
+- [ ] **Step 2: Add the forms to the checker**, in the family that already holds `str-len`, `str-concat`, `str-eq`, `str-slice`: `str-byte` takes `(str, integer)` and returns `:u8`; `str-from-i64` takes an integer and returns `:str`; `f64-bits` takes `:f64` and returns `:i64`; `read-file` takes a `:str` and returns `:str`; `args` takes nothing and returns `(vec :str)`.
 
-- [ ] **Step 3: Add their lowering**, `read-file` through `rt_read_file` building both arms of the result, `args` through `rt_args` building a vector of fat pointers, `str-byte` a `load i8` through the string's data pointer with a bounds check that panics `R0003`, `str-from-i64` through `rt_str_from_i64`, `f64-bits` a `bitcast`.
+- [ ] **Step 3: Add their lowering**, `read-file` through `rt_read_file` returning the whole file, or panicking `R0007` with the path when the open or read fails, `args` through `rt_args` building a vector of fat pointers, `str-byte` a `load i8` through the string's data pointer with a bounds check that panics `R0003`, `str-from-i64` through `rt_str_from_i64`, `f64-bits` a `bitcast`.
 
 - [ ] **Step 4: Run the three cases and the suite**, at both levels.
 

@@ -206,12 +206,13 @@ Nothing here is undefined behaviour, so a C oracle can check it:
 
 ### Runtime access
 
-A program can read a file, see its arguments, and run a child process. `(read-file p)` is a
-result: the ok arm holds the whole file, the err arm an `errno`. `(args)` is the command
-line, the program's own path first. `(run prog args)` starts a process with no shell,
-captures its output, and returns a `:run` handle whose status, stdout and stderr are read by
-`(run-status r)`, `(run-out r)` and `(run-err r)`. Nothing here hides a failure: a file
-that cannot be read is a value, and a program that cannot start is a diagnostic.
+A program can read a file, see its arguments, and run a child process. `(read-file p)` is
+the whole file as a `:str`, and a file that cannot be read is a panic, `R0007` at the call,
+naming the path. `(args)` is the command line, the program's own path first. `(run prog
+args)` starts a process with no shell, captures its output, and returns a `:run` handle
+whose status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and
+`(run-err r)`. Nothing here hides a failure: a file that cannot be read names the path it
+could not open, and a program that cannot start is a diagnostic.
 `(run prog args)` moves and releases its `args` vector — each element is copied into a
 NUL-terminated C string, the descriptor's buffer is freed, and the strings live for the
 process lifetime — so the caller neither frees it nor sees it in the leak report; `(args)`

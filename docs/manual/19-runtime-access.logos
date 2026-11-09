@@ -7,7 +7,7 @@
   (letmut argv (args))
   (println (vec-len argv))
   (vec-free argv)
-  (match (read-file "/dev/null") ((ok text) (println (str-len text))) ((err e) (println e)))
+  (println (str-len (read-file "/dev/null")))
   (println (str-byte "abc" 1))
   (println (str-from-i64 -42))
   (println (f64-bits 1.5))

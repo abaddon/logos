@@ -122,7 +122,7 @@ first (D4), because the corpus gate runs on Python.
 
 | Surface | Type | Why the compiler needs it |
 |---------|------|---------------------------|
-| `(read-file path)` | `(res :str :i64)` | read `foo.logos`; the error arm carries `errno`, so the CLI prints `logos: nope.logos: No such file or directory` and exits 1 |
+| `(read-file path)` | `:str` | read `foo.logos`; a path that cannot be read is `R0007` at the call, naming the path |
 | `(args)` | `(vec :str)` | see `build`, `test`, `-o`, `--only` |
 | `(str-byte s i)` | `:u8` | the lexer walks bytes; `str-slice` cannot read one byte |
 | `(str-from-i64 v)` | `:str` | `%t<n>` names, node paths, JSON numbers |
@@ -130,8 +130,8 @@ first (D4), because the corpus gate runs on Python.
 | `(run prog args)` | `:run` handle | run clang, and run each test binary; status, stdout and stderr are read by `(run-status r)`, `(run-out r)` and `(run-err r)` |
 | `(ref T)` parameter | non-owning | helpers that read and grow the compiler's arenas |
 
-`read-file` is fallible, and it panics on nothing. A missing module is not its job
-either: `use` names a module in the build set (D6), so a missing import is a
+`read-file` panics `R0007` with the path when the file cannot be read. A missing module is
+not its job either: `use` names a module in the build set (D6), so a missing import is a
 resolve error at the `use` node, never a file probe.
 
 `(f64-bits v)` exists because the emitter writes every float constant as an LLVM
@@ -371,7 +371,7 @@ These are the answers, settled here so the plan cites them instead of relitigati
 | Do W1 and W2 include the Python side? | Yes, every language wave is Python first, then Logos (D13). |
 | What is `gen2 test`'s contract? | Full harness parity, explicit paths, baseline in W9 (D12). |
 | How does `gen2 test` find the corpus with no arguments? | It does not: the gate passes the list (D12). |
-| How does a missing file become a clean error? | `read-file` returns a result with `errno`; a missing module is `E0005` at `use` (D5). |
+| How does a missing file become a clean error? | `read-file` panics `R0007`, naming the path it could not open; a missing module is `E0005` at `use` (D5). |
 | Is the selfhost check a sixth gate? | Yes, from W4, with `AGENTS.md`, CI and the pinned count amended in that PR (D14). |
 | What does the gate compile, and what does its floor assert? | A frozen manifest of positive corpus files plus `src/`, counted exactly (D14). |
 
