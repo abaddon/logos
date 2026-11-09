@@ -54,6 +54,7 @@ CHAPTER_TITLES = {
     "15-threads": "Threads",
     "16-extern": "extern",
     "17-tests": "Tests",
+    "18-ref-parameters": "Ref parameters",
 }
 
 #: The ten rules that decide whether a program compiles. ``text`` is what the
