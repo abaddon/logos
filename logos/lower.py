@@ -2461,7 +2461,7 @@ class _Fn:
         """
         items = node.items
         shape = "vec-set takes a vector name, an index and a value"
-        ty, slot, _ = self.vec_binding(node, 4, shape)
+        ty, slot = self.vec_binding(node, 4, shape)
         self.lowering.use_type(ty.elem, node.path)
         whole = self.temp()
         self.emit(("load", whole, ty, slot))
@@ -2481,7 +2481,7 @@ class _Fn:
         ``rt_free`` treats NULL as free(NULL), and a later ``vec-len`` reads
         zero rather than a count of elements that no longer exist.
         """
-        ty, slot, _ = self.vec_binding(node, 2, "vec-free takes a vector name")
+        ty, slot = self.vec_binding(node, 2, "vec-free takes a vector name")
         self.lowering.use_type(ty.elem, node.path)
         whole = self.temp()
         self.emit(("load", whole, ty, slot))
@@ -2492,15 +2492,14 @@ class _Fn:
         self.emit(("call", "", "rt_free", (pointer,)))
         self.emit(("store", ty, "zeroinitializer", slot))
 
-    def vec_binding(self, node: Node, arity: int, shape: str) -> tuple[Vec, str, bool]:
+    def vec_binding(self, node: Node, arity: int, shape: str) -> tuple[Vec, str]:
         """The vector place a mutating form writes through: binding or parameter.
 
-        The third value says whether the binding's slot holds a pointer to the
-        caller's descriptor rather than the descriptor itself. When it does,
-        the returned place is that pointer: the caller's ``alloca`` for a plain
-        vector, and the loaded ref value for a ref parameter, address the same
-        three words either way, so a load reads the descriptor and a store
-        rewrites the caller's copy.
+        A ref binding's slot holds a pointer to the caller's descriptor rather
+        than the descriptor itself. When it does, the returned place is that
+        pointer: the caller's ``alloca`` for a plain vector and the loaded ref
+        value for a ref parameter address the same three words either way, so a
+        load reads the descriptor and a store rewrites the caller's copy.
         """
         items = node.items
         if len(items) != arity:
@@ -2523,7 +2522,7 @@ class _Fn:
                 node.path,
                 f"'{node.kind}' needs a (vec T), found {held}",
             )
-        return ty, slot, through_pointer
+        return ty, slot
 
     def vec_push(self, node: Node) -> None:
         """``(vec-push v x)``: append, growing the buffer when it is full.
@@ -2542,7 +2541,7 @@ class _Fn:
         larger buffer.
         """
         items = node.items
-        ty, slot, _ = self.vec_binding(
+        ty, slot = self.vec_binding(
             node, 3, "vec-push takes a vector name and a value"
         )
         self.lowering.use_type(ty.elem, node.path)

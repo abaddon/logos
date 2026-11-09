@@ -12,6 +12,7 @@ form reads and writes the descriptor the pointer names.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -390,6 +391,42 @@ FREE_THROUGH_REF = """(mod ref-free)
   (ret 0))
 """
 
+FORWARD = """(mod fwd)
+
+(fn inner :void ((v (ref (vec :i64))))
+  (vec-push v 1))
+
+(fn outer :void ((v (ref (vec :i64))))
+  (inner v)
+  (inner v))
+
+(fn main :i64 ()
+  (letmut v (vec :i64) (make (vec :i64)))
+  (outer v)
+  (println (vec-len v))
+  (vec-free v)
+  (ret 0))
+"""
+
+GROW_THROUGH_REF = """(mod ref-grow)
+
+(fn fill :void ((v (ref (vec :i64))))
+  (vec-push v 10)
+  (vec-push v 11)
+  (vec-push v 12)
+  (vec-push v 13)
+  (vec-push v 14))
+
+(fn main :i64 ()
+  (letmut v (vec :i64) (make (vec :i64)))
+  (fill v)
+  (println (vec-len v))
+  (println (vec-get v 0))
+  (println (vec-get v 4))
+  (vec-free v)
+  (ret 0))
+"""
+
 
 class RefLoweringTest(unittest.TestCase):
     """The IR shape: a pointer slot, a slot address at the call, two loads."""
@@ -420,8 +457,40 @@ class RefLoweringTest(unittest.TestCase):
             "  %t2 = load { i64*, i64, i64 }, { i64*, i64, i64 }* %t1", text
         )
         # And the rewritten descriptor goes back through the same pointer, so
-        # the caller's length and capacity move with the buffer.
-        self.assertIn("  store { i64*, i64, i64 } %t32, { i64*, i64, i64 }* %t1", text)
+        # the caller's length and capacity move with the buffer. The rewritten
+        # value is a temp whose number depends on allocation order elsewhere, so
+        # pin the destination (``%t1``), not that index.
+        self.assertRegex(
+            text,
+            r"  store \{ i64\*, i64, i64 \} %t\d+, \{ i64\*, i64, i64 \}\* %t1\n",
+        )
+
+    def test_forwarding_a_ref_loads_its_pointer_instead_of_the_slot_address(self):
+        # ``(inner v)`` where ``v`` is itself a ref parameter: the callee wants
+        # the descriptor's address, which is the pointer ``v`` already holds.
+        # Taking the address of ``v``'s slot instead would hand it a pointer to
+        # a pointer.
+        text = emitted(FORWARD)
+        start = text.index("define internal void @lg.fwd.outer")
+        body = text[start : text.index("\n}\n", start)]
+        calls = [line for line in body.splitlines() if "@lg.fwd.inner" in line]
+        self.assertEqual(len(calls), 2)
+        for line in calls:
+            self.assertNotIn(".addr", line)
+        loads = set(
+            re.findall(
+                r"  (%t\d+) = load \{ i64\*, i64, i64 \}\*, "
+                r"\{ i64\*, i64, i64 \}\*\* %v\.0\.addr",
+                body,
+            )
+        )
+        self.assertTrue(loads)
+        for line in calls:
+            match = re.search(r"\(\{ i64\*, i64, i64 \}\* (%t\d+)\)", line)
+            if match is None:
+                self.fail(f"not a pointer argument: {line}")
+            # The argument is one of the pointers loaded out of the ref's slot.
+            self.assertIn(match.group(1), loads, line)
 
     def test_two_ref_parameters_are_two_pointers(self):
         text = emitted(TWO_REFS)
@@ -483,4 +552,25 @@ class RefRuntimeTest(unittest.TestCase):
                 # pointer names, so the caller reads length 0 and its own
                 # ``vec-free`` is a harmless free(NULL). No block leaks.
                 self.assertEqual(result.stdout, "0\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_a_ref_forwarded_to_another_ref_grows_the_callers_vector(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run("test-ref-forward", FORWARD, opt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # Both pushes happened through ``outer``'s ref and landed in
+                # the descriptor ``main`` owns.
+                self.assertEqual(result.stdout, "2\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_five_pushes_through_a_ref_grow_a_live_buffer(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                result = build_and_run("test-ref-grow", GROW_THROUGH_REF, opt)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # Five pushes grow 0 -> 4 -> 12. The second growth copies the
+                # four live elements through the ref and releases the old
+                # block; the caller still reads 10 first and 14 last.
+                self.assertEqual(result.stdout, "5\n10\n14\n")
                 self.assertEqual(result.stderr, "")
