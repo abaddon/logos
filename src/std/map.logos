@@ -20,14 +20,16 @@
 
 (fn map-find :i64 ((keys (ref (vec :str))) (slots (ref (vec :i64))) (k :str))
   (let size :i64 (vec-len slots))
-  (letmut idx :i64 (map-hash k size))
-  (letmut done :bool false)
+  (letmut idx :i64 (if (= size 0) -1
+                     (map-hash k size)))
+  (letmut done :bool (= size 0))
   (while (not done)
     (let e :i64 (vec-get slots idx))
     (set done (if (= e 0) true
                 (str-eq (vec-get keys (- e 1)) k)))
     (set idx (if done idx (% (+ idx 1) size))))
-  (ret (if (= (vec-get slots idx) 0) -1 idx)))
+  (ret (if (= size 0) -1
+         (if (= (vec-get slots idx) 0) -1 idx))))
 
 (fn map-get :i64 ((keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))) (k :str))
   (let idx :i64 (map-find keys slots k))

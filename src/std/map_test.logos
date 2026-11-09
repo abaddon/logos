@@ -111,7 +111,7 @@
   (vec-free slots))
 
 (test growth
-  (expect (out "16\n6\n1\n2\n3\n4\n5\n6\n6\n99\n-1\n")
+  (expect (out "8\n5\n16\n6\n1\n2\n3\n4\n5\n6\n6\n99\n-1\n")
     (code 0)
     (leaks 0))
   (letmut keys
@@ -129,6 +129,8 @@
   (map-put keys vals slots "c" 3)
   (map-put keys vals slots "d" 4)
   (map-put keys vals slots "e" 5)
+  (println (vec-len slots))
+  (println (map-count keys))
   (map-put keys vals slots "f" 6)
   (println (vec-len slots))
   (println (map-count keys))
@@ -248,6 +250,27 @@
   (println (map-count keys))
   (println (map-get keys vals slots "a"))
   (println (map-has keys slots "a"))
+  (vec-free keys)
+  (vec-free vals)
+  (vec-free slots))
+
+(test fresh
+  (expect (out "0\nfalse\n-1\n0\n")
+    (code 0)
+    (leaks 0))
+  (letmut keys
+    (vec :str)
+    (make (vec :str)))
+  (letmut vals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slots
+    (vec :i64)
+    (make (vec :i64)))
+  (println (vec-len slots))
+  (println (map-has keys slots "a"))
+  (println (map-get keys vals slots "a"))
+  (println (map-count keys))
   (vec-free keys)
   (vec-free vals)
   (vec-free slots))

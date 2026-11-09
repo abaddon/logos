@@ -37,13 +37,14 @@ entry. The value of the entry a bucket points at is
 | `map-get (ref keys) (ref vals) (ref slots) k` | `:i64` | the value under `k`, or `-1` when absent |
 | `map-has (ref keys) (ref slots) k` | `:bool` | whether `k` is present |
 | `map-count (ref keys)` | `:i64` | the number of entries |
-| `map-hash s size` | `:i64` | the first bucket of `s`, in `[0, size)` |
-| `map-find (ref keys) (ref slots) k` | `:i64` | the bucket of `k`, or `-1` when absent |
+| `map-hash s size` | `:i64` | the first bucket of `s`, in `[0, size)` for `size > 0` |
+| `map-find (ref keys) (ref slots) k` | `:i64` | the bucket of `k`, or `-1` when absent or the table has no buckets |
 
 `map-hash`, `map-find`, `map-needs-grow`, `map-grow` and `map-insert` are the
 implementation; only the first five are the library surface. `map-put` starts an
 uninitialised table at 8 buckets, so `map-init` is optional but preferred (it
-picks the size).
+picks the size). Reads on a table with no buckets at all are misses:
+`map-has` is false, `map-get` is `-1`, `map-count` is `0`.
 
 ## Contract: absent key and a stored `-1`
 
@@ -66,14 +67,17 @@ gives `-1` with `map-has` false.
 ## Hash
 
 `h = h * 1099511628211 + byte`, starting at `h = 0`, over the bytes of the key,
-wrapping at 64 bits; then `h % size` with a power-of-two `size`.
+wrapping at 64 bits; then `h % size`. Any `size` is correct: the hash reduces
+with `%`, not a bitmask, so the power-of-two bucket count is a speed choice
+only, not a correctness one.
 
 Multiply-and-add rather than FNV-1a because the language has no integer `and`,
 `or` or `xor` (only `:bool` operators), and a new operator would be a seventh
 surface item for one hash.
 
-`:i64` is signed, so the wrapping product goes negative for keys of three bytes
-or more, and `%` keeps the sign of its left operand: `h % 8` came back as `-7`
+`:i64` is signed, so the wrapping product can go negative, and whether it does
+depends on the bytes of the key, not its length: `abc` is positive, `k999` is
+negative. `%` keeps the sign of its left operand, so `h % 8` came back as `-7`
 for the key `aaaaa`. `map-hash` adds `size` once to a negative remainder, so
 every index is in `[0, size)`. That correction is load-bearing: without it
 `(vec-get slots idx)` panics on a negative index (proved by mutation).
@@ -86,7 +90,11 @@ changes for a given `size`, so `map-put`, `map-get` and `map-has` agree.
 
 `map-put` grows when `entries + 1 > 0.7 × buckets`, that is when
 `(entries + 1) * 10 > buckets * 7`: 8 buckets hold 5 entries, the sixth put
-doubles to 16, 16 holds 11, and 1,000 entries end at 2,048 buckets.
+doubles to 16, 16 holds 11, and 1,000 entries end at 2,048 buckets. `growth`
+pins both sides of that bound: after five puts the vector is still 8 buckets
+with 5 entries, and only the sixth put doubles it. Because the load test runs
+before `map-put` looks for the key, a replace at the threshold may grow the
+table too; the count is unchanged.
 
 Growth happens in place, because the language has no `vec-clear` and a `(ref …)`
 parameter cannot be rebound to a new vector: `map-grow` appends `buckets` zeros,
