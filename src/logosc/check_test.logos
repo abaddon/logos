@@ -199,6 +199,30 @@
     (leaks 0))
   (dump-src "(fn f :void ((:x :i64)) (ret))"))
 
+(test param-list-bare
+  (expect (out "E0002\nm/f\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void (x))"))
+
+(test param-list-name-type
+  (expect (out "E0002\nm/f\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void (x :i64))"))
+
+(test param-list-head-only
+  (expect (out "E0002\nm/f/1/0\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x)))"))
+
+(test param-list-bare-extern
+  (expect (out "E0002\nm/f\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn f :void (x))"))
+
 (test param-shape-beats-duplicate
   (expect (out "E0002\nm/f/1/1\na parameter must be (name type)\n")
     (code 0)

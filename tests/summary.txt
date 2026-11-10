@@ -27,6 +27,7 @@ PASS type/loop-move -
 PASS type/move-immutable -
 PASS type/move -
 PASS type/non-exhaustive -
+PASS type/param-bare-name -
 PASS type/ref-escapes-capture -
 PASS type/ref-escapes-return -
 PASS type/ref-not-a-vector -

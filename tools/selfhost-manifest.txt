@@ -169,6 +169,7 @@ tests/type/loop-move.logos
 tests/type/move-immutable.logos
 tests/type/move.logos
 tests/type/non-exhaustive.logos
+tests/type/param-bare-name.logos
 tests/type/ref-escapes-capture.logos
 tests/type/ref-escapes-return.logos
 tests/type/ref-not-a-vector.logos

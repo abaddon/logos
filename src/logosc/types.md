@@ -44,8 +44,9 @@ Every diagnostic carries the failing node's path, computed with `tree-path` at
 the point of failure: a form reports its own path, and a token reports the path
 of the form that owns it, exactly as `parse_type`'s optional `path` argument
 does in Python. `(vec (vec :nope))` therefore fails at `m/f/1/0/0/0`, the inner
-form, not at the outer one. The internal `type-under` carries the owning form's
-path down to a token; `type-parse` is the public entry and starts it empty.
+form, not at the outer one. A token parses with an empty path; the owning form
+fills it with its own `tree-path` on the way out, so the eager walk is skipped on
+accepted programs. `type-parse` is the public entry and starts it empty.
 `type-mangle` writes its spelling the same way and returns `E0501` when the type
 still mentions a type variable. `type-text` is Python's `str(ty)`, the spelling
 the checker's messages use (see *`type-text`* below).

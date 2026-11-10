@@ -1051,6 +1051,9 @@
     (ret (check-free-three ebn ebt one (check-fail-at nodes ntexts node 2 "fn needs a parameter list")))
     (check-nothing))
   (let params :i64 rest)
+  (if (not (= (get (vec-get nodes params) text) -1))
+    (ret (check-free-three ebn ebt one (check-fail-at nodes ntexts node 2 "a parameter must be (name type)")))
+    (check-nothing))
   (letmut tnames
     (vec :str)
     (make (vec :str)))
@@ -1060,7 +1063,7 @@
   (letmut c :i64 (get (vec-get nodes params) first))
   (while (and (check-ok err)
            (not (= c -1)))
-    (set err (check-param nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild c ebn ebt tnames ttypes))
+    (set err (check-param nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild c node ebn ebt tnames ttypes))
     (set c (if (= c -1) -1
              (get (vec-get nodes c) next))))
   (if (not (check-ok err))
@@ -1094,9 +1097,9 @@
   (vec-free f)
   (ret e))
 
-(fn check-param check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (param :i64) (ebn (ref (vec :str))) (ebt (ref (vec :i64))) (tnames (ref (vec :str))) (ttypes (ref (vec :i64))))
+(fn check-param check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (param :i64) (fallback :i64) (ebn (ref (vec :str))) (ebt (ref (vec :i64))) (tnames (ref (vec :str))) (ttypes (ref (vec :i64))))
   (if (not (= (get (vec-get nodes param) tok) -1))
-    (ret (check-fail-at nodes ntexts param 2 "a parameter must be (name type)"))
+    (ret (check-fail-at nodes ntexts fallback 2 "a parameter must be (name type)"))
     (check-nothing))
   (let n :i64 (check-count nodes param))
   (if (= n 0)

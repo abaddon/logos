@@ -51,9 +51,9 @@ FLOOR=100
 # must not silently shrink.
 RESOLVE_FLOOR=13
 # The checker's list names exactly the corpus cases the declaration pass
-# decides. Six today; a pruned list is a failure, not a smaller pass.
+# decides. Seven today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=6
+CHECK_FLOOR=7
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

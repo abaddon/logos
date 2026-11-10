@@ -4,3 +4,4 @@ tests/regress/rt-definition.logos
 tests/type/extern-noncl.logos
 tests/type/ref-not-a-vector.logos
 tests/type/unknown-type.logos
+tests/type/param-bare-name.logos
