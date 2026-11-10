@@ -46,6 +46,10 @@ Two helpers make the generic machinery reusable by PR B:
                                     (instances (ref (vec :str)))
                                     (target :str) (where :str)
                                     (out (ref (vec :i64)))))
+(fn check-instantiate check-error ((tags names elem extra pbase ptypes)
+                                   (name :str) (args (ref (vec :i64)))
+                                   (where :str) (keys vals slots instances)
+                                   (out (ref (vec :str)))))
 ```
 
 `check-instance-name` is `mangle_instance`: it appends `$` and each argument's
@@ -54,7 +58,9 @@ Two helpers make the generic machinery reusable by PR B:
 `check-instance-add` is the memo and the ceiling: a target already present
 answers its old index without consuming budget, a new one is appended, and the
 257th distinct target is E0500, `more than 256 instantiations of generic
-functions`, at `where`.
+functions`, at `where`. `check-instantiate` is the two together: it mangles the
+name, then memoises the target and answers its index, so PR B's call site needs
+one call, not two.
 
 Two lookups are Python's `_owner` and `_in_build`:
 
@@ -115,6 +121,10 @@ is one of the set being lowered. A body outside the set is E0103, not here.
 
 The messages are Python's, word for word, and so are the node paths: the
 failing parameter, field, variant or type item, never the whole definition.
+Shape is decided where Python decides it: a field is `(name type)` before its
+name is read, a parameter's name is read before the two-item shape is tested,
+and a duplicate comes last in both — so `(a :i64 :i64)` beside an earlier `a`
+is the E0002 Python prints, not the E0003 the repeated name would earn.
 
 ## What it deliberately does not decide
 
@@ -139,6 +149,14 @@ failing parameter, field, variant or type item, never the whole definition.
   for duplicates and for reserved spellings and then dropped; the persisted
   tables hold types and owners, which is what declarations need. PR B reads
   names from the tree, which it still has.
+- **Generic instantiation, E0500 and E0501.** `check-instance-name`,
+  `check-instance-add` and `check-instantiate` decide both, and the suite pins
+  them, but `gen2 check` never calls them: an instantiation happens where a
+  generic function is *called*, and a call is an expression in a body (PR B).
+  `tests/generics/limit.logos` and `tests/generics/unbound.logos` therefore
+  carry `.expect` files and `gen2 check` accepts both — the declaration pass
+  has nothing to refuse in either. They stay out of the coverage list until
+  PR B, which is where a call site exists for a corpus case to name.
 
 ## The arena of checked modules
 
@@ -182,7 +200,8 @@ definitions. Inside a module the order is Python's:
 
 Only the first failure is reported. A module is checked once (`state` 2); a
 module already being checked is not re-entered, which is what makes a diamond
-one visit.
+one visit. An imported module's tree is read from its own file, so a lex or
+tree failure there names that file's path (E0006 / E0001), never the root's.
 
 Visibility is exactly one `use` deep: a module's visible table is its imports'
 **own** entries plus its own. An import's imports are not copied, so a type
@@ -194,11 +213,13 @@ body.
 
 `_crosses` is ported whole: primitives that are one machine value in C
 (every integer and float width, `:bool`, `:str`), a pointer or `(shared …)`
-around one, and a struct whose every field crosses. A struct that points at
-itself crosses because the pointer ends the walk; a struct that contains
-itself by value cannot exist (the field rules refuse the cycle's other half).
-An enum, a vector, an owner, a result, an optional, a function value and a
-channel do not cross, so an `extern` naming one is E0002 at the type.
+around one, and a struct whose every field crosses. The walk carries the names
+of the structs it is inside, and a name already on that stack answers false: a
+struct that points at itself does not cross — the pointer does not end the
+walk, the cycle does. A struct that contains itself by value cannot exist (the
+field rules refuse the cycle's other half). An enum, a vector, an owner, a
+result, an optional, a function value and a channel do not cross, so an
+`extern` naming one is E0002 at the type.
 
 ## Coverage
 
@@ -214,19 +235,25 @@ tests/regress/recursive-enum.logos     E0002
 tests/regress/rt-definition.logos      E0003
 ```
 
-The gate compares the code with the `.expect` beside each fixture, prints
-`check: N fixtures, M differences`, and fails on any difference. Its floor is
-6: a pruned list fails rather than passing over fewer fixtures. The other
-`tests/type` cases need a body (PR B); `alloc-enum` and `alloc-enum-in-struct`
-need `alloc` (PR B); the visibility fixtures under `src/logosc/fixtures/check`
-are unit cases, not corpus cases.
+The gate compares the whole line `gen2 check` prints — path, code and message —
+with the `.check` sidecar beside each fixture, prints
+`check: N fixtures, M differences`, and fails on any difference. The sidecars
+are generated by `tools/check_parity.py` from the reference implementation, so
+a reworded message or a wrong path fails the gate instead of passing on a
+matching code. Its floor is 6: a pruned list fails rather than passing over
+fewer fixtures. The other `tests/type` cases need a body (PR B); `alloc-enum`
+and `alloc-enum-in-struct` need `alloc` (PR B); the visibility fixtures under
+`src/logosc/fixtures/check` are unit cases, not corpus cases.
 
 ## Tests
 
-`src/logosc/check_test.logos` has 51 cases, each run at `-O0` and `-O2` with
+`src/logosc/check_test.logos` has 69 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
-- one per declaration rule above, through `check-file` on a synthetic source;
+- one per declaration rule above, through `check-file` on a synthetic source —
+  including the six "needs a name" messages, the `expected a type after ':'`
+  rule, the result-inside/result-element and channel-element rules, and the two
+  malformed-shape cases that Python answers E0002 before the duplicate E0003;
 - the visibility pair: a type imported through one `use` is visible, the same
   name without the `use` is E0101, and a type reached only through a second
   module is E0101 in the first;
@@ -237,6 +264,10 @@ are unit cases, not corpus cases.
 - `check-code 500` is `E0500`;
 - `check-visible-owner` and `check-in-build` over a two-module table.
 
+The "extern needs a name" case is called on `check-extern-signature` directly
+with a raw tree: the resolver refuses a nameless `extern` before the checker
+sees it, so no source file can reach the rule through `check-file`.
+
 The suite is
 `python3 -m logos test src/logosc/check_test.logos --opt -O0 --opt -O2`, run
 from the repository root because the visibility fixtures are reached by path.
@@ -245,10 +276,12 @@ from the repository root because the visibility fixtures are reached by path.
 
 The six coverage fixtures match Python's code **and node path**, not just the
 code: `extern-noncl/fill/1/0`, `m/f/1/0`, `ref-not-a-vector/move/1/0/0`,
-`reserved-name/get`, `recursive-enum/e`, `rt-definition/rt_create`. The
-45-case differential run behind the test file (every declaration rule, both
-the message and the path) is the same comparison the suite pins; the one
-difference it records is a `ret`-expression type error, which belongs to PR B.
+`reserved-name/get`, `recursive-enum/e`, `rt-definition/rt_create` — and the
+whole line, message included, is what `tools/check_parity.py` writes and the
+gate compares. The 46-case differential run behind the test file (every
+declaration rule, both the message and the path) is the same comparison the
+suite pins: 45 cases match Python exactly, and the one difference it records is
+a `ret`-expression type error, which belongs to PR B.
 
 ## Building it
 

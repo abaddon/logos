@@ -23,8 +23,11 @@
 # below it fails rather than passing over a smaller set.
 #
 # A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
-# lists one fixture per line — only the cases the declaration pass can decide —
-# and each fixture's .expect names the code `gen2 check` must print. CHECK_FLOOR
+# lists one fixture per line — only the cases the declaration pass can decide — and
+# each fixture's .check names the whole line `gen2 check` must print, path, code and
+# message, as the reference implementation prints it. A wrong path or a reworded
+# message is a difference, not just a wrong code. tools/check_parity.py writes the
+# sidecars from Python, so the expectation cannot drift from the oracle. CHECK_FLOOR
 # is the same kind of floor: a pruned list fails rather than passing over fewer
 # fixtures.
 #
@@ -155,9 +158,9 @@ done
 
 printf 'resolve: %d fixtures, %d differences\n' "$RESOLVE_COUNT" "$RDIFTS"
 
-# Phase three: every checker-owned fixture must make `gen2 check` print the
-# code its sidecar demands, and nothing else. A fixture the pass accepts, one
-# with no code, and one with another code are each one difference.
+# Phase three: every checker-owned fixture must make `gen2 check` print exactly
+# the line its sidecar demands. A fixture the pass accepts, one with another
+# line, and one without a sidecar are each one difference.
 if [[ ! -f "$CHECK_LIST" ]]; then
     printf 'check: missing list: %s\n' "$CHECK_LIST" >&2
     exit 2
@@ -172,28 +175,25 @@ fi
 
 CDIFFS=0
 for fixture in "${CHECKED[@]}"; do
-    expect="${fixture%.logos}.expect"
+    sidecar="${fixture%.logos}.check"
     if [[ ! -f "$fixture" ]]; then
         printf 'check: %s: missing fixture\n' "$fixture"
         CDIFFS=$((CDIFFS + 1))
         continue
     fi
-    if [[ ! -f "$expect" ]]; then
-        printf 'check: %s: missing %s\n' "$fixture" "${expect##*/}"
+    if [[ ! -f "$sidecar" ]]; then
+        printf 'check: %s: missing %s\n' "$fixture" "${sidecar##*/}"
         CDIFFS=$((CDIFFS + 1))
         continue
     fi
-    want="$(tr -d '[:space:]' < "$expect")"
+    want="$(head -n 1 "$sidecar")"
     if "$BIN" check "$fixture" > "$STDOUT" 2> "$STDERR"; then
         printf 'check: %s: expected %s, gen2 check exited 0\n' "$fixture" "$want"
         CDIFFS=$((CDIFFS + 1))
         continue
     fi
-    got="$(sed -n 's/.*\(E[0-9]\{4\}\).*/\1/p; q' "$STDERR")"
-    if [[ -z "$got" ]]; then
-        printf 'check: %s: expected %s, no code printed\n' "$fixture" "$want"
-        CDIFFS=$((CDIFFS + 1))
-    elif [[ "$got" != "$want" ]]; then
+    got="$(head -n 1 "$STDERR")"
+    if [[ "$got" != "$want" ]]; then
         printf 'check: %s: expected %s, got %s\n' "$fixture" "$want" "$got"
         CDIFFS=$((CDIFFS + 1))
     fi

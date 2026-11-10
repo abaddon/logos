@@ -5674,9 +5674,10 @@ def _crosses(
     whose release C cannot honour — so passing one to C would hand over a value
     the other side reads by a different rule.
 
-    ``stack`` holds the struct names being walked, which is what lets a struct
-    that points at itself cross: the pointer ends the walk. A struct that
-    contains itself by value has no size and cannot cross.
+    ``stack`` holds the struct names being walked; a name already on it answers
+    false, so a struct that points at itself does not cross either — the
+    pointer does not end the walk, the cycle does. A struct that contains
+    itself by value has no size and cannot cross.
     """
     if isinstance(ty, Prim):
         return ty.name in _C_PRIMITIVES

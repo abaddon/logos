@@ -151,6 +151,12 @@
     (leaks 0))
   (dump-src "(fn rt_create :i64 () (ret 1))"))
 
+(test fn-needs-name
+  (expect (out "E0002\nm/0\nfn needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn :i64 () (ret))"))
+
 (test fn-no-params
   (expect (out "E0002\nm/f\nfn needs a parameter list\n")
     (code 0)
@@ -162,6 +168,12 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f)"))
+
+(test fn-type-after-colon
+  (expect (out "E0101\nm/f\nexpected a type after ':'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :)"))
 
 (test param-dup
   (expect (out "E0003\nm/f/1/1\nduplicate definition 'a'\n")
@@ -180,6 +192,18 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void ((a)) (ret))"))
+
+(test param-needs-name
+  (expect (out "E0002\nm/f/1/0\na parameter needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((:x :i64)) (ret))"))
+
+(test param-shape-beats-duplicate
+  (expect (out "E0002\nm/f/1/1\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a :i64) (a :i64 :i64)))"))
 
 (test param-marker
   (expect (out "OK\n")
@@ -211,6 +235,12 @@
     (leaks 0))
   (dump-src "(type t)"))
 
+(test type-needs-name
+  (expect (out "E0002\nm/0\ntype needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type :x (struct))"))
+
 (test field-dup
   (expect (out "E0003\nm/p/0/1\nduplicate field 'x'\n")
     (code 0)
@@ -222,6 +252,18 @@
     (code 0)
     (leaks 0))
   (dump-src "(type p (struct (x)))"))
+
+(test field-needs-name
+  (expect (out "E0002\nm/p/0/0\na field needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (:x :i64)))"))
+
+(test field-shape-beats-duplicate
+  (expect (out "E0002\nm/p/0/1\na struct field must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (x :i64) (x :i64 :i64)))"))
 
 (test field-vector
   (expect (out "E0002\nm/p/0/0\nvector fields are not supported yet\n")
@@ -258,6 +300,12 @@
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (a) (a)))"))
+
+(test variant-needs-name
+  (expect (out "E0002\nm/e/0/0\na variant needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (:x)))"))
 
 (test enum-void
   (expect (out "E0100\nm/e/0/0\nvariant 'a' cannot hold :void\n")
@@ -325,6 +373,106 @@
     (leaks 0))
   (dump-src "(extern fn get :i64 ())"))
 
+(test extern-needs-name
+  (expect (out "E0002\nm/0\nextern needs a name\n")
+    (code 0)
+    (leaks 0))
+  (extern-name-case))
+
+(fn extern-name-case :void ()
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (let e lex-error (lex "(mod m)\n(extern fn 5 :i64 ())" kinds texts lines cols))
+  (if (lex-ok e)
+    (extern-name-tree kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(fn extern-name-tree :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (extern-name-check nodes ntexts)
+    (println (get t msg))))
+
+(fn extern-name-check :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push out -1)
+  (vec-push out -1)
+  (vec-push out -1)
+  (vec-push out -1)
+  (vec-push out -1)
+  (let mnode :i64 (get (vec-get nodes 0) first))
+  (let node :i64 (get (vec-get nodes mnode) next))
+  (show-check (check-extern-signature nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild node out))
+  (vec-free dnames)
+  (vec-free dids)
+  (vec-free tags)
+  (vec-free names)
+  (vec-free elem)
+  (vec-free extra)
+  (vec-free pbase)
+  (vec-free powner)
+  (vec-free pnames)
+  (vec-free ptypes)
+  (vec-free pchild)
+  (vec-free out))
+
 (test vec-owner
   (expect (out "E0002\nm/f/1/0/0\na container of owners is not supported yet\n")
     (code 0)
@@ -343,6 +491,24 @@
     (leaks 0))
   (dump-src "(fn f :void ((a (res :i64 :i64))) (ret))"))
 
+(test res-inside-res
+  (expect (out "E0002\nm/r/0/0/0\na result cannot be inside a result yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(type r (struct (x (res (res :i64 e) e))))"))
+
+(test res-inside-opt
+  (expect (out "E0002\nm/r/0/0/0\na result cannot be inside an optional yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(type r (struct (x (opt (res :i64 e)))))"))
+
+(test res-vector-element
+  (expect (out "E0002\nm/r/0/0/0\na result cannot be a vector element yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(type r (struct (x (vec (res :i64 e)))))"))
+
 (test ref-nonvec
   (expect (out "E0100\nm/f/1/0/0\na ref may name a vector only\n")
     (code 0)
@@ -360,6 +526,42 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void ((a (chan :i64))) (ret))"))
+
+(test chan-void
+  (expect (out "E0100\nm/f/1/0/0\na channel cannot carry :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (chan :void)))) (ret))"))
+
+(test chan-owner
+  (expect (out "E0002\nm/f/1/0/0\na channel cannot carry a value that owns memory\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (chan (own :i64))))) (ret))"))
+
+(test chan-vector
+  (expect (out "E0002\nm/f/1/0/0\na channel cannot carry a vector: its buffer has no copy\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (chan (vec :i64))))) (ret))"))
+
+(test chan-result
+  (expect (out "E0002\nm/f/1/0/0\na channel cannot carry a result\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(fn f :void ((a (shared (chan (res :i64 e))))) (ret))"))
+
+(test chan-ref
+  (expect (out "E0305\nm/f/1/0/0\na ref cannot escape the call: a channel cannot carry it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (chan (ref (vec :i64)))))) (ret))"))
+
+(test chan-closure
+  (expect (out "E0502\nm/f/1/0/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (chan (fn* () :i64))))) (ret))"))
 
 (test atomic-bad
   (expect (out "E0100\nm/f/1/0/0\nan atomic needs :i64 or :u64, found :u8\n")
@@ -386,7 +588,7 @@
   (dump-file "src/logosc/fixtures/check/use-root.logos"))
 
 (test visibility-no-use
-  (expect (out "E0101\nno-use/box/0/0\nunknown type 'point'\n")
+  (expect (out "E0101\nno-use-root/box/0/0\nunknown type 'point'\n")
     (code 0)
     (leaks 0))
   (dump-file "src/logosc/fixtures/check/no-use-root.logos"))

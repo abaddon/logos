@@ -3,10 +3,12 @@
 `tools/selfhost.sh` builds `gen2` from `src/logosc/*.logos`, compares its `fmt`
 output with every file `tools/selfhost-manifest.txt` lists, then runs
 `gen2 resolve` on every resolver-owned negative fixture under `tests/parse`
-and compares the code with its `.expect` sidecar. This test is the smallest one
-that proves the wiring: it runs the gate and checks both final lines and the
-exit status, so a script that silently skipped either loop, overran the
-manifest or passed over zero files cannot look green.
+and compares the code with its `.expect` sidecar, then runs `gen2 check` over
+`tools/selfhost-check.txt` and compares the whole diagnostic line with the
+generated `.check` sidecar beside each fixture. This test is the smallest one
+that proves the wiring: it runs the gate and checks the three summary lines and
+the exit status, so a script that silently skipped a loop, overran the manifest
+or passed over zero files cannot look green.
 """
 
 from __future__ import annotations
