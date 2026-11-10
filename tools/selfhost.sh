@@ -19,7 +19,10 @@
 # tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
 # with that exact code; the fixtures are the repository's statement of the
 # resolver's negative behaviour, and this gate is what keeps the Logos port
-# agreeing with them. RESOLVE_FLOOR is the same kind of floor: pruning fixtures
+# agreeing with them. A fixture whose source must fail to lex or parse keeps its
+# sources as `*.logos.txt` and is judged on a copy under build/, because no
+# tracked `*.logos` file may be malformed; see the phase below.
+# RESOLVE_FLOOR is the same kind of floor: pruning fixtures
 # below it fails rather than passing over a smaller set.
 #
 # A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
@@ -48,8 +51,10 @@ BIN="$OUT/gen2"
 # deliberate act, not a side effect of a pruned tree.
 FLOOR=100
 # Every resolver-owned negative fixture has a sidecar; the count may grow but
-# must not silently shrink.
-RESOLVE_FLOOR=13
+# must not silently shrink. Fourteen today: the twelve resolver cases and the
+# checker case, plus `bad-lex`, whose sources are `*.logos.txt` because the
+# imported file must fail to lex.
+RESOLVE_FLOOR=14
 # The checker's list names exactly the corpus cases the declaration pass
 # decides. Seven today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
@@ -124,6 +129,15 @@ printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 # Phase two: every resolver-owned negative fixture must make `gen2 resolve`
 # print the code its sidecar demands. A fixture that resolves cleanly, prints
 # no code, or prints another code is one difference.
+#
+# A fixture whose source must fail to lex or parse cannot be a *.logos file in
+# the tree: `tools/accept.sh` formats every one of them and this gate
+# reproduces every tracked one, so a malformed source has no legal name. Such a
+# fixture therefore keeps its sources as `*.logos.txt` — invisible to both
+# formatters and to `git ls-files '*.logos'` — and is judged on a copy under
+# build/ where the suffix is dropped. `‹fixture›.expect` stays beside the
+# sources, so the count below still counts it, and the copy is rebuilt on every
+# run so an edited source is never masked by a stale one.
 mapfile -t EXPECTS < <(find tests/parse -type f -name '*.expect' | sort)
 RESOLVE_COUNT=${#EXPECTS[@]}
 if (( RESOLVE_COUNT < RESOLVE_FLOOR )); then
@@ -132,10 +146,32 @@ if (( RESOLVE_COUNT < RESOLVE_FLOOR )); then
     exit 2
 fi
 
+# Materialize the fixture whose stem is <stem> (a path without `.logos` or
+# `.expect`) under build/ and print the root's path there. Every `*.logos.txt`
+# in the fixture's directory becomes `*.logos`; nothing else is copied, so the
+# copy holds exactly the sources the fixture declares.
+materialize() {
+    local dir at name
+    dir="$(dirname "$1")"
+    at="$OUT/parse/${dir#tests/parse/}"
+    rm -rf "$at"
+    mkdir -p "$at"
+    for name in "$dir"/*.logos.txt; do
+        cp "$name" "$at/"
+    done
+    for name in "$at"/*.logos.txt; do
+        mv "$name" "${name%.txt}"
+    done
+    printf '%s/%s.logos' "$at" "$(basename "$1")"
+}
+
 RDIFTS=0
 for expect in "${EXPECTS[@]}"; do
     fixture="${expect%.expect}.logos"
     want="$(tr -d '[:space:]' < "$expect")"
+    if [[ ! -f "$fixture" && -f "${fixture}.txt" ]]; then
+        fixture="$(materialize "${expect%.expect}")"
+    fi
     if [[ ! -f "$fixture" ]]; then
         printf 'resolve: %s: missing fixture\n' "$fixture"
         RDIFTS=$((RDIFTS + 1))

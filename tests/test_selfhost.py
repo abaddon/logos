@@ -66,7 +66,7 @@ class SelfhostGateTest(unittest.TestCase):
         fixtures, resolve_differences = (
             int(group) for group in resolve_match.groups()
         )
-        self.assertGreaterEqual(fixtures, 13, "the resolver fixture set was pruned")
+        self.assertGreaterEqual(fixtures, 14, "the resolver fixture set was pruned")
         self.assertEqual(resolve_differences, 0)
 
         checked, check_differences = (int(group) for group in check_match.groups())
