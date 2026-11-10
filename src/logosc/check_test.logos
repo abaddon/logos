@@ -1,0 +1,598 @@
+(mod check-test)
+
+(use lex)
+
+(use tree)
+
+(use resolve)
+
+(use check)
+
+(use types)
+
+(use map)
+
+(fn show-check-fail :void ((e check-error))
+  (println (check-code (get e code)))
+  (println (get e path))
+  (println (get e message)))
+
+(fn show-check :void ((e check-error))
+  (if (check-ok e)
+    (println "OK")
+    (show-check-fail e)))
+
+(fn show-resolve-fail :void ((e resolve-error))
+  (println (resolve-code (get e code)))
+  (println (get e path))
+  (println (get e message)))
+
+(fn show-resolve :void ((e resolve-error))
+  (if (resolve-ok e)
+    (println "OK")
+    (show-resolve-fail e)))
+
+(fn dump-resolved :void ((path :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut defs
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (let re resolve-error (resolve-set nodes ntexts path defs mods))
+  (if (resolve-ok re)
+    (show-check (check-file mods nodes ntexts))
+    (show-resolve re))
+  (vec-free defs)
+  (vec-free mods))
+
+(fn dump-tree :void ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (dump-resolved path nodes ntexts)
+    (println (get t msg))))
+
+(fn dump-src-at :void ((path :str) (src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (dump-tree path kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(fn dump-src :void ((src :str))
+  (dump-src-at "src/logosc/check_test.logos" (str-concat "(mod m)\n" src)))
+
+(fn dump-file :void ((path :str))
+  (dump-src-at path (read-file path)))
+
+(fn dup-main :void ()
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (let e lex-error (lex "(mod main-a)\n(fn main :i64 () (ret 0))" kinds texts lines cols))
+  (if (lex-ok e)
+    (dup-main-tree nodes ntexts kinds texts lines cols)
+    (println (get e msg)))
+  (vec-free nodes)
+  (vec-free ntexts)
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols))
+
+(fn dup-main-tree :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (dup-main-mods nodes ntexts)
+    (println (get t msg))))
+
+(fn dup-main-mods :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (vec-push mods (make resolve-mod "main-a" "src/logosc/fixtures/check/main-a.logos" 0 0))
+  (vec-push mods (make resolve-mod "main-b" "src/logosc/fixtures/check/main-b.logos" 0 0))
+  (show-check (check-file mods nodes ntexts))
+  (vec-free mods))
+
+(test declarations-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (x :i64)))\n(fn f :i64 ((a :i64)) (ret a))"))
+
+(test reserved-fn
+  (expect (out "E0003\nm/get\nreserved form name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn get :i64 () (ret 1))"))
+
+(test rt-fn
+  (expect (out "E0003\nm/rt_create\nrt_ names are reserved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn rt_create :i64 () (ret 1))"))
+
+(test fn-no-params
+  (expect (out "E0002\nm/f\nfn needs a parameter list\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64)"))
+
+(test fn-short
+  (expect (out "E0002\nm/f\nfn needs a return type and a parameter list\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f)"))
+
+(test param-dup
+  (expect (out "E0003\nm/f/1/1\nduplicate definition 'a'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a :i64) (a :i64)) (ret))"))
+
+(test param-void
+  (expect (out "E0100\nm/f/1/0\nparameter 'a' cannot be :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a :void)) (ret))"))
+
+(test param-shape
+  (expect (out "E0002\nm/f/1/0\na parameter must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a)) (ret))"))
+
+(test param-marker
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a : (vec :i64))) (ret))"))
+
+(test ret-unknown
+  (expect (out "E0101\nm/f\nunknown type ':wat'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :wat () (ret 0))"))
+
+(test type-reserved
+  (expect (out "E0003\nm/alloc\nreserved form name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type alloc (struct (x :i64)))"))
+
+(test type-body
+  (expect (out "E0002\nm/t/0\nunknown type body 'wibble'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type t (wibble 1))"))
+
+(test type-nobody
+  (expect (out "E0002\nm/t\ntype 't' needs a struct or enum body\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type t)"))
+
+(test field-dup
+  (expect (out "E0003\nm/p/0/1\nduplicate field 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (x :i64) (x :i64)))"))
+
+(test field-shape
+  (expect (out "E0002\nm/p/0/0\na struct field must be (name type)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (x)))"))
+
+(test field-vector
+  (expect (out "E0002\nm/p/0/0\nvector fields are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (v (vec :i64))))"))
+
+(test field-owner
+  (expect (out "E0002\nm/p/0/0\nowning fields are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (v (own :i64))))"))
+
+(test field-result
+  (expect (out "E0002\nm/p/0/0\nresult fields are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(type p (struct (r (res :i64 e))))"))
+
+(test field-typevar
+  (expect (out "E0501\nm/p/0/0\ntype variable T is not bound here\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type p (struct (x :T)))"))
+
+(test enum-reserved
+  (expect (out "E0003\nm/e/0/0\nvariant 'ok' is reserved by the compiler\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (ok :i64)))"))
+
+(test enum-dup
+  (expect (out "E0003\nm/e/0/1\nduplicate variant 'a'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (a)))"))
+
+(test enum-void
+  (expect (out "E0100\nm/e/0/0\nvariant 'a' cannot hold :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :void)))"))
+
+(test enum-vector
+  (expect (out "E0002\nm/e/0/0\nvector payloads are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a (vec :i64))))"))
+
+(test enum-owner
+  (expect (out "E0002\nm/e/0/0/0\nowning enum payloads are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a (own :i64))))"))
+
+(test enum-result
+  (expect (out "E0002\nm/e/0/0\nresult payloads are not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e2 (enum (x)))\n(type e (enum (a (res :i64 e2))))"))
+
+(test enum-empty
+  (expect (out "E0002\nm/e/0\nan enum needs at least one variant\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum))"))
+
+(test enum-self
+  (expect (out "E0002\nm/e\nenum 'e' contains itself\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a e)))"))
+
+(test enum-mutual
+  (expect (out "E0002\nm/a\nenum 'a' contains itself\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type a (enum (x b)))\n(type b (struct (e a)))"))
+
+(test extern-noncl-ret
+  (expect (out "E0002\nm/g\ntype does not cross the C boundary\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a)))\n(extern fn g e ())"))
+
+(test extern-noncl-param
+  (expect (out "E0002\nm/g/1/0\ntype does not cross the C boundary\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn g :i64 ((v (vec :i64))))"))
+
+(test extern-var
+  (expect (out "E0101\nm/g\nan extern function cannot have type variables\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn g :T ((v :i64)))"))
+
+(test extern-reserved
+  (expect (out "E0003\nm/get\nreserved form name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn get :i64 ())"))
+
+(test vec-owner
+  (expect (out "E0002\nm/f/1/0/0\na container of owners is not supported yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (vec (own :i64)))) (ret))"))
+
+(test opt-vector
+  (expect (out "E0002\nm/f/1/0/0\na vector cannot be inside an optional yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (opt (vec :i64)))) (ret))"))
+
+(test res-bad-err
+  (expect (out "E0100\nm/f/1/0/0\nthe error type of a result must be a declared enum, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (res :i64 :i64))) (ret))"))
+
+(test ref-nonvec
+  (expect (out "E0100\nm/f/1/0/0\na ref may name a vector only\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (ref :i64))) (ret))"))
+
+(test shared-bad
+  (expect (out "E0002\nm/f/1/0/0\nonly a pointer, a mutex, a channel or an atomic can be shared\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared :i64))) (ret))"))
+
+(test chan-unmarked
+  (expect (out "E0700\nm/f/1/0/0\nshared state must be marked '(shared ...)'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (chan :i64))) (ret))"))
+
+(test atomic-bad
+  (expect (out "E0100\nm/f/1/0/0\nan atomic needs :i64 or :u64, found :u8\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (atomic :u8)))) (ret))"))
+
+(test shared-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a (shared (ptr :i64)))) (ret))"))
+
+(test main-var
+  (expect (out "E0101\nm/main\nmain cannot have type variables: nothing fixes them\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn main :T () (ret 0))"))
+
+(test visibility-use
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/check/use-root.logos"))
+
+(test visibility-no-use
+  (expect (out "E0101\nno-use/box/0/0\nunknown type 'point'\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/check/no-use-root.logos"))
+
+(test visibility-nontransitive
+  (expect (out "E0101\nvia-mid/box/0/0\nunknown type 'point'\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "src/logosc/fixtures/check/via-mid.logos"))
+
+(test duplicate-main
+  (expect (out "E0003\nmain-b/main\nduplicate definition 'main': main-a/main and main-b/main\n")
+    (code 0)
+    (leaks 0))
+  (dup-main))
+
+(test code-spelling
+  (expect (out "E0500\n")
+    (code 0)
+    (leaks 0))
+  (println (check-code 500)))
+
+(fn instance-arena :void ((args (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))))
+  (let i64 :i64 (type-prim tags names elem extra pbase powner "i64"))
+  (let p :i64 (type-struct tags names elem extra pbase powner "point" "m" -1 0))
+  (let v :i64 (type-vec tags names elem extra pbase powner p))
+  (vec-push args i64)
+  (vec-push args v)
+  (ret))
+
+(test instance-name
+  (expect (out "keep$i64$vec(s5_point)\n")
+    (code 0)
+    (leaks 0))
+  (instance-name-case))
+
+(fn instance-name-case :void ()
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut args
+    (vec :i64)
+    (make (vec :i64)))
+  (instance-arena args tags names elem extra pbase powner pnames ptypes)
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (vec-push out "")
+  (let e check-error (check-instance-name tags names elem extra pbase ptypes "keep" args "m/f/2" out))
+  (if (check-ok e)
+    (println (vec-get out 0))
+    (show-check-fail e))
+  (vec-free tags)
+  (vec-free names)
+  (vec-free elem)
+  (vec-free extra)
+  (vec-free pbase)
+  (vec-free powner)
+  (vec-free pnames)
+  (vec-free ptypes)
+  (vec-free args)
+  (vec-free out))
+
+(test instance-var
+  (expect (out "E0501\nm/f/2\ntype variable T cannot be a type argument\n")
+    (code 0)
+    (leaks 0))
+  (instance-var-case))
+
+(fn instance-var-case :void ()
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut args
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push args (type-var tags names elem extra pbase powner "T"))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (vec-push out "")
+  (show-check (check-instance-name tags names elem extra pbase ptypes "id" args "m/f/2" out))
+  (vec-free tags)
+  (vec-free names)
+  (vec-free elem)
+  (vec-free extra)
+  (vec-free pbase)
+  (vec-free powner)
+  (vec-free pnames)
+  (vec-free ptypes)
+  (vec-free args)
+  (vec-free out))
+
+(test instance-duplicate
+  (expect (out "0\n0\n1\n")
+    (code 0)
+    (leaks 0))
+  (instance-duplicate-case))
+
+(fn instance-duplicate-case :void ()
+  (letmut keys
+    (vec :str)
+    (make (vec :str)))
+  (letmut vals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slots
+    (vec :i64)
+    (make (vec :i64)))
+  (map-init slots 8)
+  (letmut instances
+    (vec :str)
+    (make (vec :str)))
+  (letmut one
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push one -1)
+  (letmut e check-error (check-instance-add keys vals slots instances "id$i64" "m/f/2" one))
+  (println (str-from-i64 (vec-get one 0)))
+  (vec-set one 0 -1)
+  (set e (check-instance-add keys vals slots instances "id$i64" "m/f/2" one))
+  (println (str-from-i64 (vec-get one 0)))
+  (if (check-ok e)
+    (println (str-from-i64 (vec-len instances)))
+    (show-check-fail e))
+  (vec-free keys)
+  (vec-free vals)
+  (vec-free slots)
+  (vec-free instances)
+  (vec-free one))
+
+(test instance-limit
+  (expect (out "E0500\nm/f/2\nmore than 256 instantiations of generic functions\n")
+    (code 0)
+    (leaks 0))
+  (instance-limit-case))
+
+(fn instance-limit-case :void ()
+  (letmut keys
+    (vec :str)
+    (make (vec :str)))
+  (letmut vals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slots
+    (vec :i64)
+    (make (vec :i64)))
+  (map-init slots 8)
+  (letmut instances
+    (vec :str)
+    (make (vec :str)))
+  (letmut one
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push one -1)
+  (letmut err check-error (check-pass))
+  (letmut i :i64 0)
+  (while (and (check-ok err)
+           (< i 257))
+    (set err (check-instance-add keys vals slots instances (str-concat "id$" (str-from-i64 i)) "m/f/2" one))
+    (set i (+ i 1)))
+  (show-check err)
+  (vec-free keys)
+  (vec-free vals)
+  (vec-free slots)
+  (vec-free instances)
+  (vec-free one))

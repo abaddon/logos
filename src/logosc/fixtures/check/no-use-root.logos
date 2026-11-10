@@ -1,0 +1,3 @@
+(mod no-use)
+
+(type box (struct (p point)))

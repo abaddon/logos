@@ -1,0 +1,5 @@
+(mod via-mid)
+
+(use mid)
+
+(type box (struct (p point)))

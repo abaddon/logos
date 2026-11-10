@@ -1,0 +1,5 @@
+(mod mid)
+
+(use shapes)
+
+(type holder (struct (p point)))

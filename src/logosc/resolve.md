@@ -18,6 +18,12 @@ fresh arena of the same shape.
                                 (ntexts (ref (vec :str)))
                                 (path :str)))
 
+(fn resolve-set resolve-error ((nodes (ref (vec node)))
+                               (ntexts (ref (vec :str)))
+                               (path :str)
+                               (all (ref (vec resolve-def)))
+                               (mods (ref (vec resolve-mod)))))
+
 (fn resolve-ok :bool ((e resolve-error)))
 (fn resolve-pass resolve-error ())
 (fn resolve-fail resolve-error ((code :i64) (path :str) (message :str)))
@@ -31,9 +37,17 @@ registry's file origin for the root. A caller with no source file passes `""`;
 the loader then looks for siblings in the current directory, and the root's
 registry entry has no file origin.
 
-The function allocates six small tables, frees all six on every return, and
-hands back a value rather than raising: one failure per run, the first one, as
-the Python pass does. Imported files are read, lexed and parsed inside the
+`resolve-file` allocates the definition table and the module registry, calls
+`resolve-set`, frees both on every return, and hands back a value rather than
+raising: one failure per run, the first one, as the Python pass does.
+`resolve-set` is the same walk with those two tables owned by the caller, so a
+later pass can read the resolved module set. `all` receives every module's own
+definitions in module order, and `mods` one record per module (name, file, and
+the `start`/`end` range of that module's definitions in `all`). The root is
+`mods[0]`; imports follow depth first in source order. `gen2 check` is the
+caller: it hands `mods` to `check-file`, which re-reads each module's file for
+its declarations because the resolver's ranges carry names and paths, not
+types. Imported files are read, lexed and parsed inside the
 call; their arenas are freed before the imported resolver call returns, and
 their strings are process-lifetime views like every other `:str`.
 

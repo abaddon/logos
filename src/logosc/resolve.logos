@@ -431,13 +431,7 @@
 (fn resolve-check resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (active (ref (vec :str))) (depth (ref (vec :i64))) (keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))))
   (ret (resolve-module nodes ntexts path "" "" all mods active depth keys vals slots)))
 
-(fn resolve-file resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str))
-  (letmut all
-    (vec resolve-def)
-    (make (vec resolve-def)))
-  (letmut mods
-    (vec resolve-mod)
-    (make (vec resolve-mod)))
+(fn resolve-set resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))))
   (letmut active
     (vec :str)
     (make (vec :str)))
@@ -456,11 +450,21 @@
     (make (vec :i64)))
   (map-init slots 8)
   (letmut err resolve-error (resolve-check nodes ntexts path all mods active depth keys vals slots))
-  (vec-free all)
-  (vec-free mods)
   (vec-free active)
   (vec-free depth)
   (vec-free keys)
   (vec-free vals)
   (vec-free slots)
+  (ret err))
+
+(fn resolve-file resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str))
+  (letmut all
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (letmut err resolve-error (resolve-set nodes ntexts path all mods))
+  (vec-free all)
+  (vec-free mods)
   (ret err))

@@ -1,0 +1,4 @@
+(mod main-a)
+
+(fn main :i64 ()
+  (ret 0))
