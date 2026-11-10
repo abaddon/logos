@@ -1,0 +1,24 @@
+(mod use-map)
+
+(use map)
+
+(test lookup
+  (expect (out "7\ntrue\n")
+    (code 0)
+    (leaks 0))
+  (letmut keys
+    (vec :str)
+    (make (vec :str)))
+  (letmut vals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slots
+    (vec :i64)
+    (make (vec :i64)))
+  (map-init slots 8)
+  (map-put keys vals slots "seven" 7)
+  (println (map-get keys vals slots "seven"))
+  (println (map-has keys slots "seven"))
+  (vec-free keys)
+  (vec-free vals)
+  (vec-free slots))

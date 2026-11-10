@@ -1,0 +1,6 @@
+(mod merge-imported)
+
+(use other)
+
+(fn f :i64 ()
+  (ret 0))

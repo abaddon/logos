@@ -1,0 +1,6 @@
+(mod use-map)
+
+(use map)
+
+(fn same :bool ((a :str) (b :str))
+  (ret (str-eq a b)))

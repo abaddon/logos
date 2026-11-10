@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # The sixth gate: the self-hosted front end must reproduce canonical source.
 #
-# Build gen2 from src/logosc/*.logos with the Python compiler, then run
-# `gen2 fmt <file>` for every path in tools/selfhost-manifest.txt and compare
-# its stdout with the file, byte for byte. Every tracked .logos file is
+# Build gen2 from src/logosc/*.logos plus the two standard modules gen2 may
+# use: map and str. Only those two, not the whole src/std directory — the
+# stdlib's `_test` files carry `(test …)` forms and are not modules gen2 needs.
+# Then run `gen2 fmt <file>` for every path in tools/selfhost-manifest.txt and
+# compare its stdout with the file, byte for byte. Every tracked .logos file is
 # canonical (tools/accept.sh proves the Python formatter is a fixed point), so
 # any difference is either a printer bug in the Logos port or a file that is no
 # longer canonical.
@@ -13,9 +15,17 @@
 # stale manifest or a failed build must fail loudly rather than pass over zero
 # files.
 #
-# Output: one line per failure, then `selfhost: N files, M differences`.
-# Exit 0 when there are none, 1 when a file differs, 2 when the gate could not
-# run at all (missing manifest, count mismatch, no binary).
+# A second phase judges the resolver-owned negative corpus. Every
+# tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
+# with that exact code; the fixtures are the repository's statement of the
+# resolver's negative behaviour, and this gate is what keeps the Logos port
+# agreeing with them. RESOLVE_FLOOR is the same kind of floor: pruning fixtures
+# below it fails rather than passing over a smaller set.
+#
+# Output: one line per fmt or resolve failure, then
+# `selfhost: N files, M differences` and `resolve: N fixtures, M differences`.
+# Exit 0 when both phases are clean, 1 when any file or fixture differs, 2 when
+# the gate could not run at all (missing manifest, count mismatch, no binary).
 
 set -u -o pipefail
 
@@ -27,6 +37,9 @@ BIN="$OUT/gen2"
 # repository has held more than this since W4; lowering the number is a
 # deliberate act, not a side effect of a pruned tree.
 FLOOR=100
+# Every resolver-owned negative fixture has a sidecar; the count may grow but
+# must not silently shrink.
+RESOLVE_FLOOR=13
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"
@@ -54,7 +67,7 @@ if (( COUNT != TRACKED )); then
 fi
 
 shopt -s nullglob
-SOURCES=(src/logosc/*.logos)
+SOURCES=(src/logosc/*.logos src/std/map.logos src/std/str.logos)
 shopt -u nullglob
 if (( ${#SOURCES[@]} == 0 )); then
     echo "selfhost: no sources under src/logosc; cannot build gen2" >&2
@@ -93,5 +106,44 @@ for path in "${FILES[@]}"; do
 done
 
 printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
-[[ "$DIFFS" -eq 0 ]] || exit 1
+
+# Phase two: every resolver-owned negative fixture must make `gen2 resolve`
+# print the code its sidecar demands. A fixture that resolves cleanly, prints
+# no code, or prints another code is one difference.
+mapfile -t EXPECTS < <(find tests/parse -type f -name '*.expect' | sort)
+RESOLVE_COUNT=${#EXPECTS[@]}
+if (( RESOLVE_COUNT < RESOLVE_FLOOR )); then
+    printf 'resolve: found %d fixtures, below the floor of %d\n' \
+        "$RESOLVE_COUNT" "$RESOLVE_FLOOR" >&2
+    exit 2
+fi
+
+RDIFTS=0
+for expect in "${EXPECTS[@]}"; do
+    fixture="${expect%.expect}.logos"
+    want="$(tr -d '[:space:]' < "$expect")"
+    if [[ ! -f "$fixture" ]]; then
+        printf 'resolve: %s: missing fixture\n' "$fixture"
+        RDIFTS=$((RDIFTS + 1))
+        continue
+    fi
+    if "$BIN" resolve "$fixture" > "$STDOUT" 2> "$STDERR"; then
+        printf 'resolve: %s: expected %s, gen2 resolve exited 0\n' "$fixture" "$want"
+        RDIFTS=$((RDIFTS + 1))
+        continue
+    fi
+    got="$(sed -n 's/.*\(E[0-9]\{4\}\).*/\1/p; q' "$STDERR")"
+    if [[ -z "$got" ]]; then
+        printf 'resolve: %s: expected %s, no code printed\n' "$fixture" "$want"
+        RDIFTS=$((RDIFTS + 1))
+    elif [[ "$got" != "$want" ]]; then
+        printf 'resolve: %s: expected %s, got %s\n' "$fixture" "$want" "$got"
+        RDIFTS=$((RDIFTS + 1))
+    fi
+done
+
+printf 'resolve: %d fixtures, %d differences\n' "$RESOLVE_COUNT" "$RDIFTS"
+if (( DIFFS > 0 || RDIFTS > 0 )); then
+    exit 1
+fi
 exit 0

@@ -30,7 +30,13 @@ from logos.check import CheckedModule, check_program
 from logos.ir import TRIPLE, IrModule
 from logos.nodes import Node
 from logos.parser import parse
-from logos.resolve import Module, reachable, resolve, program as resolve_program
+from logos.resolve import (
+    Module,
+    file_loader,
+    reachable,
+    resolve,
+    program as resolve_program,
+)
 
 #: The C compiler that turns IR text plus the runtime into an ELF.
 CLANG = "clang"
@@ -40,6 +46,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 #: Where the emitted IR is kept.
 BUILD_DIR = ROOT / "build"
+
+#: The standard library's modules, under the same root as the C runtime.
+STDLIB = ROOT / "src" / "std"
 
 
 def _runtime_file(name: str) -> Path:
@@ -75,37 +84,17 @@ class BuildError(Exception):
 
 
 def load(src_path: str) -> Module:
-    """Parse and resolve ``src_path``, loading imports from its own directory.
+    """Parse and resolve ``src_path``, loading imports by the language rule.
 
-    An import named ``math`` is answered by ``math.logos`` beside the file that
-    asked for it. That is also where the file-name-equals-module-name rule
-    lives, because it is a property of the file system, not of the grammar.
+    An import named ``math`` is answered by ``math.logos`` beside the file
+    that asked for it, then by ``math.logos`` in the standard library. The
+    standard-library directory is :data:`STDLIB`, the same repository root
+    :data:`RUNTIME_C` comes from. The file-name-equals-module-name rule lives
+    here too, because it is a property of the file system, not of the grammar.
     """
     path = Path(src_path)
     root = parse(_read(path), str(path))
-    trees: dict[str, Node] = {}
-
-    def loader(name: str, asker: str) -> Node:
-        """Answer ``name`` from the loading file's directory.
-
-        ``asker`` is accepted because the resolver always names the file that
-        wrote the ``use``; ``load`` resolves one root, and every import in
-        its graph is answered beside that one file. A sibling is parsed once:
-        the resolver asks for a name every time it is imported, and a diamond
-        must not become two module nodes for one file.
-        """
-        sibling = path.parent / f"{name}.logos"
-        key = str(sibling)
-        cached = trees.get(key)
-        if cached is not None:
-            return cached
-        if not sibling.is_file():
-            raise FileNotFoundError(name)
-        tree = parse(_read(sibling), key)
-        trees[key] = tree
-        return tree
-
-    return resolve(root, loader, str(path))
+    return resolve(root, file_loader(stdlib=STDLIB), str(path))
 
 
 def load_program(paths: list[str]) -> list[Module]:
@@ -113,7 +102,7 @@ def load_program(paths: list[str]) -> list[Module]:
 
     The modules named here answer each other's ``use`` before the file system
     is asked: a name in no set falls back to ``<name>.logos`` beside the file
-    that asked for it, which is the single-file rule. The roots are returned in
+    that asked for it, then to the standard library. The roots are returned in
     the order given. A file that cannot be read or parsed fails the build the
     way :func:`load` does.
     """
@@ -121,7 +110,7 @@ def load_program(paths: list[str]) -> list[Module]:
     for path in paths:
         source = Path(path)
         roots.append(parse(_read(source), str(source)))
-    return resolve_program(roots)
+    return resolve_program(roots, STDLIB)
 
 
 def ir_path(src_path: str) -> Path:

@@ -1,0 +1,7 @@
+(mod m)
+
+(test t
+  (expect (code 0)))
+
+(test t
+  (expect (code 1)))
