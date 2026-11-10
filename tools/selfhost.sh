@@ -22,10 +22,17 @@
 # agreeing with them. RESOLVE_FLOOR is the same kind of floor: pruning fixtures
 # below it fails rather than passing over a smaller set.
 #
-# Output: one line per fmt or resolve failure, then
-# `selfhost: N files, M differences` and `resolve: N fixtures, M differences`.
-# Exit 0 when both phases are clean, 1 when any file or fixture differs, 2 when
-# the gate could not run at all (missing manifest, count mismatch, no binary).
+# A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
+# lists one fixture per line — only the cases the declaration pass can decide —
+# and each fixture's .expect names the code `gen2 check` must print. CHECK_FLOOR
+# is the same kind of floor: a pruned list fails rather than passing over fewer
+# fixtures.
+#
+# Output: one line per fmt, resolve or check failure, then
+# `selfhost: N files, M differences`, `resolve: N fixtures, M differences` and
+# `check: N fixtures, M differences`. Exit 0 when every phase is clean, 1 when
+# any file or fixture differs, 2 when the gate could not run at all (missing
+# manifest or list, count mismatch, no binary).
 
 set -u -o pipefail
 
@@ -40,6 +47,10 @@ FLOOR=100
 # Every resolver-owned negative fixture has a sidecar; the count may grow but
 # must not silently shrink.
 RESOLVE_FLOOR=13
+# The checker's list names exactly the corpus cases the declaration pass
+# decides. Six today; a pruned list is a failure, not a smaller pass.
+CHECK_LIST="$ROOT/tools/selfhost-check.txt"
+CHECK_FLOOR=6
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"
@@ -143,7 +154,53 @@ for expect in "${EXPECTS[@]}"; do
 done
 
 printf 'resolve: %d fixtures, %d differences\n' "$RESOLVE_COUNT" "$RDIFTS"
-if (( DIFFS > 0 || RDIFTS > 0 )); then
+
+# Phase three: every checker-owned fixture must make `gen2 check` print the
+# code its sidecar demands, and nothing else. A fixture the pass accepts, one
+# with no code, and one with another code are each one difference.
+if [[ ! -f "$CHECK_LIST" ]]; then
+    printf 'check: missing list: %s\n' "$CHECK_LIST" >&2
+    exit 2
+fi
+mapfile -t CHECKED < <(grep -v '^[[:space:]]*$' "$CHECK_LIST")
+CHECK_COUNT=${#CHECKED[@]}
+if (( CHECK_COUNT < CHECK_FLOOR )); then
+    printf 'check: list names %d fixtures, below the floor of %d\n' \
+        "$CHECK_COUNT" "$CHECK_FLOOR" >&2
+    exit 2
+fi
+
+CDIFFS=0
+for fixture in "${CHECKED[@]}"; do
+    expect="${fixture%.logos}.expect"
+    if [[ ! -f "$fixture" ]]; then
+        printf 'check: %s: missing fixture\n' "$fixture"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    if [[ ! -f "$expect" ]]; then
+        printf 'check: %s: missing %s\n' "$fixture" "${expect##*/}"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    want="$(tr -d '[:space:]' < "$expect")"
+    if "$BIN" check "$fixture" > "$STDOUT" 2> "$STDERR"; then
+        printf 'check: %s: expected %s, gen2 check exited 0\n' "$fixture" "$want"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    got="$(sed -n 's/.*\(E[0-9]\{4\}\).*/\1/p; q' "$STDERR")"
+    if [[ -z "$got" ]]; then
+        printf 'check: %s: expected %s, no code printed\n' "$fixture" "$want"
+        CDIFFS=$((CDIFFS + 1))
+    elif [[ "$got" != "$want" ]]; then
+        printf 'check: %s: expected %s, got %s\n' "$fixture" "$want" "$got"
+        CDIFFS=$((CDIFFS + 1))
+    fi
+done
+
+printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
+if (( DIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 )); then
     exit 1
 fi
 exit 0
