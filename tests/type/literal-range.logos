@@ -1,0 +1,5 @@
+(mod literal-range)
+
+(fn f :void ()
+  (let x :u8 256)
+  (ret))

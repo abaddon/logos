@@ -22,6 +22,7 @@ examples/hello.logos
 examples/json.logos
 examples/matrix.logos
 examples/wc.logos
+src/logosc/body_test.logos
 src/logosc/check.logos
 src/logosc/check_test.logos
 src/logosc/fixtures/check/main-a.logos
@@ -161,10 +162,12 @@ tests/type/alloc-result.logos
 tests/type/arity.logos
 tests/type/cast-nonnumeric.logos
 tests/type/cast-same.logos
+tests/type/compare-bool.logos
 tests/type/extern-noncl.logos
 tests/type/float-mix.logos
 tests/type/free-raw.logos
 tests/type/immutable-set.logos
+tests/type/literal-range.logos
 tests/type/loop-move.logos
 tests/type/move-immutable.logos
 tests/type/move.logos

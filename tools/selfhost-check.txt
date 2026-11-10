@@ -5,3 +5,10 @@ tests/type/extern-noncl.logos
 tests/type/ref-not-a-vector.logos
 tests/type/unknown-type.logos
 tests/type/param-bare-name.logos
+tests/type/cast-nonnumeric.logos
+tests/type/cast-same.logos
+tests/type/float-mix.logos
+tests/type/immutable-set.logos
+tests/type/shift-float.logos
+tests/type/literal-range.logos
+tests/type/compare-bool.logos

@@ -1,0 +1,4 @@
+(mod compare-bool)
+
+(fn f :bool ((a :bool))
+  (ret (< a a)))

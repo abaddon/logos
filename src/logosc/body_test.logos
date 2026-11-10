@@ -1,0 +1,370 @@
+(mod body-test)
+
+(use lex)
+
+(use tree)
+
+(use resolve)
+
+(use check)
+
+(fn show-check-fail :void ((e check-error))
+  (println (check-code (get e code)))
+  (println (get e path))
+  (println (get e message)))
+
+(fn show-check :void ((e check-error))
+  (if (check-ok e)
+    (println "OK")
+    (show-check-fail e)))
+
+(fn show-resolve-fail :void ((e resolve-error))
+  (println (resolve-code (get e code)))
+  (println (get e path))
+  (println (get e message)))
+
+(fn show-resolve :void ((e resolve-error))
+  (if (resolve-ok e)
+    (println "OK")
+    (show-resolve-fail e)))
+
+(fn dump-resolved :void ((path :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut defs
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (let re resolve-error (resolve-set nodes ntexts path defs mods))
+  (if (resolve-ok re)
+    (show-check (check-file mods nodes ntexts))
+    (show-resolve re))
+  (vec-free defs)
+  (vec-free mods))
+
+(fn dump-tree :void ((path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (tree-ok t)
+    (dump-resolved path nodes ntexts)
+    (println (get t msg))))
+
+(fn dump-src-at :void ((path :str) (src :str))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (dump-tree path kinds texts lines cols nodes ntexts)
+    (println (get e msg)))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts))
+
+(fn dump-src :void ((src :str))
+  (dump-src-at "src/logosc/body_test.logos" (str-concat "(mod m)\n" src)))
+
+(test arith-literal-adopt
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u8 ((a :u8)) (ret (+ 1 a)))"))
+
+(test arith-literal-adopt-right
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u8 ((a :u8)) (ret (+ a 1)))"))
+
+(test arith-mixed
+  (expect (out "E0100\nm/f/4/0\ncannot add :i64 to :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :f64 () (let x :f64 1.5) (let y :i64 2) (ret (+ x y)))"))
+
+(test arith-needs-numbers
+  (expect (out "E0100\nm/f/2/0\n'+' needs numbers, found :bool\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a :bool)) (ret (+ a 1)))"))
+
+(test arith-arity
+  (expect (out "E0102\nm/f/2/0\n'+' takes at least two operands\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (+ 1)))"))
+
+(test arith-modulo-float
+  (expect (out "E0100\nm/f/3/0\n'%' needs integers, found :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :f64 () (let x :f64 1.5) (ret (% x x)))"))
+
+(test shift-literal-adopt
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u16 ((a :u16)) (ret (shl 1 a)))"))
+
+(test shift-count-width
+  (expect (out "E0100\nm/f/3/0\ncannot shift :u8 by :u64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u8 ((a :u8)) (let b :u64 1) (ret (shl a b)))"))
+
+(test shift-arity
+  (expect (out "E0102\nm/f/2/0\n'shl' takes a value and a count\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u8 ((a :u8)) (ret (shl a)))"))
+
+(test shift-float
+  (expect (out "E0100\nm/f/2/0\n'shl' needs an integer, found :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :f64 ((x :f64)) (ret (shl x 2)))"))
+
+(test cast-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :u32)) (ret (cast :i64 x)))"))
+
+(test cast-same
+  (expect (out "E0100\nm/f/2/0\ncast from :i64 to :i64 cannot change the type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (cast :i64 x)))"))
+
+(test cast-bool
+  (expect (out "E0100\nm/f/2/0\ncannot cast :bool to :i64: a cast converts numbers\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((b :bool)) (ret (cast :i64 b)))"))
+
+(test cast-target
+  (expect (out "E0100\nm/f/2/0\na cast needs a numeric type, found :bool\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (cast :bool x)))"))
+
+(test cast-arity
+  (expect (out "E0102\nm/f/2/0\n'cast' takes a type and a value\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (cast :i64)))"))
+
+(test compare-literal-adopt
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :u8)) (ret (< 1 a)))"))
+
+(test compare-bool-ordered
+  (expect (out "E0100\nm/f/2/0\n'<' needs numbers, found :bool\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool)) (ret (< a a)))"))
+
+(test compare-eq-bool
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool) (b :bool)) (ret (= a b)))"))
+
+(test compare-arity
+  (expect (out "E0102\nm/f/2/0\n'<' takes two operands\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool)) (ret (< a)))"))
+
+(test let-annotation-mismatch
+  (expect (out "E0100\nm/f/2\nlet 'x' has type :i64, found :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x :i64 1.5) (ret))"))
+
+(test let-shape
+  (expect (out "E0102\nm/f/2\nlet takes a name, an optional type and a value\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x) (ret))"))
+
+(test let-name
+  (expect (out "E0002\nm/f/2\nlet needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let 1 2) (ret))"))
+
+(test let-annotation-unknown
+  (expect (out "E0101\nm/f/2\nunknown type ':wat'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x :wat 1) (ret))"))
+
+(test let-void
+  (expect (out "E0100\nm/f/2/1\ncannot bind 'x' to a :void value\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x (ret)) (ret))"))
+
+(test let-duplicate
+  (expect (out "E0003\nm/f/3\nduplicate definition 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x :i64 1) (let x :i64 2) (ret))"))
+
+(test set-immutable
+  (expect (out "E0104\nm/f/3\ncannot set immutable binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x :i64 0) (set x 1) (ret))"))
+
+(test set-parameter
+  (expect (out "E0104\nm/f/2\ncannot set immutable binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (set x 1) (ret))"))
+
+(test set-unknown
+  (expect (out "E0005\nm/f/2\nunknown name 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (set y 1) (ret))"))
+
+(test set-type
+  (expect (out "E0100\nm/f/3\ncannot set 'x' of type :i64 to :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut x :i64 0) (set x 1.5) (ret))"))
+
+(test set-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut x :i64 0) (set x 1) (ret x))"))
+
+(test ret-type
+  (expect (out "E0100\nm/f/2\nfunction 'f' returns :i64, found :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret 1.5))"))
+
+(test ret-void
+  (expect (out "E0100\nm/f/2\nfunction 'f' returns :i64, found :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret))"))
+
+(test ret-arity
+  (expect (out "E0102\nm/f/2\nret takes at most one value\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret 1 2))"))
+
+(test literal-range
+  (expect (out "E0106\nm/f/2\nliteral 256 does not fit :u8\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x :u8 256) (ret))"))
+
+(test literal-u64-max
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u64 () (ret 18446744073709551615))"))
+
+(test literal-i64-min
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret -9223372036854775808))"))
+
+(test literal-neg-unsigned
+  (expect (out "E0106\nm/f/2\nliteral -1 does not fit :u64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :u64 () (ret -1))"))
+
+(test literal-over-i64
+  (expect (out "E0106\nm/f/2\nliteral 9223372036854775808 does not fit :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret 9223372036854775808))"))
+
+(test later-forms-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (if true (ret 1) (ret 2)))"))
+
+(test later-call-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (g)))"))
+
+(test param-known
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a :i64)) (ret a))"))
+
+(test str-compare
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :str)) (ret (= a \"b\")))"))
+
+(test bool-let
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool () (let x :bool true) (ret x))"))
+
+(test env-snapshot
+  (expect (out "0\n1\n0\n1\n")
+    (code 0)
+    (leaks 0))
+  (letmut bv
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bm
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut snap
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push bv 0)
+  (vec-push bm 1)
+  (body-snapshot bv bm snap)
+  (vec-set bv 0 1)
+  (vec-set bm 0 0)
+  (body-restore bv bm snap)
+  (println (str-from-i64 (vec-get bv 0)))
+  (println (str-from-i64 (vec-get bm 0)))
+  (vec-set bv 0 1)
+  (vec-set bm 0 0)
+  (body-restore bv bm snap)
+  (println (str-from-i64 (vec-get bv 0)))
+  (println (str-from-i64 (vec-get bm 0)))
+  (vec-free bv)
+  (vec-free bm)
+  (vec-free snap))
