@@ -1,0 +1,5 @@
+(mod use-root)
+
+(use shapes)
+
+(type box (struct (p point)))

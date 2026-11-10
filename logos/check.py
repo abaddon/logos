@@ -570,6 +570,11 @@ def mangle_type(ty: Ty, where: str = "") -> str:
         return f"own({mangle_type(ty.elem, where)})"
     if isinstance(ty, Vec):
         return f"vec({mangle_type(ty.elem, where)})"
+    if isinstance(ty, Ref):
+        # A ref is a legal type argument — a generic function called from one
+        # that holds a ref binds its variable to this type — so it spells like
+        # the other wrappers. Without this branch it was E0101 "cannot mangle".
+        return f"ref({mangle_type(ty.elem, where)})"
     if isinstance(ty, Arr):
         return f"arr({mangle_type(ty.elem, where)},{ty.n})"
     if isinstance(ty, Opt):
@@ -1718,8 +1723,10 @@ class _Checker:
 
         A type variable in a signature is what declares it: there is no
         separate parameter list, so the signature is read with every variable
-        accepted, and the ones it mentions — return type first, then the
-        parameters left to right — become the copy's type arguments.
+        accepted. This is also where a copy's type-argument order is fixed:
+        the return type's variables first, then the parameters left to right.
+        :func:`logos.types.typevars` walks a type parameter-first, so this
+        order is built here rather than taken from that walk.
         """
         name = node.name
         if name is None or name.startswith(":"):
@@ -5667,9 +5674,10 @@ def _crosses(
     whose release C cannot honour — so passing one to C would hand over a value
     the other side reads by a different rule.
 
-    ``stack`` holds the struct names being walked, which is what lets a struct
-    that points at itself cross: the pointer ends the walk. A struct that
-    contains itself by value has no size and cannot cross.
+    ``stack`` holds the struct names being walked; a name already on it answers
+    false, so a struct that points at itself does not cross either — the
+    pointer does not end the walk, the cycle does. A struct that contains
+    itself by value has no size and cannot cross.
     """
     if isinstance(ty, Prim):
         return ty.name in _C_PRIMITIVES

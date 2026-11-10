@@ -19,13 +19,26 @@
 # tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
 # with that exact code; the fixtures are the repository's statement of the
 # resolver's negative behaviour, and this gate is what keeps the Logos port
-# agreeing with them. RESOLVE_FLOOR is the same kind of floor: pruning fixtures
+# agreeing with them. A fixture whose source must fail to lex or parse keeps its
+# sources as `*.logos.txt` and is judged on a copy under build/, because no
+# tracked `*.logos` file may be malformed; see the phase below.
+# RESOLVE_FLOOR is the same kind of floor: pruning fixtures
 # below it fails rather than passing over a smaller set.
 #
-# Output: one line per fmt or resolve failure, then
-# `selfhost: N files, M differences` and `resolve: N fixtures, M differences`.
-# Exit 0 when both phases are clean, 1 when any file or fixture differs, 2 when
-# the gate could not run at all (missing manifest, count mismatch, no binary).
+# A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
+# lists one fixture per line — only the cases the declaration pass can decide — and
+# each fixture's .check names the whole line `gen2 check` must print, path, code and
+# message, as the reference implementation prints it. A wrong path or a reworded
+# message is a difference, not just a wrong code. tools/check_parity.py writes the
+# sidecars from Python, so the expectation cannot drift from the oracle. CHECK_FLOOR
+# is the same kind of floor: a pruned list fails rather than passing over fewer
+# fixtures.
+#
+# Output: one line per fmt, resolve or check failure, then
+# `selfhost: N files, M differences`, `resolve: N fixtures, M differences` and
+# `check: N fixtures, M differences`. Exit 0 when every phase is clean, 1 when
+# any file or fixture differs, 2 when the gate could not run at all (missing
+# manifest or list, count mismatch, no binary).
 
 set -u -o pipefail
 
@@ -38,8 +51,14 @@ BIN="$OUT/gen2"
 # deliberate act, not a side effect of a pruned tree.
 FLOOR=100
 # Every resolver-owned negative fixture has a sidecar; the count may grow but
-# must not silently shrink.
-RESOLVE_FLOOR=13
+# must not silently shrink. Fourteen today: the twelve resolver cases and the
+# checker case, plus `bad-lex`, whose sources are `*.logos.txt` because the
+# imported file must fail to lex.
+RESOLVE_FLOOR=14
+# The checker's list names exactly the corpus cases the declaration pass
+# decides. Seven today; a pruned list is a failure, not a smaller pass.
+CHECK_LIST="$ROOT/tools/selfhost-check.txt"
+CHECK_FLOOR=7
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"
@@ -110,6 +129,15 @@ printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 # Phase two: every resolver-owned negative fixture must make `gen2 resolve`
 # print the code its sidecar demands. A fixture that resolves cleanly, prints
 # no code, or prints another code is one difference.
+#
+# A fixture whose source must fail to lex or parse cannot be a *.logos file in
+# the tree: `tools/accept.sh` formats every one of them and this gate
+# reproduces every tracked one, so a malformed source has no legal name. Such a
+# fixture therefore keeps its sources as `*.logos.txt` — invisible to both
+# formatters and to `git ls-files '*.logos'` — and is judged on a copy under
+# build/ where the suffix is dropped. `‹fixture›.expect` stays beside the
+# sources, so the count below still counts it, and the copy is rebuilt on every
+# run so an edited source is never masked by a stale one.
 mapfile -t EXPECTS < <(find tests/parse -type f -name '*.expect' | sort)
 RESOLVE_COUNT=${#EXPECTS[@]}
 if (( RESOLVE_COUNT < RESOLVE_FLOOR )); then
@@ -118,10 +146,32 @@ if (( RESOLVE_COUNT < RESOLVE_FLOOR )); then
     exit 2
 fi
 
+# Materialize the fixture whose stem is <stem> (a path without `.logos` or
+# `.expect`) under build/ and print the root's path there. Every `*.logos.txt`
+# in the fixture's directory becomes `*.logos`; nothing else is copied, so the
+# copy holds exactly the sources the fixture declares.
+materialize() {
+    local dir at name
+    dir="$(dirname "$1")"
+    at="$OUT/parse/${dir#tests/parse/}"
+    rm -rf "$at"
+    mkdir -p "$at"
+    for name in "$dir"/*.logos.txt; do
+        cp "$name" "$at/"
+    done
+    for name in "$at"/*.logos.txt; do
+        mv "$name" "${name%.txt}"
+    done
+    printf '%s/%s.logos' "$at" "$(basename "$1")"
+}
+
 RDIFTS=0
 for expect in "${EXPECTS[@]}"; do
     fixture="${expect%.expect}.logos"
     want="$(tr -d '[:space:]' < "$expect")"
+    if [[ ! -f "$fixture" && -f "${fixture}.txt" ]]; then
+        fixture="$(materialize "${expect%.expect}")"
+    fi
     if [[ ! -f "$fixture" ]]; then
         printf 'resolve: %s: missing fixture\n' "$fixture"
         RDIFTS=$((RDIFTS + 1))
@@ -143,7 +193,50 @@ for expect in "${EXPECTS[@]}"; do
 done
 
 printf 'resolve: %d fixtures, %d differences\n' "$RESOLVE_COUNT" "$RDIFTS"
-if (( DIFFS > 0 || RDIFTS > 0 )); then
+
+# Phase three: every checker-owned fixture must make `gen2 check` print exactly
+# the line its sidecar demands. A fixture the pass accepts, one with another
+# line, and one without a sidecar are each one difference.
+if [[ ! -f "$CHECK_LIST" ]]; then
+    printf 'check: missing list: %s\n' "$CHECK_LIST" >&2
+    exit 2
+fi
+mapfile -t CHECKED < <(grep -v '^[[:space:]]*$' "$CHECK_LIST")
+CHECK_COUNT=${#CHECKED[@]}
+if (( CHECK_COUNT < CHECK_FLOOR )); then
+    printf 'check: list names %d fixtures, below the floor of %d\n' \
+        "$CHECK_COUNT" "$CHECK_FLOOR" >&2
+    exit 2
+fi
+
+CDIFFS=0
+for fixture in "${CHECKED[@]}"; do
+    sidecar="${fixture%.logos}.check"
+    if [[ ! -f "$fixture" ]]; then
+        printf 'check: %s: missing fixture\n' "$fixture"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    if [[ ! -f "$sidecar" ]]; then
+        printf 'check: %s: missing %s\n' "$fixture" "${sidecar##*/}"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    want="$(head -n 1 "$sidecar")"
+    if "$BIN" check "$fixture" > "$STDOUT" 2> "$STDERR"; then
+        printf 'check: %s: expected %s, gen2 check exited 0\n' "$fixture" "$want"
+        CDIFFS=$((CDIFFS + 1))
+        continue
+    fi
+    got="$(head -n 1 "$STDERR")"
+    if [[ "$got" != "$want" ]]; then
+        printf 'check: %s: expected %s, got %s\n' "$fixture" "$want" "$got"
+        CDIFFS=$((CDIFFS + 1))
+    fi
+done
+
+printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
+if (( DIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 )); then
     exit 1
 fi
 exit 0

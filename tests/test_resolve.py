@@ -15,15 +15,17 @@ from logos.parser import parse
 from logos.resolve import Module, reachable, resolve
 
 PARSE = Path(__file__).parent / "parse"
+ROOT = PARSE.parents[1]
 
 #: Every resolver-owned negative fixture, by path under ``tests/parse``.
 #:
-#: The expected code is also in the fixture's ``.expect`` sidecar; the second
-#: element is the node path the diagnostic must carry. ``None`` means the file
-#: has no node to point at — a file that never declares a module is located by
-#: its source position instead.
-RESOLVER_FIXTURES = {
-    "no-mod.logos": ("E0002", None),
+#: The expected code is also in the fixture's ``.expect`` sidecar, which the
+#: test reads rather than restates. The location is the node path the diagnostic
+#: must carry, or ``(file name, line, column)`` when no node exists to point at:
+#: a file that never declares a module is located at its own first position, and
+#: an imported file that would not lex is located inside itself.
+RESOLVER_FIXTURES: dict[str, tuple[str, str | tuple[str, int, int]]] = {
+    "no-mod.logos": ("E0002", ("no-mod.logos", 1, 1)),
     "nameless-mod.logos": ("E0002", "0"),
     "second-mod.logos": ("E0003", "m/n"),
     "unknown-node.logos": ("E0002", "m/0"),
@@ -36,7 +38,27 @@ RESOLVER_FIXTURES = {
     "multi-module/wrong-name.logos": ("E0005", "wrong-name/0"),
     "multi-module/cycle/root.logos": ("E0004", "b/0"),
     "multi-module/merge/root.logos": ("E0003", "merge/1"),
+    "multi-module/bad-lex/root.logos": ("E0006", ("bad.logos", 4, 8)),
 }
+
+
+def materialized(fixture: Path) -> Path:
+    """``fixture``, or a copy of it under ``build/`` when its sources are ``.txt``.
+
+    A source that must fail to lex cannot be a tracked ``.logos`` file:
+    ``tools/accept.sh`` formats every one in the tree and the self-hosted gate
+    reproduces every tracked one, so such a fixture keeps its sources as
+    ``*.logos.txt`` and is judged on a copy. The copy rule is the one
+    ``tools/selfhost.sh`` applies before it runs `gen2 resolve`, and it is here
+    so this test judges the same bytes the gate does.
+    """
+    if fixture.is_file():
+        return fixture
+    at = ROOT / "build" / "tests-parse" / fixture.parent.relative_to(PARSE) / fixture.name
+    at.parent.mkdir(parents=True, exist_ok=True)
+    for source in fixture.parent.glob("*.logos.txt"):
+        (at.parent / source.name[: -len(".txt")]).write_bytes(source.read_bytes())
+    return at
 
 
 def resolve_src(src: str, files: dict[str, str] | None = None) -> Module:
@@ -364,7 +386,7 @@ class ResolverFixturesTest(unittest.TestCase):
         self.assertEqual(found, declared)
 
     def test_each_fixture_agrees_with_its_expect_file(self):
-        for relative, (code, path) in RESOLVER_FIXTURES.items():
+        for relative, (code, location) in RESOLVER_FIXTURES.items():
             with self.subTest(fixture=relative):
                 fixture = PARSE / relative
                 expected = fixture.with_suffix(".expect").read_text(
@@ -372,18 +394,20 @@ class ResolverFixturesTest(unittest.TestCase):
                 ).strip()
                 self.assertEqual(expected, code)
                 with self.assertRaises(LogosError) as caught:
-                    driver.load_program([str(fixture)])
+                    driver.load_program([str(materialized(fixture))])
                 error = caught.exception
                 self.assertEqual(error.code, expected)
-                if path is None:
-                    # No node stands for an absent ``(mod ...)``. The source
-                    # position is the only location that can exist, and the
-                    # error must carry it rather than an empty message.
+                if isinstance(location, tuple):
+                    # No node stands for the diagnostic, so the source position
+                    # is the only location it can carry — and it must be the
+                    # failing file's own, never the asking file's.
+                    name, line, col = location
                     self.assertEqual(error.path, "")
-                    self.assertEqual(error.file, str(fixture))
-                    self.assertEqual(error.location, f"{fixture}:1:1")
+                    self.assertEqual(Path(error.file).name, name)
+                    self.assertEqual((error.line, error.col), (line, col))
+                    self.assertIn(f"{name}:{line}:{col}", error.location)
                 else:
-                    self.assertEqual(error.path, path)
+                    self.assertEqual(error.path, location)
 
     def test_the_cycle_fixture_lists_the_whole_cycle(self):
         with self.assertRaises(LogosError) as caught:

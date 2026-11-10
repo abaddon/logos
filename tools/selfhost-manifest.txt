@@ -22,6 +22,15 @@ examples/hello.logos
 examples/json.logos
 examples/matrix.logos
 examples/wc.logos
+src/logosc/check.logos
+src/logosc/check_test.logos
+src/logosc/fixtures/check/main-a.logos
+src/logosc/fixtures/check/main-b.logos
+src/logosc/fixtures/check/mid.logos
+src/logosc/fixtures/check/no-use-root.logos
+src/logosc/fixtures/check/shapes.logos
+src/logosc/fixtures/check/use-root.logos
+src/logosc/fixtures/check/via-mid.logos
 src/logosc/fixtures/cycle/a.logos
 src/logosc/fixtures/cycle/b.logos
 src/logosc/fixtures/diamond/base.logos
@@ -57,6 +66,8 @@ src/logosc/resolve.logos
 src/logosc/resolve_test.logos
 src/logosc/tree.logos
 src/logosc/tree_test.logos
+src/logosc/types.logos
+src/logosc/types_test.logos
 src/std/io.logos
 src/std/io_test.logos
 src/std/map.logos
@@ -127,6 +138,7 @@ tests/regress/multi-module/util.logos
 tests/regress/owner-place-read.logos
 tests/regress/print-small-numbers.logos
 tests/regress/recursive-enum.logos
+tests/regress/ref-as-type-argument.logos
 tests/regress/ref-channel-element.logos
 tests/regress/ref-escape-send.logos
 tests/regress/ref-escape-spawn.logos
@@ -157,6 +169,7 @@ tests/type/loop-move.logos
 tests/type/move-immutable.logos
 tests/type/move.logos
 tests/type/non-exhaustive.logos
+tests/type/param-bare-name.logos
 tests/type/ref-escapes-capture.logos
 tests/type/ref-escapes-return.logos
 tests/type/ref-not-a-vector.logos

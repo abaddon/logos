@@ -6,17 +6,20 @@
 
 (use map)
 
-(type resolve-error (struct (failed :bool) (code :i64) (path :str) (message :str)))
+(type resolve-error (struct (failed :bool) (code :i64) (path :str) (file :str) (line :i64) (col :i64) (message :str)))
 
 (type resolve-def (struct (name :str) (path :str) (own :i64) (kind :i64)))
 
 (type resolve-mod (struct (name :str) (file :str) (start :i64) (end :i64)))
 
 (fn resolve-pass resolve-error ()
-  (ret (make resolve-error false 0 "" "")))
+  (ret (make resolve-error false 0 "" "" 0 0 "")))
+
+(fn resolve-located resolve-error ((code :i64) (path :str) (file :str) (line :i64) (col :i64) (message :str))
+  (ret (make resolve-error true code path file line col message)))
 
 (fn resolve-fail resolve-error ((code :i64) (path :str) (message :str))
-  (ret (make resolve-error true code path message)))
+  (ret (resolve-located code path "" 0 0 message)))
 
 (fn resolve-ok :bool ((e resolve-error))
   (ret (not (get e failed))))
@@ -345,7 +348,11 @@
   (let terr tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (ret (if (tree-ok terr)
          (resolve-module nodes ntexts path expected origin all mods active depth keys vals slots)
-         (resolve-fail 1 "" (get terr msg)))))
+         (resolve-located 1
+           (get terr path) path
+           (get terr line)
+           (get terr col)
+           (get terr msg)))))
 
 (fn resolve-load resolve-error ((path :str) (expected :str) (origin :str) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (active (ref (vec :str))) (depth (ref (vec :i64))) (keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))))
   (let src :str (read-file path))
@@ -371,7 +378,10 @@
   (letmut err resolve-error (resolve-pass))
   (if (lex-ok lexed)
     (set err (resolve-treed path expected origin kinds texts lines cols nodes ntexts all mods active depth keys vals slots))
-    (set err (resolve-fail 1 "" (get lexed msg))))
+    (set err (resolve-located 6 "" path
+               (get lexed line)
+               (get lexed col)
+               (get lexed msg))))
   (vec-free kinds)
   (vec-free texts)
   (vec-free lines)
@@ -431,13 +441,7 @@
 (fn resolve-check resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (active (ref (vec :str))) (depth (ref (vec :i64))) (keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))))
   (ret (resolve-module nodes ntexts path "" "" all mods active depth keys vals slots)))
 
-(fn resolve-file resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str))
-  (letmut all
-    (vec resolve-def)
-    (make (vec resolve-def)))
-  (letmut mods
-    (vec resolve-mod)
-    (make (vec resolve-mod)))
+(fn resolve-set resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))))
   (letmut active
     (vec :str)
     (make (vec :str)))
@@ -456,11 +460,21 @@
     (make (vec :i64)))
   (map-init slots 8)
   (letmut err resolve-error (resolve-check nodes ntexts path all mods active depth keys vals slots))
-  (vec-free all)
-  (vec-free mods)
   (vec-free active)
   (vec-free depth)
   (vec-free keys)
   (vec-free vals)
   (vec-free slots)
+  (ret err))
+
+(fn resolve-file resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (path :str))
+  (letmut all
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (letmut err resolve-error (resolve-set nodes ntexts path all mods))
+  (vec-free all)
+  (vec-free mods)
   (ret err))

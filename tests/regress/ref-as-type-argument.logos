@@ -1,0 +1,21 @@
+(mod ref-as-type-argument)
+
+(fn keep :void ((a T))
+  (ret))
+
+(fn lend :void ((w (ref (vec :i64))))
+  (keep w)
+  (vec-push w 2)
+  (ret))
+
+(test a-ref-argument-instantiates-a-generic
+  (expect (out "2\n")
+    (code 0)
+    (leaks 0))
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push v 1)
+  (lend v)
+  (println (str-from-i64 (vec-len v)))
+  (vec-free v))

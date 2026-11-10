@@ -18,9 +18,17 @@ fresh arena of the same shape.
                                 (ntexts (ref (vec :str)))
                                 (path :str)))
 
+(fn resolve-set resolve-error ((nodes (ref (vec node)))
+                               (ntexts (ref (vec :str)))
+                               (path :str)
+                               (all (ref (vec resolve-def)))
+                               (mods (ref (vec resolve-mod)))))
+
 (fn resolve-ok :bool ((e resolve-error)))
 (fn resolve-pass resolve-error ())
 (fn resolve-fail resolve-error ((code :i64) (path :str) (message :str)))
+(fn resolve-located resolve-error ((code :i64) (path :str) (file :str)
+                                   (line :i64) (col :i64) (message :str)))
 (fn resolve-code :str ((code :i64)))
 ```
 
@@ -31,9 +39,17 @@ registry's file origin for the root. A caller with no source file passes `""`;
 the loader then looks for siblings in the current directory, and the root's
 registry entry has no file origin.
 
-The function allocates six small tables, frees all six on every return, and
-hands back a value rather than raising: one failure per run, the first one, as
-the Python pass does. Imported files are read, lexed and parsed inside the
+`resolve-file` allocates the definition table and the module registry, calls
+`resolve-set`, frees both on every return, and hands back a value rather than
+raising: one failure per run, the first one, as the Python pass does.
+`resolve-set` is the same walk with those two tables owned by the caller, so a
+later pass can read the resolved module set. `all` receives every module's own
+definitions in module order, and `mods` one record per module (name, file, and
+the `start`/`end` range of that module's definitions in `all`). The root is
+`mods[0]`; imports follow depth first in source order. `gen2 check` is the
+caller: it hands `mods` to `check-file`, which re-reads each module's file for
+its declarations because the resolver's ranges carry names and paths, not
+types. Imported files are read, lexed and parsed inside the
 call; their arenas are freed before the imported resolver call returns, and
 their strings are process-lifetime views like every other `:str`.
 
@@ -41,18 +57,27 @@ their strings are process-lifetime views like every other `:str`.
 
 ```logos
 (type resolve-error
-  (struct (failed :bool) (code :i64) (path :str) (message :str)))
+  (struct (failed :bool) (code :i64) (path :str) (file :str) (line :i64)
+          (col :i64) (message :str)))
 ```
 
-The struct mirrors `lex-error` and `tree-error`. `code` is the numeric tail of
-the diagnostic: `1` is `E0001` (an imported file the lexer or parser refused),
-`2` is `E0002`, `3` is `E0003`, `4` is `E0004` and `5` is `E0005`.
+The struct mirrors `lex-error` and `tree-error` joined: it carries a node path
+*or* a source position, never both. `code` is the numeric tail of the
+diagnostic: `1` is `E0001` (a parse failure), `2` is `E0002`, `3` is `E0003`,
+`4` is `E0004`, `5` is `E0005` and `6` is `E0006` (a lexical failure).
 `resolve-code` spells them by prefixing `E000`.
 
 `path` is the **node path** the diagnostic is about, never a line and column:
-`m/f`, `m/test/t`, `m/0`, `a/b`, `b/0`, `dup`. It is empty only for a root
-file with no `(mod ...)` form and for an imported file that would not lex or
-parse; the driver prints the source path in the first case (see `main.md`).
+`m/f`, `m/test/t`, `m/0`, `a/b`, `b/0`, `dup`. It is empty when no node exists
+to name — a file that did not lex, and a position the parser reached no node
+for — and in that case `file`, `line` and `col` carry the failing file's own
+name and one-based position. This is the rule Python's `LogosError.location`
+states, and `main.logos` prints it the same way: the path when there is one,
+`<file>:<line>:<column>` when there is a position, and the file the caller named
+when there is neither (a root file with no `(mod ...)` form — see `main.md`).
+
+`resolve-fail` builds a path-only error and `resolve-located` one that also
+carries a position; every other function returns whichever it was given.
 
 ## The module form
 
@@ -190,9 +215,18 @@ A name neither directory answers is `E0005 unknown module '<name>'` at the
 
 The loaded file is read with `read-file`, lexed with `(lex …)` and parsed with
 `tree-parse` into fresh arenas, then resolved recursively under the expected
-name. A lexer or parser failure in an imported file is `E0001` with the
-diagnostic's message (the struct has no line/column field for another file);
-the common case is `E0002`/`E0005` above.
+name. A lexer or parser failure in an imported file is that file's own
+diagnostic, not the asker's: `E0006` at the token's line and column when
+`(lex …)` refused it, and `E0001` at the imported file's node path when the
+parser named one (`bad/f` for an unclosed form) or at its line and column when
+it did not (`unbalanced ')'`). The imported module has not opened yet, so the
+`use` node is not the location and the root's name is never printed. The common
+case is `E0002`/`E0005` above.
+
+Python's rule is the one the port follows: `logos/driver.py` lets a loader's
+diagnostic propagate unchanged, so the file it came from names it. The old port
+answered `E0001` at the root file because `resolve-error` carried only a node
+path; the struct now carries a position for exactly this case.
 
 The loaded module's **own** definitions are what merge into the asker. A
 module's imported names are visible inside it but are not part of its range, so
@@ -309,7 +343,10 @@ resolve-file
 
 Each step returns `resolve-error`; loops stop as soon as `resolve-ok` is false,
 so the first failure is the one reported and no later form is examined. Every
-diagnostic's path comes from the form it refuses, not from the file.
+diagnostic's path comes from the form it refuses, not from the asking file; the
+one exception is an imported file that would not lex or parse, whose diagnostic
+belongs to that file and names it (`resolve-load` is the only step that reads
+another file, so it is the only step that can return a located error).
 
 ## Build set
 
@@ -403,8 +440,41 @@ every resolver-owned fixture:
 | `origins/root.logos` | `dup: E0003: duplicate module 'dup': …/left/dup.logos and …/right/dup.logos` |
 | `stdlib/use-map.logos` | exit 0 — `map` comes from `src/std` |
 
-The one resolver-owned negative corpus case remains `tests/parse/unknown-node`
-(`E0002 unknown node 'wat'`). The six regress `.expect` cases with codes E0002
-or E0003 are checker diagnostics — allocation invariants, a recursive enum,
-reserved names — and the resolver accepts them; the wave's negative corpus for
-this pass is the fixture table above (Task 3 promotes them to `tests/parse/`).
+The corpus the resolve phase judges is `tests/parse/**/*.expect`, fourteen
+fixtures today: twelve resolver cases, the checker case `unknown-node`
+(`E0002 unknown node 'wat'`), and `multi-module/bad-lex` below. The six regress
+`.expect` cases with codes E0002 or E0003 are checker diagnostics — allocation
+invariants, a recursive enum, reserved names — and the resolver accepts them.
+
+### A location instead of a path
+
+An imported file that fails to lex or parse has no node path to name, so its
+diagnostic carries that file's own position. `gen2 resolve` prints one line per
+case; the imported file is `bad.logos` in each row and `bad/f` is the imported
+module's own node path:
+
+| imported source | Python | `gen2 resolve` |
+|---|---|---|
+| `(ret "unterminated))` | `E0006 bad.logos:4:8: unterminated string` | `bad.logos:4:8: E0006: unterminated string` |
+| `(ret "a\q")` | `E0006 bad.logos:4:10: unknown escape \q` | `bad.logos:4:10: E0006: unknown escape \q` |
+| an unclosed form | `E0001 bad/f: unbalanced '('` | `bad/f: E0001: unbalanced '('` |
+| a stray `)` | `E0001 bad.logos:3:1: unbalanced ')'` | `bad.logos:3:1: E0001: unbalanced ')'` |
+
+The orders differ deliberately (`main.md`): Python's `render` puts the code
+first, this entry point puts the location first. What agrees, in every row, is
+the location, the code and the message.
+
+`tests/parse/multi-module/bad-lex` pins the first row. Its sources are
+`*.logos.txt`, not `*.logos`, because `tools/accept.sh` formats every `.logos`
+file in the tree and this gate reproduces every tracked one: a source that must
+fail to lex has no legal name in the tree. The resolve phase materializes the
+directory under `build/` with the suffix dropped before `gen2` reads it, which is
+what lets the fixture exist at all.
+
+`tools/resolve_parity.py` writes every `tests/parse/**/*.expect` from the
+reference implementation, materializing a `*.logos.txt` fixture the same way, so
+the code a fixture demands cannot drift from Python's:
+
+```sh
+python3 tools/resolve_parity.py
+```

@@ -1,0 +1,2108 @@
+(mod types-test)
+
+(use lex)
+
+(use tree)
+
+(use types)
+
+(fn t-free :void ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))))
+  (vec-free tags)
+  (vec-free names)
+  (vec-free elem)
+  (vec-free extra)
+  (vec-free pbase)
+  (vec-free pnames)
+  (vec-free ptypes)
+  (vec-free pattrs)
+  (vec-free pchild)
+  (vec-free powner)
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts)
+  (vec-free dnames)
+  (vec-free dids)
+  (vec-free slot)
+  (vec-free out)
+  (vec-free vout)
+  (vec-free bnames)
+  (vec-free btypes)
+  (ret))
+
+(fn t-diag :str ((e type-error))
+  (ret (str-concat (type-code (get e code))
+         (str-concat " " (get e message)))))
+
+(fn t-join :str ((parts (ref (vec :str))))
+  (letmut whole :str "")
+  (letmut i :i64 0)
+  (while (< i (vec-len parts))
+    (set whole (str-concat whole (str-concat (if (= i 0) "" ",")
+                                   (vec-get parts i))))
+    (set i (+ i 1)))
+  (ret whole))
+
+(fn t-tree type-error ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))))
+  (if (> (vec-len nodes) 0)
+    (ret (type-pass))
+    (type-nothing))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (ret (if (tree-ok t)
+         (type-pass)
+         (type-fail 1 "" (str-concat "E0001 " (get t msg))))))
+
+(fn t-form :i64 ((nodes (ref (vec node))) (k :i64))
+  (letmut f :i64 (get (vec-get nodes 0) first))
+  (letmut i :i64 1)
+  (while (and (< i k)
+           (not (= f -1)))
+    (set f (get (vec-get nodes f) next))
+    (set i (+ i 1)))
+  (ret f))
+
+(fn t-item :i64 ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (k :i64))
+  (let form :i64 (t-form nodes k))
+  (let c2 :i64 (type-nth nodes form 1))
+  (ret (if (and (= (get (vec-get nodes c2) tok) 2)
+             (str-eq (type-node-text nodes ntexts c2) ":"))
+         (type-nth nodes form 2) c2)))
+
+(fn t-parse type-error ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (k :i64))
+  (letmut e type-error (t-tree tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes))
+  (if (not (type-ok e))
+    (ret e)
+    (type-nothing))
+  (ret (type-parse nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes (t-item nodes ntexts k) slot)))
+
+(fn t-diag-path :str ((e type-error))
+  (ret (str-concat (type-code (get e code))
+         (str-concat " " (str-concat (get e path)
+                           (str-concat " " (get e message)))))))
+
+(fn t-path :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (k :i64))
+  (letmut e type-error (t-tree tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (set e (type-parse nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes (t-item nodes ntexts k) slot))
+  (ret (if (type-ok e) "OK"
+         (t-diag-path e))))
+
+(fn t-deep :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))))
+  (letmut e type-error (t-tree tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (let fn-id :i64 (t-form nodes 2))
+  (let params :i64 (type-nth nodes fn-id 1))
+  (let param :i64 (type-nth nodes params 0))
+  (let ty :i64 (type-nth nodes param 0))
+  (set e (type-parse nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes ty slot))
+  (ret (if (type-ok e) "OK"
+         (t-diag-path e))))
+
+(fn t-push-row :void ((dnames (ref (vec :str))) (dids (ref (vec :i64))) (name :str) (id :i64))
+  (vec-push dnames name)
+  (vec-push dids id)
+  (ret))
+
+(fn t-declare :void ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (table :str))
+  (if (str-eq table "struct")
+    (t-push-row dnames dids "point" (t-struct tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "m"))
+    (type-nothing))
+  (if (str-eq table "enum")
+    (t-push-row dnames dids "parse-error" (t-enum tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "parse-error" "m"))
+    (type-nothing))
+  (ret))
+
+(fn t-struct :i64 ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (owner :str))
+  (let start :i64 (type-field-start pchild))
+  (vec-push ntexts "x")
+  (type-field pattrs pchild
+    (- (vec-len ntexts) 1)
+    (type-prim tags names elem extra pbase powner "i64"))
+  (vec-push ntexts "y")
+  (type-field pattrs pchild
+    (- (vec-len ntexts) 1)
+    (type-prim tags names elem extra pbase powner "i64"))
+  (ret (type-struct tags names elem extra pbase powner "point" owner start 2)))
+
+(fn t-enum :i64 ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (name :str) (owner :str))
+  (let start :i64 (type-field-start pchild))
+  (vec-push ntexts "ok")
+  (type-field pattrs pchild
+    (- (vec-len ntexts) 1)
+    (type-prim tags names elem extra pbase powner "i64"))
+  (vec-push ntexts "bad")
+  (type-field pattrs pchild (- (vec-len ntexts) 1) -1)
+  (ret (type-enum tags names elem extra pbase powner name owner start 2)))
+
+(fn t-spell-of :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))))
+  (letmut m type-error (type-mangle tags names elem extra pbase ptypes (vec-get slot 0) "" out))
+  (ret (if (type-ok m)
+         (vec-get out 0)
+         (t-diag m))))
+
+(fn t-body-spell :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (not (type-ok e))
+         (t-diag e)
+         (t-spell-of tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes))))
+
+(fn t-body-table :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (table :str) (table2 :str))
+  (t-declare tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes table)
+  (ret (t-body-spell tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes table table2)))
+
+(fn t-body-compat :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (let left :i64 (vec-get slot 0))
+  (vec-set slot 0 -1)
+  (set e (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 2))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (ret (if (type-compatible tags names powner elem extra pbase ptypes left (vec-get slot 0)) "true" "false")))
+
+(fn t-body-subst :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (let ty :i64 (vec-get slot 0))
+  (vec-set slot 0 -1)
+  (set e (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 2))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (vec-push bnames a)
+  (vec-push btypes (vec-get slot 0))
+  (vec-set slot 0 (type-substitute tags names elem extra pbase powner pnames ptypes bnames btypes ty))
+  (ret (t-spell-of tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)))
+
+(fn t-body-vars :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (type-variables tags names elem extra pbase ptypes (vec-get slot 0) vout)
+  (ret (t-join vout)))
+
+(fn t-body-has :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (not (type-ok e))
+         (t-diag e)
+         (if (type-has-var tags names elem extra pbase ptypes (vec-get slot 0)) "true" "false"))))
+
+(fn t-body-mangle-error :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (not (type-ok e))
+         (t-diag e)
+         (t-spell-of tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes))))
+
+(fn t-body-parse-error :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (type-ok e) "OK"
+         (t-diag e))))
+
+(fn t-body-path :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (type-ok e) "OK"
+         (t-diag-path e))))
+
+(fn t-body-text :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (letmut e type-error (t-parse tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes 1))
+  (ret (if (not (type-ok e))
+         (t-diag e)
+         (type-text tags names elem extra pbase ptypes (vec-get slot 0)))))
+
+(fn t-body-deep :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (ret (t-deep tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)))
+
+(fn t-body-decl :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (let id :i64 (t-struct tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "m"))
+  (ret (str-concat (type-decl-spelling names powner id false)
+         (str-concat " " (type-decl-spelling names powner id true)))))
+
+(fn t-body-fields :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (let id :i64 (t-struct tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "m"))
+  (ret (str-concat (str-from-i64 (type-field-count extra id))
+         (str-concat " " (str-concat (type-field-name ntexts pattrs pbase id 0)
+                           (str-concat " " (str-concat (type-field-name ntexts pattrs pbase id 1)
+                                             (str-concat " " (type-spell tags names elem extra pbase ptypes (type-field-type pchild pbase id 0))))))))))
+
+(fn t-body-variant :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (let id :i64 (t-enum tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "parse-error" "m"))
+  (ret (str-concat (str-from-i64 (type-field-count extra id))
+         (str-concat " " (str-concat (type-field-name ntexts pattrs pbase id 1)
+                           (str-concat " " (str-from-i64 (type-field-type pchild pbase id 1))))))))
+
+(fn t-body-owner :str ((tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pattrs (ref (vec :i64))) (pchild (ref (vec :i64))) (powner (ref (vec :str))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (slot (ref (vec :i64))) (out (ref (vec :str))) (vout (ref (vec :str))) (bnames (ref (vec :str))) (btypes (ref (vec :i64))) (a :str) (b :str))
+  (let left :i64 (t-struct tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "left"))
+  (let right :i64 (t-struct tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "right"))
+  (ret (str-concat (if (type-compatible tags names powner elem extra pbase ptypes left right) "true" "false")
+         (str-concat " " (str-concat (type-spell tags names elem extra pbase ptypes left)
+                           (str-concat " " (str-concat (type-spell tags names elem extra pbase ptypes right)
+                                             (str-concat " " (if (type-compatible tags names powner elem extra pbase ptypes left left) "true" "false")))))))))
+
+(fn t-spell :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-spell tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-spell-table :void ((src :str) (mode :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-table tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes mode ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-compat :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-compat tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-subst :void ((src :str) (var :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-subst tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes var ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-vars :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-vars tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-has :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-has tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-mangle-error :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-mangle-error tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-parse-error :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-parse-error tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-parse-path :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-path tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-text :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-text tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-parse-deep :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-deep tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-decl :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-decl tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-fields :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-fields tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-variant :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-variant tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(fn t-owner :void ((src :str))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut names
+    (vec :str)
+    (make (vec :str)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut ptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pattrs
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut dids
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut slot
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut vout
+    (vec :str)
+    (make (vec :str)))
+  (letmut bnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut btypes
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push slot -1)
+  (letmut line :str "")
+  (let lexed lex-error (lex src kinds texts lines cols))
+  (if (lex-ok lexed)
+    (set line (t-body-owner tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes "" ""))
+    (set line (str-concat "E0006 " (get lexed msg))))
+  (t-free tags names elem extra pbase pnames ptypes pattrs pchild powner kinds texts lines cols nodes ntexts dnames dids slot out vout bnames btypes)
+  (println line))
+
+(test parity-01-prim-i8
+  (expect (out "i8\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :i8 0)"))
+
+(test parity-02-prim-i16
+  (expect (out "i16\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :i16 0)"))
+
+(test parity-03-prim-i32
+  (expect (out "i32\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :i32 0)"))
+
+(test parity-04-prim-i64
+  (expect (out "i64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :i64 0)"))
+
+(test parity-05-prim-u8
+  (expect (out "u8\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :u8 0)"))
+
+(test parity-06-prim-u16
+  (expect (out "u16\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :u16 0)"))
+
+(test parity-07-prim-u32
+  (expect (out "u32\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :u32 0)"))
+
+(test parity-08-prim-u64
+  (expect (out "u64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :u64 0)"))
+
+(test parity-09-prim-f32
+  (expect (out "f32\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :f32 0)"))
+
+(test parity-10-prim-f64
+  (expect (out "f64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :f64 0)"))
+
+(test parity-11-prim-bool
+  (expect (out "bool\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :bool 0)"))
+
+(test parity-12-prim-str
+  (expect (out "str\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :str 0)"))
+
+(test parity-13-prim-void
+  (expect (out "void\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :void 0)"))
+
+(test parity-14-prim-thread
+  (expect (out "thread\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :thread 0)"))
+
+(test parity-15-prim-mutex
+  (expect (out "mutex\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :mutex 0)"))
+
+(test parity-16-prim-run
+  (expect (out "run\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :run 0)"))
+
+(test parity-17-vec-str
+  (expect (out "vec(str)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(vec :str) 0)"))
+
+(test parity-18-vec-vec-i64
+  (expect (out "vec(vec(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(vec (vec :i64)) 0)"))
+
+(test parity-19-vec-ptr-u8
+  (expect (out "vec(ptr(u8))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(vec (ptr :u8)) 0)"))
+
+(test parity-20-vec-arr
+  (expect (out "vec(arr(i64,4))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(vec (arr :i64 4)) 0)"))
+
+(test parity-21-ptr-point
+  (expect (out "ptr(s5_point)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(ptr point) 0)" "struct"))
+
+(test parity-22-ptr-vec
+  (expect (out "ptr(vec(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(ptr (vec :i64)) 0)"))
+
+(test parity-23-ptr-ptr-point
+  (expect (out "ptr(ptr(s5_point))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(ptr (ptr point)) 0)" "struct"))
+
+(test parity-24-own-point
+  (expect (out "own(s5_point)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(own point) 0)" "struct"))
+
+(test parity-25-own-vec
+  (expect (out "own(vec(str))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(own (vec :str)) 0)"))
+
+(test parity-26-arr-i64-4
+  (expect (out "arr(i64,4)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(arr :i64 4) 0)"))
+
+(test parity-27-arr-vec-2
+  (expect (out "arr(vec(i64),2)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(arr (vec :i64) 2) 0)"))
+
+(test parity-28-arr-arr
+  (expect (out "arr(arr(i64,3),2)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(arr (arr :i64 3) 2) 0)"))
+
+(test parity-29-arr-ptr-point
+  (expect (out "arr(ptr(s5_point),8)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(arr (ptr point) 8) 0)" "struct"))
+
+(test parity-30-arr-len-0
+  (expect (out "arr(bool,0)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(arr :bool 0) 0)"))
+
+(test parity-31-opt-point
+  (expect (out "opt(s5_point)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(opt point) 0)" "struct"))
+
+(test parity-32-opt-vec
+  (expect (out "opt(vec(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(opt (vec :i64)) 0)"))
+
+(test parity-33-opt-own-point
+  (expect (out "opt(own(s5_point))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(opt (own point)) 0)" "struct"))
+
+(test parity-34-res-i64-enum
+  (expect (out "res(i64,e11_parse_x2derror)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(res :i64 parse-error) 0)" "enum"))
+
+(test parity-35-res-vec-e
+  (expect (out "res(vec(i64),s1_e)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(res (vec :i64) e) 0)"))
+
+(test parity-36-res-i64-vec
+  (expect (out "res(i64,vec(str))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(res :i64 (vec :str)) 0)"))
+
+(test parity-37-res-opt-vec
+  (expect (out "res(opt(i64),vec(s5_point))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(res (opt :i64) (vec point)) 0)" "struct"))
+
+(test parity-38-shared-chan-point
+  (expect (out "shared(chan(s5_point))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(shared (chan point)) 0)" "struct"))
+
+(test parity-39-shared-atomic
+  (expect (out "shared(atomic(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(shared (atomic :i64)) 0)"))
+
+(test parity-40-chan-str
+  (expect (out "chan(str)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(chan :str) 0)"))
+
+(test parity-41-chan-vec-u8
+  (expect (out "chan(vec(u8))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(chan (vec :u8)) 0)"))
+
+(test parity-42-atomic-i64
+  (expect (out "atomic(i64)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(atomic :i64) 0)"))
+
+(test parity-43-atomic-bool
+  (expect (out "atomic(bool)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(atomic :bool) 0)"))
+
+(test parity-44-fn-two
+  (expect (out "fn(i64,str)i64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(fn (:i64 :str) :i64) 0)"))
+
+(test parity-45-fn-capture
+  (expect (out "fn*(s5_point)void\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(fn* (point) :void) 0)" "struct"))
+
+(test parity-46-fn-empty
+  (expect (out "fn()void\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(fn () :void) 0)"))
+
+(test parity-47-fn-vec
+  (expect (out "fn(vec(i64))vec(i64)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(fn ((vec :i64)) (vec :i64)) 0)"))
+
+(test parity-48-fn-higher
+  (expect (out "fn(fn(i64)i64)fn(i64)i64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(fn ((fn (:i64) :i64)) (fn (:i64) :i64)) 0)"))
+
+(test parity-49-fn-named-return
+  (expect (out "fn(i64)s5_point\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(fn (:i64) point) 0)" "struct"))
+
+(test parity-50-fn-named-return-two
+  (expect (out "fn(i64,s5_point)s5_point\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(fn (:i64 point) point) 0)" "struct"))
+
+(test parity-51-fn-marker-param
+  (expect (out "fn(vec(i64))i64\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(fn (:(vec :i64)) :i64) 0)"))
+
+(test parity-52-struct-ref
+  (expect (out "s5_point\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a point 0)" "struct"))
+
+(test parity-53-enum-ref
+  (expect (out "e11_parse_x2derror\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a parse-error 0)" "enum"))
+
+(test parity-54-struct-named-i64
+  (expect (out "ptr(s3_i64)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(ptr i64) 0)"))
+
+(test parity-55-vec-enum
+  (expect (out "vec(e11_parse_x2derror)\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(vec parse-error) 0)" "enum"))
+
+(test parity-56-res-enum-vec
+  (expect (out "res(e11_parse_x2derror,vec(e11_parse_x2derror))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(res parse-error (vec parse-error)) 0)" "enum"))
+
+(test parity-57-ref-vec
+  (expect (out "ref(vec(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell "(let a :(ref (vec :i64)) 0)"))
+
+(test parity-58-ref-vec-point
+  (expect (out "ref(vec(s5_point))\n")
+    (code 0)
+    (leaks 0))
+  (t-spell-table "(let a :(ref (vec point)) 0)" "struct"))
+
+(test text-01-text-prim
+  (expect (out ":i64\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :i64 0)"))
+
+(test text-02-text-ptr
+  (expect (out "(ptr point)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(ptr point) 0)"))
+
+(test text-03-text-own
+  (expect (out "(own (vec :str))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(own (vec :str)) 0)"))
+
+(test text-04-text-arr
+  (expect (out "(arr (ptr point) 8)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(arr (ptr point) 8) 0)"))
+
+(test text-05-text-arr-zero
+  (expect (out "(arr :bool 0)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(arr :bool 0) 0)"))
+
+(test text-06-text-vec
+  (expect (out "(vec (vec :i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(vec (vec :i64)) 0)"))
+
+(test text-07-text-ref
+  (expect (out "(ref (vec point))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(ref (vec point)) 0)"))
+
+(test text-08-text-res
+  (expect (out "(res (opt :i64) (vec point))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(res (opt :i64) (vec point)) 0)"))
+
+(test text-09-text-opt
+  (expect (out "(opt (own point))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(opt (own point)) 0)"))
+
+(test text-10-text-fn
+  (expect (out "(fn (:i64 :str) point)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(fn (:i64 :str) point) 0)"))
+
+(test text-11-text-fn-capture
+  (expect (out "(fn* (point) :void)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(fn* (point) :void) 0)"))
+
+(test text-12-text-fn-empty
+  (expect (out "(fn () :void)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(fn () :void) 0)"))
+
+(test text-13-text-shared
+  (expect (out "(shared (chan point))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(shared (chan point)) 0)"))
+
+(test text-14-text-chan
+  (expect (out "(chan (vec :u8))\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(chan (vec :u8)) 0)"))
+
+(test text-15-text-atomic
+  (expect (out "(atomic :bool)\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a :(atomic :bool) 0)"))
+
+(test text-16-text-struct
+  (expect (out "point\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a point 0)"))
+
+(test text-17-text-enum
+  (expect (out "parse-error\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a parse-error 0)"))
+
+(test text-18-text-var
+  (expect (out "T\n")
+    (code 0)
+    (leaks 0))
+  (t-text "(let a T 0)"))
+
+(test compat-vec-same
+  (expect (out "true\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a :(vec :i64) 0)(let b :(vec :i64) 0)"))
+
+(test compat-width
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a :(vec :i64) 0)(let b :(vec :i32) 0)"))
+
+(test compat-arr-length
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a :(arr :i64 4) 0)(let b :(arr :i64 5) 0)"))
+
+(test compat-fn-captures
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a :(fn (:i64) :i64) 0)(let b :(fn* (:i64) :i64) 0)"))
+
+(test compat-fn-param-order
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a :(fn (:i64 :str) :i64) 0)(let b :(fn (:str :i64) :i64) 0)"))
+
+(test compat-var-same
+  (expect (out "true\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a T 0)(let b T 0)"))
+
+(test compat-var-different
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a T 0)(let b U 0)"))
+
+(test compat-var-is-not-a-wildcard
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-compat "(let a T 0)(let b :i64 0)"))
+
+(test compat-owner
+  (expect (out "false s5_point s5_point true\n")
+    (code 0)
+    (leaks 0))
+  (t-owner ""))
+
+(test subst-vector
+  (expect (out "vec(vec(i64))\n")
+    (code 0)
+    (leaks 0))
+  (t-subst "(let a :(vec T) 0)(let b :(vec :i64) 0)" "T"))
+
+(test subst-fn
+  (expect (out "fn(vec(str))str\n")
+    (code 0)
+    (leaks 0))
+  (t-subst "(let a :(fn ((vec T)) T) 0)(let b :str 0)" "T"))
+
+(test subst-leaves-unbound
+  (expect (out "E0501 type variable U cannot be a type argument\n")
+    (code 0)
+    (leaks 0))
+  (t-subst "(let a :(vec U) 0)(let b :i64 0)" "T"))
+
+(test vars-params-before-return
+  (expect (out "U,V,T\n")
+    (code 0)
+    (leaks 0))
+  (t-vars "(let a :(fn ((vec U) :V) :T) 0)"))
+
+(test vars-nested
+  (expect (out "T,U\n")
+    (code 0)
+    (leaks 0))
+  (t-vars "(let a :(res T (vec U)) 0)"))
+
+(test has-var-yes
+  (expect (out "true\n")
+    (code 0)
+    (leaks 0))
+  (t-has "(let a :(res T :i64) 0)"))
+
+(test has-var-no
+  (expect (out "false\n")
+    (code 0)
+    (leaks 0))
+  (t-has "(let a :(res :i64 (vec :str)) 0)"))
+
+(test mangle-var-error
+  (expect (out "E0501 type variable T cannot be a type argument\n")
+    (code 0)
+    (leaks 0))
+  (t-mangle-error "(let a :(vec T) 0)"))
+
+(test parse-unknown-primitive
+  (expect (out "E0101 unknown type ':nope'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :nope 0)"))
+
+(test parse-unknown-form
+  (expect (out "E0101 unknown type form 'wat'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(wat :i64) 0)"))
+
+(test parse-ref-non-vector
+  (expect (out "E0100 a ref may name a vector only\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(ref :i64) 0)"))
+
+(test parse-arr-length-name
+  (expect (out "E0101 an array length must be a non-negative integer\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(arr :i64 x) 0)"))
+
+(test parse-arr-length-negative
+  (expect (out "E0101 an array length must be a non-negative integer\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(arr :i64 -1) 0)"))
+
+(test parse-empty-list
+  (expect (out "E0101 expected a type, found an empty list\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :() 0)"))
+
+(test parse-arity
+  (expect (out "E0101 vec takes one element type\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(vec) 0)"))
+
+(test parse-number
+  (expect (out "E0101 expected a type, found number\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a 42 0)"))
+
+(test parse-string
+  (expect (out "E0101 expected a type, found string\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a \"s\" 0)"))
+
+(test parse-fn-decl-shape
+  (expect (out "E0101 a function type needs a parameter list\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(fn :i64 ((a :i64))) 0)"))
+
+(test parse-fn-named
+  (expect (out "E0101 a function type needs a parameter list\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(fn point ((a :i64))) 0)"))
+
+(test parse-fn-arity
+  (expect (out "E0101 fn takes a parameter list and a return type\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(fn (:i64)) 0)"))
+
+(test parse-fn-dangling-marker
+  (expect (out "E0101 expected a type after ':'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "(let a :(fn (:) :i64) 0)"))
+
+(test parse-path-nested
+  (expect (out "E0101 0/2/0 unknown type ':nope'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-path "(let a :(vec (vec :nope)) 0)"))
+
+(test parse-path-token
+  (expect (out "E0101 0/2 unknown type ':nope'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-path "(let a :(fn (:nope) :i64) 0)"))
+
+(test parse-path-innermost
+  (expect (out "E0101 m/f/1/0/0/0 unknown type ':nope'\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-deep "(mod m)(fn f :void ((a (vec (vec :nope)))) (ret))"))
+
+(test decl-spelling
+  (expect (out "point m.point\n")
+    (code 0)
+    (leaks 0))
+  (t-decl ""))
+
+(test struct-fields
+  (expect (out "2 x y i64\n")
+    (code 0)
+    (leaks 0))
+  (t-fields ""))
+
+(test enum-payloadless-variant
+  (expect (out "2 bad -1\n")
+    (code 0)
+    (leaks 0))
+  (t-variant ""))

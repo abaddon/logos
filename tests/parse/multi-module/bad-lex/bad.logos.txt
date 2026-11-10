@@ -1,0 +1,4 @@
+(mod bad)
+
+(fn f :str ()
+  (ret "unterminated))

@@ -459,10 +459,12 @@ def substitute(ty: Ty, bindings: dict[str, Ty]) -> Ty:
 def typevars(ty: Ty) -> list[str]:
     """Every type variable in ``ty``, in the order it first appears.
 
-    Order matters because it is the order a monomorphised copy spells its type
-    arguments in: ``(fn map :(vec U) ((a :(vec T)) ...))`` names its copies
-    ``map$T$U`` order, read from the return type first and then the
-    parameters left to right.
+    A function type is walked **parameters left to right, then the return
+    type**. That is the order this function returns and the order a test pins;
+    it is not the order a copy spells its type arguments in. That order is the
+    caller's: the signature reader in :mod:`logos.check` takes
+    ``typevars(ret)`` first and then folds the parameters in, so it does not
+    use this list as-is.
     """
     found: list[str] = []
 

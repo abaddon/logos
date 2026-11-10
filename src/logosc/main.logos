@@ -8,6 +8,8 @@
 
 (use resolve)
 
+(use check)
+
 (extern fn rt_write :i64 ((fd :i64) (text :str)))
 
 (fn main-write :void ((s :str))
@@ -15,7 +17,7 @@
   (ret))
 
 (fn main-usage :i64 ()
-  (main-write "usage: gen2 <fmt|resolve> <file>\n")
+  (main-write "usage: gen2 <fmt|resolve|check> <file>\n")
   (ret 2))
 
 (fn main-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
@@ -31,9 +33,17 @@
   (main-write "\n")
   (ret 2))
 
+(fn main-at :str ((path :str) (file :str) (line :i64) (col :i64) (fallback :str))
+  (ret (if (not (str-eq path "")) path
+         (if (not (str-eq file ""))
+           (str-concat file (str-concat ":" (str-concat (str-from-i64 line)
+                                              (str-concat ":" (str-from-i64 col))))) fallback))))
+
 (fn main-resolve-diag :i64 ((file :str) (e resolve-error))
-  (let at :str (get e path))
-  (main-write (if (str-eq at "") file at))
+  (main-write (main-at (get e path)
+                (get e file)
+                (get e line)
+                (get e col) file))
   (main-write ": ")
   (main-write (resolve-code (get e code)))
   (main-write ": ")
@@ -50,12 +60,45 @@
   (fmt nodes ntexts)
   (ret 0))
 
+(fn main-check-diag :i64 ((file :str) (e check-error))
+  (let at :str (get e path))
+  (main-write (if (str-eq at "") file at))
+  (main-write ": ")
+  (main-write (check-code (get e code)))
+  (main-write ": ")
+  (main-write (get e message))
+  (main-write "\n")
+  (ret 2))
+
+(fn main-checked-run :i64 ((file :str) (mods (ref (vec resolve-mod))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let e check-error (check-file mods nodes ntexts))
+  (ret (if (check-ok e) 0
+         (main-check-diag file e))))
+
+(fn main-checked :i64 ((file :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (letmut defs
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (let e resolve-error (resolve-set nodes ntexts file defs mods))
+  (letmut status :i64 0)
+  (if (resolve-ok e)
+    (set status (main-checked-run file mods nodes ntexts))
+    (set status (main-resolve-diag file e)))
+  (vec-free defs)
+  (vec-free mods)
+  (ret status))
+
 (fn main-tree :i64 ((verb :str) (path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (ret (if (tree-ok t)
          (if (str-eq verb "resolve")
            (main-resolved path nodes ntexts)
-           (main-print nodes ntexts))
+           (if (str-eq verb "check")
+             (main-checked path nodes ntexts)
+             (main-print nodes ntexts)))
          (main-diag path "E0001"
            (get t line)
            (get t col)
@@ -102,7 +145,8 @@
 (fn main-args :i64 ((a (ref (vec :str))))
   (ret (if (= (vec-len a) 3)
          (if (or (str-eq (vec-get a 1) "fmt")
-               (str-eq (vec-get a 1) "resolve"))
+               (or (str-eq (vec-get a 1) "resolve")
+                 (str-eq (vec-get a 1) "check")))
            (main-run (vec-get a 1)
              (vec-get a 2))
            (main-usage))
