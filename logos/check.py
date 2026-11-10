@@ -1723,8 +1723,10 @@ class _Checker:
 
         A type variable in a signature is what declares it: there is no
         separate parameter list, so the signature is read with every variable
-        accepted, and the ones it mentions — return type first, then the
-        parameters left to right — become the copy's type arguments.
+        accepted. This is also where a copy's type-argument order is fixed:
+        the return type's variables first, then the parameters left to right.
+        :func:`logos.types.typevars` walks a type parameter-first, so this
+        order is built here rather than taken from that walk.
         """
         name = node.name
         if name is None or name.startswith(":"):
