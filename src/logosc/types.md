@@ -64,7 +64,7 @@ Ten parallel vectors, all the caller's:
 | `elem` | `:i64` | type node: the first child type id, `-1` when none |
 | `extra` | `:i64` | type node: the second child or the count (below) |
 | `pbase` | `:i64` | type node: the first row of its payload run, `-1` when none |
-| `pnames` | `:str` | `fn` parameter: its name |
+| `pnames` | `:str` | `fn` parameter: its name; `parse-type` always writes `""`, because the type form has no names |
 | `ptypes` | `:i64` | `fn` parameter: its type id |
 | `pattrs` | `:i64` | `struct`/`enum` field or variant: the field name's **text id** in `ntexts` |
 | `pchild` | `:i64` | `struct`/`enum` field or variant: its type id, `-1` for a payload-less variant |
