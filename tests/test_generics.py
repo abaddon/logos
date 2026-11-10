@@ -30,6 +30,7 @@ from logos.resolve import resolve
 from logos.types import (
     FnTy,
     Prim,
+    Ref,
     StructRef,
     TypeVar,
     Vec,
@@ -153,6 +154,16 @@ class TypeSubstitutionTest(unittest.TestCase):
         self.assertNotEqual(left, right)
         self.assertEqual(left, "f$s3_a_x2db")
         self.assertEqual(right, "f$s6_a_x2db")
+
+    def test_a_ref_is_a_legal_type_argument(self):
+        # A generic called from a function that holds a ref binds its variable
+        # to ``(ref (vec T))``; without a ``Ref`` branch that call was E0101
+        # "cannot mangle", though the type is legal and parses.
+        self.assertEqual(mangle_type(Ref(Vec(Prim("i64")))), "ref(vec(i64))")
+        self.assertEqual(
+            mangle_instance("keep", (Ref(Vec(StructRef("point"))),)),
+            "keep$ref(vec(s5_point))",
+        )
 
     def test_a_type_variable_cannot_be_mangled(self):
         with self.assertRaises(LogosError) as caught:

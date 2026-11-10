@@ -129,6 +129,7 @@ tests/regress/multi-module/util.logos
 tests/regress/owner-place-read.logos
 tests/regress/print-small-numbers.logos
 tests/regress/recursive-enum.logos
+tests/regress/ref-as-type-argument.logos
 tests/regress/ref-channel-element.logos
 tests/regress/ref-escape-send.logos
 tests/regress/ref-escape-spawn.logos

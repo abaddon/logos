@@ -570,6 +570,11 @@ def mangle_type(ty: Ty, where: str = "") -> str:
         return f"own({mangle_type(ty.elem, where)})"
     if isinstance(ty, Vec):
         return f"vec({mangle_type(ty.elem, where)})"
+    if isinstance(ty, Ref):
+        # A ref is a legal type argument — a generic function called from one
+        # that holds a ref binds its variable to this type — so it spells like
+        # the other wrappers. Without this branch it was E0101 "cannot mangle".
+        return f"ref({mangle_type(ty.elem, where)})"
     if isinstance(ty, Arr):
         return f"arr({mangle_type(ty.elem, where)},{ty.n})"
     if isinstance(ty, Opt):

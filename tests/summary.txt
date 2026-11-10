@@ -213,6 +213,7 @@ PASS regress/multi-module/program/program -
 PASS regress/owner-place-read -
 PASS regress/print-small-numbers/every-small-width -
 PASS regress/recursive-enum -
+PASS regress/ref-as-type-argument/a-ref-argument-instantiates-a-generic -
 PASS regress/ref-channel-element -
 PASS regress/ref-escape-send -
 PASS regress/ref-escape-spawn -
