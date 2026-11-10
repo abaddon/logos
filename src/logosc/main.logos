@@ -33,9 +33,17 @@
   (main-write "\n")
   (ret 2))
 
+(fn main-at :str ((path :str) (file :str) (line :i64) (col :i64) (fallback :str))
+  (ret (if (not (str-eq path "")) path
+         (if (not (str-eq file ""))
+           (str-concat file (str-concat ":" (str-concat (str-from-i64 line)
+                                              (str-concat ":" (str-from-i64 col))))) fallback))))
+
 (fn main-resolve-diag :i64 ((file :str) (e resolve-error))
-  (let at :str (get e path))
-  (main-write (if (str-eq at "") file at))
+  (main-write (main-at (get e path)
+                (get e file)
+                (get e line)
+                (get e col) file))
   (main-write ": ")
   (main-write (resolve-code (get e code)))
   (main-write ": ")

@@ -75,16 +75,30 @@ and exits 0. On a resolver diagnostic it prints exactly one line to stderr and
 exits 2:
 
 ```
-<path>: <CODE>: <message>
+<location>: <CODE>: <message>
 ```
 
-`<path>` is the node path the resolver named — `m/f`, `m/test/t`, `m/0`,
-`a/b`, or `b/0` for a cycle — or the source file when the diagnostic has no
-node behind it, which is only a file with no `(mod ...)` form. The codes are
-`E0002` (unknown node / malformed form), `E0003` (duplicate definition,
-duplicate module), `E0004` (circular import) and `E0005` (unknown module, or a
-module that declares another name). `resolve` stops before the checker, so a
-file with a type error resolves and exits 0.
+`<location>` is the node path the resolver named — `m/f`, `m/test/t`, `m/0`,
+`a/b`, or `b/0` for a cycle — or the source position of a diagnostic that has no
+node behind it:
+
+| location | when |
+|---|---|
+| the node path | the resolver refused a form it had a path for |
+| `<file>:<line>:<column>` | an imported file the lexer or parser refused, so the position is that file's own |
+| the file the caller named | a root file with no `(mod ...)` form |
+
+The three cases are `LogosError.location`'s, in Python's order: a node path if
+there is one, a source position if not, and nothing when neither exists. The
+position is the imported file's, never the asking file's, because the diagnostic
+belongs to the file that failed to parse. `main-at` is the one function that
+decides this.
+
+The codes are `E0001` (an imported file the parser refused), `E0006` (an
+imported file the lexer refused), `E0002` (unknown node / malformed form),
+`E0003` (duplicate definition, duplicate module), `E0004` (circular import) and
+`E0005` (unknown module, or a module that declares another name). `resolve`
+stops before the checker, so a file with a type error resolves and exits 0.
 
 `gen2 check` lexes, parses and resolves the file exactly as `resolve` does,
 then builds `gen2`'s own module set from the resolver's answer and runs
@@ -116,6 +130,7 @@ exact boundary.
 | `main-print nodes ntexts` | `:i64` | run `fmt` and return 0 |
 | `main-resolved file nodes ntexts` | `:i64` | run `resolve-file` and return 0 or the diagnostic |
 | `main-resolve-diag file e` | `:i64` | print one resolver diagnostic and return 2 |
+| `main-at path file line col fallback` | `:str` | the diagnostic's location: path, `file:line:col`, or `fallback` |
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
@@ -141,9 +156,9 @@ and the emitted `main` hands it to the C entry point, so the process exits with
 - nothing else. `read-file` returns a buffer the runtime owns for the process's
   life, and `fmt` allocates nothing, so no other `free` is owed.
 
-The error values are structs, not allocations: `lex-error` and `tree-error`
-carry a `:str` message that is a literal or a slice of the source, so reporting
-one costs no allocation either.
+The error values are structs, not allocations: `lex-error`, `tree-error` and
+`resolve-error` carry a `:str` message that is a literal or a slice of the
+source, so reporting one costs no allocation either.
 
 ## Building it
 
