@@ -4,10 +4,10 @@
 The parity half of the file is not transcribed by hand. Every row below names a
 Logos source spelling and the ``logos.types`` value it stands for; the expected
 text is whatever ``logos.check.mangle_type`` prints for that value, so the Logos
-port is compared with the reference on the day the file is written. Rows the
-reference cannot spell (``(ref …)``: ``mangle_type`` has no ``Ref`` branch) are
-listed separately; the table records the reference's diagnostic and the port's
-spelling.
+port is compared with the reference on the day the file is written. Before a
+row is written it is parsed with the reference's own ``parse_type`` and must
+land on the row's value, so a row whose source the reference refuses — or reads
+as a different type — fails the generator instead of producing a green line.
 
 The generated file is formatted with ``python3 -m logos fmt`` before this
 script returns, so the output is a fixed point of the formatter.
@@ -26,6 +26,8 @@ sys.path.insert(0, str(ROOT))
 
 from logos.check import mangle_type  # noqa: E402
 from logos.diag import LogosError  # noqa: E402
+from logos.nodes import Node  # noqa: E402
+from logos.parser import parse  # noqa: E402
 from logos.types import (  # noqa: E402
     Arr,
     Atomic,
@@ -40,7 +42,9 @@ from logos.types import (  # noqa: E402
     Res,
     Shared,
     StructRef,
+    TypeVar,
     Vec,
+    parse_type,
 )
 
 I = Prim("i64")
@@ -102,31 +106,26 @@ ROWS = [
     ("chan-vec-u8", "(chan (vec :u8))", "", Chan(Vec(Prim("u8")))),
     ("atomic-i64", "(atomic :i64)", "", Atomic(I)),
     ("atomic-bool", "(atomic :bool)", "", Atomic(Prim("bool"))),
-    ("fn-two", "(fn :i64 ((a :i64) (b :str)))", "", fn([I, S], I)),
-    ("fn-capture", "(fn* :void ((a point)))", "struct", fn([POINT], VOID, True)),
-    ("fn-empty", "(fn :void ())", "", fn([], VOID)),
-    ("fn-vec", "(fn (vec :i64) ((v (vec :i64))))", "", fn([Vec(I)], Vec(I))),
+    ("fn-two", "(fn (:i64 :str) :i64)", "", fn([I, S], I)),
+    ("fn-capture", "(fn* (point) :void)", "struct", fn([POINT], VOID, True)),
+    ("fn-empty", "(fn () :void)", "", fn([], VOID)),
+    ("fn-vec", "(fn ((vec :i64)) (vec :i64))", "", fn([Vec(I)], Vec(I))),
     (
         "fn-higher",
-        "(fn (fn :i64 ((a :i64))) ((f (fn :i64 ((a :i64))))))",
+        "(fn ((fn (:i64) :i64)) (fn (:i64) :i64))",
         "",
         fn([fn([I], I)], fn([I], I)),
     ),
-    ("fn-named-return", "(fn point ((a :i64)))", "struct", fn([I], POINT)),
-    ("fn-named-return-two", "(fn point ((a :i64) (b point)))", "struct", fn([I, POINT], POINT)),
+    ("fn-named-return", "(fn (:i64) point)", "struct", fn([I], POINT)),
+    ("fn-named-return-two", "(fn (:i64 point) point)", "struct", fn([I, POINT], POINT)),
+    ("fn-marker-param", "(fn (:(vec :i64)) :i64)", "", fn([Vec(I)], I)),
     ("struct-ref", "point", "struct", POINT),
     ("enum-ref", "parse-error", "enum", PARSE),
     ("struct-named-i64", "(ptr i64)", "", Ptr(StructRef("i64"))),
     ("vec-enum", "(vec parse-error)", "enum", Vec(PARSE)),
     ("res-enum-vec", "(res parse-error (vec parse-error))", "enum", Res(PARSE, Vec(PARSE))),
-]
-
-#: Rows the reference's ``mangle_type`` cannot spell: it has no ``Ref`` branch,
-#: so a legal ``(ref (vec T))`` is E0101 "cannot mangle". The port spells it the
-#: way the other unary wrappers spell theirs.
-REF_ROWS = [
-    ("ref-vec", "(ref (vec :i64))", "", Ref(Vec(I)), "ref(vec(i64))"),
-    ("ref-vec-point", "(ref (vec point))", "struct", Ref(Vec(POINT)), "ref(vec(s5_point))"),
+    ("ref-vec", "(ref (vec :i64))", "", Ref(Vec(I))),
+    ("ref-vec-point", "(ref (vec point))", "struct", Ref(Vec(POINT))),
 ]
 
 ARENA = [
@@ -254,7 +253,7 @@ PRELUDE = (
   (let form :i64 (t-form nodes k))
   (let c2 :i64 (type-nth nodes form 1))
   (ret (if (and (= (get (vec-get nodes c2) tok) 2)
-             (str-eq (type-text nodes ntexts c2) ":"))
+             (str-eq (type-node-text nodes ntexts c2) ":"))
          (type-nth nodes form 2)
          c2)))
 
@@ -268,7 +267,42 @@ PRELUDE = (
     (ret e)
     (type-nothing))
   (ret (type-parse nodes ntexts dnames dids tags names elem extra pbase powner
-         pnames ptypes (t-item nodes ntexts k) "" slot)))
+         pnames ptypes (t-item nodes ntexts k) slot)))
+
+(fn t-diag-path :str ((e type-error))
+  (ret (str-concat (type-code (get e code))
+         (str-concat " " (str-concat (get e path)
+                        (str-concat " " (get e message)))))))
+
+(fn t-path :str ("""
+    + ARGS
+    + """ (k :i64))
+  (letmut e type-error (t-tree """
+    + CALL
+    + """))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (set e (type-parse nodes ntexts dnames dids tags names elem extra pbase powner
+           pnames ptypes (t-item nodes ntexts k) slot))
+  (ret (if (type-ok e) "OK" (t-diag-path e))))
+
+(fn t-deep :str ("""
+    + ARGS
+    + """)
+  (letmut e type-error (t-tree """
+    + CALL
+    + """))
+  (if (not (type-ok e))
+    (ret (t-diag e))
+    (type-nothing))
+  (let fn-id :i64 (t-form nodes 2))
+  (let params :i64 (type-nth nodes fn-id 1))
+  (let param :i64 (type-nth nodes params 0))
+  (let ty :i64 (type-nth nodes param 0))
+  (set e (type-parse nodes ntexts dnames dids tags names elem extra pbase powner
+           pnames ptypes ty slot))
+  (ret (if (type-ok e) "OK" (t-diag-path e))))
 
 (fn t-push-row :void ((dnames (ref (vec :str))) (dids (ref (vec :i64))) (name :str) (id :i64))
   (vec-push dnames name)
@@ -436,6 +470,21 @@ BODY = (
     + """ 1))
   (ret (if (type-ok e) "OK" (t-diag e))))
 
+(fn t-body-path :str ("""
+    + ARGS
+    + """ (a :str) (b :str))
+  (letmut e type-error (t-parse """
+    + CALL
+    + """ 1))
+  (ret (if (type-ok e) "OK" (t-diag-path e))))
+
+(fn t-body-deep :str ("""
+    + ARGS
+    + """ (a :str) (b :str))
+  (ret (t-deep """
+    + CALL
+    + """)))
+
 (fn t-body-decl :str ("""
     + ARGS
     + """ (a :str) (b :str))
@@ -503,6 +552,8 @@ ENTRIES = [
     ("t-has", "", ' "" ""', "t-body-has"),
     ("t-mangle-error", "", ' "" ""', "t-body-mangle-error"),
     ("t-parse-error", "", ' "" ""', "t-body-parse-error"),
+    ("t-parse-path", "", ' "" ""', "t-body-path"),
+    ("t-parse-deep", "", ' "" ""', "t-body-deep"),
     ("t-decl", "", ' "" ""', "t-body-decl"),
     ("t-fields", "", ' "" ""', "t-body-fields"),
     ("t-variant", "", ' "" ""', "t-body-variant"),
@@ -549,6 +600,41 @@ def test(name: str, call: str, expected: str) -> str:
     )
 
 
+NESTED = source("(vec (vec :nope))")
+TOKEN = source("(fn (:nope) :i64)")
+DEEP = "(mod m)(fn f :void ((a (vec (vec :nope)))) (ret))"
+
+
+def _forms(src: str) -> list[Node]:
+    return [item for item in parse(src, "<path>").items if isinstance(item, Node)]
+
+
+def _of_kind(node: Node, kind: str) -> Node:
+    return next(
+        item for item in node.items if isinstance(item, Node) and item.kind == kind
+    )
+
+
+def _nested_path() -> str:
+    """The inner ``(vec …)`` of the nested case, which is where Python fails."""
+    outer = _of_kind(_forms(NESTED)[0], "vec")
+    return _of_kind(outer, "vec").path
+
+
+def _token_path() -> str:
+    """A bad token fails at the enclosing form — the ``fn`` type."""
+    return _of_kind(_forms(TOKEN)[0], "fn").path
+
+
+def _deep_path() -> str:
+    """The reviewer's program: ``(mod m)(fn f :void ((a (vec (vec :nope)))) …)``."""
+    fn = next(form for form in _forms(DEEP) if form.kind == "fn")
+    params = _of_kind(fn, "")
+    param = next(item for item in params.items if isinstance(item, Node))
+    outer = _of_kind(param, "vec")
+    return _of_kind(outer, "vec").path
+
+
 SUITE = """
 (test compat-vec-same
   (expect (out "true\\n")
@@ -574,11 +660,11 @@ SUITE = """
     (leaks 0))
   (t-compat "%(fn_captures)s"))
 
-(test compat-fn-param-names
-  (expect (out "true\\n")
+(test compat-fn-param-order
+  (expect (out "false\\n")
     (code 0)
     (leaks 0))
-  (t-compat "%(fn_names)s"))
+  (t-compat "%(fn_order)s"))
 
 (test compat-var-same
   (expect (out "true\\n")
@@ -706,11 +792,47 @@ SUITE = """
     (leaks 0))
   (t-parse-error "%(bad_string)s"))
 
-(test parse-param-needs-a-type
-  (expect (out "E0002 a parameter must be (name type)\\n")
+(test parse-fn-decl-shape
+  (expect (out "E0101 a function type needs a parameter list\\n")
     (code 0)
     (leaks 0))
-  (t-parse-error "%(bad_param)s"))
+  (t-parse-error "%(bad_fn_decl)s"))
+
+(test parse-fn-named
+  (expect (out "E0101 a function type needs a parameter list\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "%(bad_fn_named)s"))
+
+(test parse-fn-arity
+  (expect (out "E0101 fn takes a parameter list and a return type\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "%(bad_fn_arity)s"))
+
+(test parse-fn-dangling-marker
+  (expect (out "E0101 expected a type after ':'\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-error "%(bad_fn_marker)s"))
+
+(test parse-path-nested
+  (expect (out "%(path_nested)s\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-path "%(nested_src)s"))
+
+(test parse-path-token
+  (expect (out "%(path_token)s\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-path "%(token_src)s"))
+
+(test parse-path-innermost
+  (expect (out "%(path_deep)s\\n")
+    (code 0)
+    (leaks 0))
+  (t-parse-deep "%(deep_src)s"))
 
 (test decl-spelling
   (expect (out "point m.point\\n")
@@ -733,15 +855,15 @@ SUITE = """
     "vec_same": source("(vec :i64)", "(vec :i64)"),
     "width": source("(vec :i64)", "(vec :i32)"),
     "arr_len": source("(arr :i64 4)", "(arr :i64 5)"),
-    "fn_captures": source("(fn :i64 ((a :i64)))", "(fn* :i64 ((a :i64)))"),
-    "fn_names": source("(fn :i64 ((a :i64)))", "(fn :i64 ((b :i64)))"),
+    "fn_captures": source("(fn (:i64) :i64)", "(fn* (:i64) :i64)"),
+    "fn_order": source("(fn (:i64 :str) :i64)", "(fn (:str :i64) :i64)"),
     "var_same": source("T", "T"),
     "var_diff": source("T", "U"),
     "var_prim": source("T", ":i64"),
     "subst_vec": source("(vec T)", "(vec :i64)"),
-    "subst_fn": source("(fn T ((a (vec T))))", ":str"),
+    "subst_fn": source("(fn ((vec T)) T)", ":str"),
     "subst_unbound": source("(vec U)", ":i64"),
-    "vars_fn": source("(fn :T ((a (vec U)) (b :V)))"),
+    "vars_fn": source("(fn ((vec U) :V) :T)"),
     "vars_res": source("(res T (vec U))"),
     "has_yes": source("(res T :i64)"),
     "has_no": source("(res :i64 (vec :str))"),
@@ -755,16 +877,60 @@ SUITE = """
     "bad_arity": source("(vec)"),
     "bad_number": source("42"),
     "bad_string": '(let a \\"s\\" 0)',
-    "bad_param": source("(fn :i64 ((a :i64) (b)))"),
+    "bad_fn_decl": source("(fn :i64 ((a :i64)))"),
+    "bad_fn_named": source("(fn point ((a :i64)))"),
+    "bad_fn_arity": source("(fn (:i64))"),
+    "bad_fn_marker": source("(fn (:) :i64)"),
+    "nested_src": NESTED,
+    "token_src": TOKEN,
+    "deep_src": DEEP,
+    "path_nested": f"E0101 {_nested_path()} unknown type ':nope'",
+    "path_token": f"E0101 {_token_path()} unknown type ':nope'",
+    "path_deep": f"E0101 {_deep_path()} unknown type ':nope'",
 }
 
 
-def _ref_note(ty) -> str:
+def _checked(ty, table_mode: str):
+    """The row's value with a bare name resolved the way the checker resolves it.
+
+    ``parse_type`` leaves ``point`` and ``parse-error`` as a ``StructRef``; only
+    the checker's declaration table turns a name into an ``EnumRef``. The row
+    records the resolved value, so the parsed one is resolved the same way
+    before the two are compared.
+    """
+    if table_mode == "enum" and isinstance(ty, StructRef) and ty.name == "parse-error":
+        return EnumRef(ty.name)
+    if isinstance(ty, (Ptr, Own, Opt, Shared, Vec, Ref, Chan, Atomic)):
+        return type(ty)(_checked(ty.elem, table_mode))
+    if isinstance(ty, Arr):
+        return Arr(_checked(ty.elem, table_mode), ty.n)
+    if isinstance(ty, Res):
+        return Res(_checked(ty.ok, table_mode), _checked(ty.err, table_mode))
+    if isinstance(ty, FnTy):
+        return FnTy(
+            tuple(_checked(param, table_mode) for param in ty.params),
+            _checked(ty.ret, table_mode),
+            ty.captures,
+        )
+    return ty
+
+
+def parsed_row(src: str, table_mode: str):
+    """Parse one row's source with the reference, or fail the generator.
+
+    A row whose source the reference refuses is a row that compares the port
+    against a value Python reached from a different string — exactly how the
+    old ``fn`` rows stayed green while the port read them backwards. Such a row
+    must stop the generator, never produce a line.
+    """
+    root = parse(f"(let a {src} 0)", "<parity>")
+    node = root.items[0].items[2]
     try:
-        mangle_type(ty)
+        return _checked(parse_type(node), table_mode)
     except LogosError as error:
-        return f"{error.code} {error.message}"
-    raise SystemExit("expected the reference to refuse a ref")
+        raise SystemExit(
+            f"row {src!r}: the reference refuses it: {error.code} {error.message}"
+        ) from error
 
 
 def build() -> tuple[str, list[tuple[str, ...]]]:
@@ -774,17 +940,14 @@ def build() -> tuple[str, list[tuple[str, ...]]]:
 
     table: list[tuple[str, ...]] = []
     for index, (name, src, table_mode, ty) in enumerate(ROWS, start=1):
+        got = parsed_row(src, table_mode)
+        if got != ty:
+            raise SystemExit(f"row {name}: Python parses {src!r} to {got}, not {ty}")
         spelling = mangle_type(ty)
         table.append((src, table_mode or "-", spelling, "same"))
         fn = "t-spell" if table_mode == "" else "t-spell-table"
         args = f'"{source(src)}"' + ("" if table_mode == "" else f' "{table_mode}"')
         parts.append(test(f"parity-{index:02d}-{name}", f"({fn} {args})", spelling))
-    for index, (name, src, table_mode, ty, spelling) in enumerate(REF_ROWS, start=1):
-        table.append((src, table_mode or "-", spelling, _ref_note(ty)))
-        fn = "t-spell" if table_mode == "" else "t-spell-table"
-        args = f'"{source(src)}"' + ("" if table_mode == "" else f' "{table_mode}"')
-        parts.append(test(f"ref-{index:02d}-{name}", f"({fn} {args})", spelling))
-
     parts.append(SUITE.strip())
     return "\n\n".join(parts) + "\n", table
 
@@ -798,7 +961,10 @@ def main() -> int:
         cwd=ROOT,
         check=True,
     )
-    print(f"{path.relative_to(ROOT)}: {len(ROWS) + len(REF_ROWS)} parity rows")
+    print(
+        f"{path.relative_to(ROOT)}: {len(ROWS)} mangle rows, "
+        f"{SUITE.count(chr(40) + 'test ')} behaviour cases"
+    )
     for row in table:
         print(" | ".join(row))
     return 0
