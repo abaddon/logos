@@ -128,6 +128,30 @@ ROWS = [
     ("ref-vec-point", "(ref (vec point))", "struct", Ref(Vec(POINT))),
 ]
 
+#: ``type-text`` rows: one per ``Ty`` constructor (and the capturing function
+#: type). The expected text is Python's ``str(ty)`` — the spelling E0100 and
+#: E0305 messages use, with the colon on every primitive.
+TEXT_ROWS = [
+    ("text-prim", ":i64", "", I),
+    ("text-ptr", "(ptr point)", "struct", Ptr(POINT)),
+    ("text-own", "(own (vec :str))", "", Own(Vec(S))),
+    ("text-arr", "(arr (ptr point) 8)", "struct", Arr(Ptr(POINT), 8)),
+    ("text-arr-zero", "(arr :bool 0)", "", Arr(Prim("bool"), 0)),
+    ("text-vec", "(vec (vec :i64))", "", Vec(Vec(I))),
+    ("text-ref", "(ref (vec point))", "struct", Ref(Vec(POINT))),
+    ("text-res", "(res (opt :i64) (vec point))", "struct", Res(Opt(I), Vec(POINT))),
+    ("text-opt", "(opt (own point))", "struct", Opt(Own(POINT))),
+    ("text-fn", "(fn (:i64 :str) point)", "struct", fn([I, S], POINT)),
+    ("text-fn-capture", "(fn* (point) :void)", "struct", fn([POINT], VOID, True)),
+    ("text-fn-empty", "(fn () :void)", "", fn([], VOID)),
+    ("text-shared", "(shared (chan point))", "struct", Shared(Chan(POINT))),
+    ("text-chan", "(chan (vec :u8))", "", Chan(Vec(Prim("u8")))),
+    ("text-atomic", "(atomic :bool)", "", Atomic(Prim("bool"))),
+    ("text-struct", "point", "struct", POINT),
+    ("text-enum", "parse-error", "enum", PARSE),
+    ("text-var", "T", "", TypeVar("T")),
+]
+
 ARENA = [
     ("tags", ":i64"),
     ("names", ":str"),
@@ -478,6 +502,16 @@ BODY = (
     + """ 1))
   (ret (if (type-ok e) "OK" (t-diag-path e))))
 
+(fn t-body-text :str ("""
+    + ARGS
+    + """ (a :str) (b :str))
+  (letmut e type-error (t-parse """
+    + CALL
+    + """ 1))
+  (ret (if (not (type-ok e))
+         (t-diag e)
+         (type-text tags names elem extra pbase ptypes (vec-get slot 0)))))
+
 (fn t-body-deep :str ("""
     + ARGS
     + """ (a :str) (b :str))
@@ -553,6 +587,7 @@ ENTRIES = [
     ("t-mangle-error", "", ' "" ""', "t-body-mangle-error"),
     ("t-parse-error", "", ' "" ""', "t-body-parse-error"),
     ("t-parse-path", "", ' "" ""', "t-body-path"),
+    ("t-text", "", ' "" ""', "t-body-text"),
     ("t-parse-deep", "", ' "" ""', "t-body-deep"),
     ("t-decl", "", ' "" ""', "t-body-decl"),
     ("t-fields", "", ' "" ""', "t-body-fields"),
@@ -948,6 +983,14 @@ def build() -> tuple[str, list[tuple[str, ...]]]:
         fn = "t-spell" if table_mode == "" else "t-spell-table"
         args = f'"{source(src)}"' + ("" if table_mode == "" else f' "{table_mode}"')
         parts.append(test(f"parity-{index:02d}-{name}", f"({fn} {args})", spelling))
+    for index, (name, src, table_mode, ty) in enumerate(TEXT_ROWS, start=1):
+        got = parsed_row(src, table_mode)
+        if got != ty:
+            raise SystemExit(f"row {name}: Python parses {src!r} to {got}, not {ty}")
+        text = str(ty)
+        table.append((src, table_mode or "-", text, "text"))
+        parts.append(test(f"text-{index:02d}-{name}", f'(t-text "{source(src)}")', text))
+
     parts.append(SUITE.strip())
     return "\n\n".join(parts) + "\n", table
 
@@ -963,7 +1006,7 @@ def main() -> int:
     )
     print(
         f"{path.relative_to(ROOT)}: {len(ROWS)} mangle rows, "
-        f"{SUITE.count(chr(40) + 'test ')} behaviour cases"
+        f"{len(TEXT_ROWS)} text rows, {SUITE.count(chr(40) + 'test ')} behaviour cases"
     )
     for row in table:
         print(" | ".join(row))
