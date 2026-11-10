@@ -57,6 +57,8 @@ src/logosc/resolve.logos
 src/logosc/resolve_test.logos
 src/logosc/tree.logos
 src/logosc/tree_test.logos
+src/logosc/types.logos
+src/logosc/types_test.logos
 src/std/io.logos
 src/std/io_test.logos
 src/std/map.logos
