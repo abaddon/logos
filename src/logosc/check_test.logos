@@ -596,3 +596,32 @@
   (vec-free slots)
   (vec-free instances)
   (vec-free one))
+
+(test visible-owner
+  (expect (out "left\ntrue\nfalse\n")
+    (code 0)
+    (leaks 0))
+  (visible-owner-case))
+
+(fn visible-owner-case :void ()
+  (letmut ents
+    (vec check-entry)
+    (make (vec check-entry)))
+  (vec-push ents (make check-entry "f" 0 1 "left" -1 0))
+  (vec-push ents (make check-entry "g" 0 1 "right" -1 0))
+  (letmut vindex
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push vindex 0)
+  (vec-push vindex 1)
+  (println (check-visible-owner ents vindex 0 2 "f" 1))
+  (letmut mods
+    (vec check-mod)
+    (make (vec check-mod)))
+  (vec-push mods (make check-mod "left" "l.logos" 0 0 0 0 0))
+  (vec-push mods (make check-mod "right" "r.logos" 0 0 0 0 0))
+  (println (if (check-in-build mods "right") "true" "false"))
+  (println (if (check-in-build mods "other") "true" "false"))
+  (vec-free ents)
+  (vec-free vindex)
+  (vec-free mods))
