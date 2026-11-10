@@ -170,14 +170,19 @@ where the tree keeps the form's head, and the diagnostic follows Python.
 
 ## The body pass (W6 B1)
 
-`check-fn-one` calls `check-body-fn` after a function's signature is declared,
-for the **root module only** and only when the signature has no type variables.
-Python's `check_module` checks the root's bodies and leaves an import's bodies
-to the module that owns them; a generic body has no single type and is checked
-per instantiation, which is B3. `gen2 check <file>` therefore begins to reject
-bodies while every earlier accepted program — every module Python's checker
-accepts — stays accepted: a 159-module sweep over `src/` and `tests/` found no
-program Python accepts that `gen2 check` now refuses.
+`check-module-fns` records each own non-generic `fn` as it declares the
+signature — the node and its `fn` type id, in the order the source declares
+them — and `check-module-fn-bodies` walks that list from `check-module-tree`
+once every declaration of the module is in, externs included. That is Python's
+order: `run()` builds `_visible(module)` first, so every declaration error
+precedes every body error, and the bodies are then read in declaration order.
+Bodies are read for the **root module only** and only when the signature has no
+type variables. Python's `check_module` checks the root's bodies and leaves an
+import's bodies to the module that owns them; a generic body has no single type
+and is checked per instantiation, which is B3. `gen2 check <file>` therefore
+rejects bodies while every earlier accepted program — every module Python's
+checker accepts — stays accepted: a whole-tree sweep over all 188 tracked
+sources found no program Python accepts that `gen2 check` refuses.
 
 The walk lives in `check.logos` rather than a new `body.logos` because it needs
 the declaration pass's own material: `check-error`, `check-fail-at`,
@@ -193,22 +198,51 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 
 | vector | one entry per | holds |
 |---|---|---|
-| `bn` | binding | the name's text id |
+| `bn` | binding | the name's text id (dormant, see below) |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | mutable (`letmut` is 1, `let` and a parameter 0) |
 | `bv` | binding | moved (never set in B1; PR C sets it) |
-| `bu` | binding | used — set by a read, never by a `set` |
+| `bu` | binding | used — set by a read, never by a `set` (dormant, see below) |
 | `bd` | binding | the scope depth that declared it (always 0 in B1) |
 | `br` | function | one entry: the declared return type |
 | `bl` | function | one entry: the label a message names, `function 'f'` |
 | `bk`/`bvl`/`bsl` | binding | the `map` from name to index; `map-get` is a lookup |
 
+Two columns are written and never read, and both are dormant until the rule
+that reads them lands with B2. `bn` has no reader at all: a lookup is the map,
+and the name's text is needed only by E0107's message, which names the binding.
+`bu` is set by `body-read` and read by nothing: E0107's unused test is its
+reader, and that rule is deferred because a name read inside a form B1 does not
+type — a call, an `if` — must not read as unused. `bd` is live but constant:
+the duplicate-definition test compares depths, and B1 has one depth.
+
 `body-bind` appends a declaration and `map-put`s its index; a name already in
-the map at the same depth is E0003. `body-snapshot` copies the `moved` and
-`mutable` flags in declaration order, and `body-restore` puts them back — the
-pair a B2 branch will use, exactly as Python's `_Env.snapshot`/`restore` do.
-B1 has one block per function and no branch, so the depth is always 0, the map
-never needs a shadowed entry restored, and nothing writes `moved`.
+the map at the same depth is E0003. `body-snapshot`/`body-restore` are the pair
+a B2 branch uses, and the state they carry is Python's `_Env.snapshot`/`restore`
+plus the bindings Python gets from its block scopes:
+
+- the snapshot records the binding count and every binding's `moved` flag, then
+  the map's key count and every stored index;
+- a restore writes the recorded flags and map values back, and writes `-1` over
+  every map entry added since. `map-get` answers `-1` for a missing key, so the
+  name is absent again; the key itself stays, and a later `map-put` of the same
+  name reuses it, so no branch can make the key vector grow without bound;
+- `mutable` is not part of the snapshot. It is a property of the declaration
+  that no branch can change, and Python's snapshot does not record it either;
+- `used` is not part of it. Python records only `moved`: `moved` is a property
+  of the path a branch took, `used` a property of the whole function, so a read
+  in one branch is a read after the join and must survive the restore.
+
+Logos has no `vec-truncate`, so no environment vector is ever shrunk. A binding
+a branch appended keeps its slot and the restored map is what makes it
+unreachable, because every lookup goes through the map; the cost is one dead
+slot per binding a branch declared. That is why the snapshot records the map's
+values as well as its length: a shadowing `let` replaces a stored index in
+place, adding no key, so only the recorded value can put the outer binding back.
+The slot table `bsl` is a pure index over `bk`/`bvl`, so restoring the values
+restores every lookup and a grow inside a branch only reorders the probes.
+Restoring twice is harmless — a snapshot is a value, not a log that is consumed
+— which is what sibling branches need: each one starts from the same state.
 
 ### What it decides
 
@@ -271,14 +305,15 @@ are:
   termination walk, which is B2;
 - E0107 (`unused binding`): a name read inside a form this pass leaves alone
   must not be reported unused, and the block-exit bookkeeping that makes the
-  answer exact arrives with B2's scopes;
+  answer exact arrives with B2's scopes. `bu`, which E0107 reads, is written
+  and unread until then;
 - ownership, results and every E03xx/E04xx/E06xx rule: PR C.
 
 A form's error ordering inside a body is Python's — arguments are visited left
-to right and a bad operand stops the form — but bodies are checked as each
-`fn` is declared, so a module with both a body error and a later declaration
-error may name the body error first, where Python checks every declaration
-first. No corpus case has two errors.
+to right and a bad operand stops the form — and the order across the module is
+Python's too: every declaration error precedes every body error, because the
+bodies are read only after the last declaration. `check_test.logos` pins it with
+a module that holds both.
 
 ## The arena of checked modules
 
@@ -317,10 +352,14 @@ definitions. Inside a module the order is Python's:
 3. every own type name checked against `reserved_name`;
 4. every struct/enum body read, in source order;
 5. every own enum tested with `enum_contains_itself`;
-6. every own `fn`: `rt_`, reserved name, signature, then its body — the body
-   only for the root module and only when the signature declares no type
-   variables;
-7. every own `extern fn`: reserved name, signature, C-boundary walk.
+6. every own `fn`: `rt_`, reserved name, signature — and, for the root module's
+   non-generic functions, a record of the node and its type id for step 8;
+7. every own `extern fn`: reserved name, signature, C-boundary walk;
+8. every recorded body, in declaration order, once the whole module is declared.
+
+Steps 7 and 8 are in Python's order: `run()` reads every declaration of a module
+first and only then the root's bodies, so a declaration error in a module beats
+a body error in the same module.
 
 Only the first failure is reported. A module is checked once (`state` 2); a
 module already being checked is not re-entered, which is what makes a diamond
@@ -409,10 +448,12 @@ fixtures under `src/logosc/fixtures/check` are unit cases, not corpus cases.
 - `ret`: a value of the wrong type, a bare `ret` in a non-`void` function and
   the arity;
 - the boundary: `if` and a call are accepted unread, and a parameter is typed;
-- the environment: `body-snapshot`/`body-restore` put the `moved` and
-  `mutable` flags back.
+- the environment: `body-snapshot`/`body-restore` restore the `moved` flags and
+  the map through three branches — one that shadows an outer name, one that
+  binds a new name, and one that leaves the environment untouched — asserting
+  the state after each branch and again after a second restore.
 
-`src/logosc/check_test.logos` has 73 cases, each run at `-O0` and `-O2` with
+`src/logosc/check_test.logos` has 75 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 - one per declaration rule above, through `check-file` on a synthetic source —
@@ -425,6 +466,9 @@ fixtures under `src/logosc/fixtures/check` are unit cases, not corpus cases.
   name without the `use` is E0101, and a type reached only through a second
   module is E0101 in the first;
 - a two-root duplicate `main`, through `check-file`;
+- a module holding both a body error and a later declaration error — an unknown
+  parameter type and a duplicate parameter — which pins the rule that every
+  declaration error precedes every body error;
 - `check-instance-name` naming (`keep$i64$vec(s5_point)`), E0501 for a type
   variable argument, the 257th-distinct-target E0500, and a repeated target
   reusing its index without consuming budget;
@@ -450,14 +494,17 @@ the code, and the whole line, message included, is what
 `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
 `shift-float/f/2/0`, `literal-range/f/2` and `compare-bool/f/2/0`.
 
-The differential probe behind the body pass is a 154-source comparison of
-`gen2 check` against Python's `check_module`, covering every scalar rule, the
-literal boundaries, both look-ahead orders, shapes, arities and error ordering:
-**no unexpected difference**. The 28 differences it records are exactly the
-deferred set — E0107 unused bindings and E0103 from a call, both of which this
-pass deliberately leaves to B2 — plus `make` and `get`, which are B3. A sweep
-of all 159 tracked modules over `src/` and `tests/` found no program Python
-accepts that `gen2 check` refuses.
+The differential probe behind the body pass compares `gen2 check` with Python's
+`check_module` over the tree. A sweep of all 188 tracked sources finds:
+
+- **0 false positives** — no program Python accepts is refused by `gen2 check`;
+- **0 code disagreements** — where both refuse, the code is the same;
+- 133 sources answer the same line from both;
+- 54 sources are under-reported, every one of them inside the deferred set
+  (E0107 unused bindings, E0103 from a call, and `make`/`get`), which is what
+  the coverage list says the pass does not decide;
+- against the pre-B1 binary, exactly the 7 new fixtures are refused and nothing
+  that was refused before is accepted now.
 
 ## Building it
 

@@ -226,3 +226,5 @@ PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
 PASS regress/struct-owner-mismatch/program -
 PASS regress/vec-foreign-struct/program/program -
 PASS regress/vec-place-copy -
+PASS type/compare-bool -
+PASS type/literal-range -
