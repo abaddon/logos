@@ -1,12 +1,13 @@
-# `src/logosc/main.logos` — the `fmt` and `resolve` verbs and the process contract
+# `src/logosc/main.logos` — the `fmt`, `resolve` and `check` verbs and the process contract
 
 The entry point of the self-hosted compiler, `gen2`: `logos/cli.py`'s `fmt`
 verb ported to Logos, plus `resolve`, which runs the W5 resolver without a
-checker. The modules before it return values; this one is a program. It owns
+checker, and `check`, which runs the W6 declaration pass over the resolved
+module set. The modules before it return values; this one is a program. It owns
 the process boundary — the command line, the exit status and the two output
 streams — and nothing else.
 
-Read `lex.md`, `tree.md`, `fmt.md` and `resolve.md` first. This file adds no
+Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md` and `check.md` first. This file adds no
 language surface: it calls the modules in the order the Python compiler does.
 
 ## The command line
@@ -14,6 +15,7 @@ language surface: it calls the modules in the order the Python compiler does.
 ```
 gen2 fmt <file>
 gen2 resolve <file>
+gen2 check <file>
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -22,7 +24,7 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 | index | holds |
 |---|---|
 | `0` | the program, `gen2` |
-| `1` | the verb, `fmt` or `resolve` |
+| `1` | the verb, `fmt`, `resolve` or `check` |
 | `2` | the file to format or resolve |
 
 `main` accepts exactly these three elements. **No arguments, an unknown verb, a
@@ -30,7 +32,7 @@ missing file argument, or any extra argument** prints one line to stderr and
 exits 2:
 
 ```
-usage: gen2 <fmt|resolve> <file>
+usage: gen2 <fmt|resolve|check> <file>
 ```
 
 The usage line is fixed, not derived from `argv[0]`: the gate runs
@@ -84,6 +86,24 @@ duplicate module), `E0004` (circular import) and `E0005` (unknown module, or a
 module that declares another name). `resolve` stops before the checker, so a
 file with a type error resolves and exits 0.
 
+`gen2 check` lexes, parses and resolves the file exactly as `resolve` does,
+then builds `gen2`'s own module set from the resolver's answer and runs
+`check-file`. On success it prints nothing to either stream and exits 0. On a
+checker diagnostic it prints one line and exits 2:
+
+```text
+<path>: <CODE>: <message>
+```
+
+`<path>` is the node path the checker named (`m/f/1/0`, `m/p/0/1`, `m/e`); it
+is the source file only when the diagnostic has no node behind it, which the
+declaration pass never produces. `resolve-set` is called first, so a resolver
+failure still prints the resolver's line, with `E0002`-`E0005` as above; a
+checker failure is `E0002`, `E0003`, `E0100`, `E0101`, `E0500`, `E0501`,
+`E0700` or the `E0502` a channel element can carry. `check` reads no body, so a
+file with an expression error checks and exits 0 — see `check.md` for the
+exact boundary.
+
 ## Functions
 
 | function | returns | meaning |
@@ -96,6 +116,9 @@ file with a type error resolves and exits 0.
 | `main-print nodes ntexts` | `:i64` | run `fmt` and return 0 |
 | `main-resolved file nodes ntexts` | `:i64` | run `resolve-file` and return 0 or the diagnostic |
 | `main-resolve-diag file e` | `:i64` | print one resolver diagnostic and return 2 |
+| `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
+| `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
+| `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
 | `main-diag path code line col msg` | `:i64` | print one lexer/parser diagnostic and return 2 |
 | `main-usage` | `:i64` | print the usage line and return 2 |
 | `main-write s` | `:void` | one `rt_write` to file descriptor 2 |
@@ -113,6 +136,8 @@ and the emitted `main` hands it to the C entry point, so the process exits with
 - the `(args)` vector, with `vec-free`;
 - the four lexer vectors and the two arena vectors, also with `vec-free`, on
   every path — success, `E0006` and `E0001`;
+- `check`'s two resolver tables (`all` and `mods`), with `vec-free`, on every
+  path, before `check-file`'s diagnostic is printed;
 - nothing else. `read-file` returns a buffer the runtime owns for the process's
   life, and `fmt` allocates nothing, so no other `free` is owed.
 
