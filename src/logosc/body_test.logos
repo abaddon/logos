@@ -405,3 +405,471 @@
   (vec-free bvl)
   (vec-free bsl)
   (vec-free snap))
+
+(test if-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (ret 1) (ret 2)))"))
+
+(test if-value
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (ret (if c 1 2)))"))
+
+(test if-arity
+  (expect (out "E0102\nm/f/2\nif takes a condition, a then and an else\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (ret 1)))"))
+
+(test if-condition
+  (expect (out "E0100\nm/f/2\ncondition must be :bool, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :i64)) (if c (ret 1) (ret 2)))"))
+
+(test if-branches
+  (expect (out "E0100\nm/f/2/0\nif branches do not match: :i64 and :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (ret (if c 1 \"x\")))"))
+
+(test if-branch-void
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (if c (println 1) (println 2)))"))
+
+(test while-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut i :i64 0) (while (< i 3) (set i (+ i 1))) (ret i))"))
+
+(test while-arity
+  (expect (out "E0102\nm/f/2\nwhile takes a condition and an optional body\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while) (ret 1))"))
+
+(test while-condition
+  (expect (out "E0100\nm/f/3\ncondition must be :bool, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut i :i64 0) (while i (set i 1)) (ret i))"))
+
+(test while-statement
+  (expect (out "E0002\nm/f/3\na statement must be a form\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut i :i64 0) (while (< i 3) i (set i (+ i 1))) (ret i))"))
+
+(test while-true
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (println 1)))"))
+
+(test while-true-break
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (break)))"))
+
+(test while-break-if
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (if true (break) (println 1))) (ret 1))"))
+
+(test break-outside
+  (expect (out "E0002\nm/f/2\n'break' outside a loop\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (break) (ret 1))"))
+
+(test continue-outside
+  (expect (out "E0002\nm/f/2\n'continue' outside a loop\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (continue) (ret 1))"))
+
+(test break-arity
+  (expect (out "E0102\nm/f/2/1\n'break' takes no operands\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (break 1)) (ret 1))"))
+
+(test continue-in-loop
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut i :i64 0) (while (< i 3) (set i (+ i 1)) (continue)) (ret i))"))
+
+(test break-nested-while
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (while true (break)) (break)))"))
+
+(test match-enum
+  (expect (out "E0100\nm/f/2/1/1\nfunction 'f' returns :i64, found :u64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) (b (ret 0))))"))
+
+(test match-nonexhaustive
+  (expect (out "E0600\nm/f/2\nthis match on e does not handle 'b'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n))))"))
+
+(test match-nonexhaustive-two
+  (expect (out "E0600\nm/f/2\nthis match on e does not handle 'b', 'c'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b) (c)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n))))"))
+
+(test match-wildcard
+  (expect (out "E0100\nm/f/2/1/1\nfunction 'f' returns :i64, found :u64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) (_ (ret 0))))"))
+
+(test match-after-wildcard
+  (expect (out "E0002\nm/f/2/2\nan arm after '_' can never match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x (_ (ret 1)) (b (ret 0))))"))
+
+(test match-duplicate-arm
+  (expect (out "E0002\nm/f/2/2/0\nan arm for 'a' can never match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) ((a m) (ret m)) (b (ret 0))))"))
+
+(test match-unknown-variant
+  (expect (out "E0100\nm/f/2\nenum 'e' has no variant 'c'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x (c (ret 1)) (b (ret 0))))"))
+
+(test match-payload-bare
+  (expect (out "E0100\nm/f/2\nvariant 'a' holds a value: write (a name)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x (a (ret 1)) (b (ret 0))))"))
+
+(test match-payload-none
+  (expect (out "E0102\nm/f/2/2/0\nvariant 'b' takes no value: write b\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) ((b q) (ret 0))))"))
+
+(test match-payload-arity
+  (expect (out "E0102\nm/f/2/1/0\na pattern for variant 'a' binds exactly one name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n m) (ret n)) (b (ret 0))))"))
+
+(test match-payload-type
+  (expect (out "E0100\nm/f/2/1/1\nlet 'y' has type :i64, found :u64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (let y :i64 n) (ret y)) (b (ret 0))))"))
+
+(test match-payload-colon
+  (expect (out "E0002\nm/f/2/1/0\na variant pattern binds a name, not a type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a :i64) (ret 1)) (b (ret 0))))"))
+
+(test match-payload-ignored
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a _) (ret 1)) (b (ret 0))))"))
+
+(test match-payload-immutable
+  (expect (out "E0104\nm/f/2/1/1\ncannot set immutable binding 'n'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (set n 3) (ret 1)) (b (ret 0))))"))
+
+(test match-payload-shadows
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (let n :i64 7) (match x ((a n) (ret (cast :i64 n))) (b (ret 0))) (ret n))"))
+
+(test match-arm-value
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (ret (match x ((a n) (cast :i64 n)) (b 0))))"))
+
+(test match-arm-types
+  (expect (out "E0100\nm/f/2/0\nmatch arms do not agree: :i64 and :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (match x (0 1) (_ \"s\"))))"))
+
+(test match-nested
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type o (enum (wrap i) (plain)))\n(type i (enum (a :i64) (b)))\n(fn f :i64 ((x o)) (match x ((wrap y) (match y ((a n) (ret n)) (b (ret 0)))) (plain (ret 0))))"))
+
+(test while-shadow
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let j :i64 9) (letmut k :i64 0) (while (< k 3) (let j :i64 (* k 2)) (println j) (set k (+ k 1))) (ret j))"))
+
+(test while-duplicate
+  (expect (out "E0003\nm/f/2/2\nduplicate definition 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (while true (let y :i64 1) (let y :i64 2) (break)) (ret 0))"))
+
+(test match-arm-scope
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (let y :i64 (cast :i64 n)) (ret y)) (b (ret 0))))"))
+
+(test match-arms-alike
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (let n :i64 9) (match x ((a v) (let n :i64 (cast :i64 v)) (println n)) (b (let n :i64 2) (println n))) (ret n))"))
+
+(test match-arm-duplicate
+  (expect (out "E0003\nm/f/2/1/2\nduplicate definition 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (let y :i64 1) (let y :i64 2) (ret y)) (b (ret 0))))"))
+
+(test match-nested-if
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type o (enum (wrap i) (plain)))\n(type i (enum (a :i64) (b)))\n(fn f :i64 ((x o) (c :bool)) (match x ((wrap y) (if c (match y ((a n) (ret n)) (b (ret 0))) (match y ((a n) (ret n)) (b (ret 0))))) (plain (ret 0))))"))
+
+(test if-in-while
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (letmut i :i64 0) (while (< i 3) (if c (println i) (println 0)) (set i (+ i 1))) (ret i))"))
+
+(test match-result
+  (expect (out "E0100\nm/f/2/2/1\nlet 'z' has type :i64, found e\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :u64)))\n(fn f :i64 ((x (res :i64 e))) (match x ((ok v) (ret v)) ((err q) (let z :i64 q) (ret z))))"))
+
+(test match-result-missing
+  (expect (out "E0600\nm/f/2\nthis match on (res :i64 e) does not handle 'err'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :u64)))\n(fn f :i64 ((x (res :i64 e))) (match x ((ok v) (ret v))))"))
+
+(test match-optional
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x (opt :i64))) (match x ((some v) (ret v)) (none (ret 0))))"))
+
+(test match-optional-form
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x (opt :i64))) (match x ((some v) (ret v)) ((none) (ret 0))))"))
+
+(test match-optional-missing
+  (expect (out "E0600\nm/f/2\nthis match on (opt :i64) does not handle 'none'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x (opt :i64))) (match x ((some v) (ret v))))"))
+
+(test match-integer
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (match x (0 1) (1 2) (_ 0))))"))
+
+(test match-integer-open
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (match x (0 1) (1 2))))"))
+
+(test match-integer-nonliteral
+  (expect (out "E0002\nm/f/2\na match pattern is an integer literal or '_'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64) (y :i64)) (match x (y (ret 1)) (_ (ret 0))))"))
+
+(test match-integer-range
+  (expect (out "E0106\nm/f/2\nliteral 300 does not fit :u8\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :u8)) (match x (300 (ret 1)) (_ (ret 0))))"))
+
+(test match-integer-float
+  (expect (out "E0100\nm/f/2\na :f64 pattern cannot test a :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (match x (1.5 (ret 1)) (_ (ret 0))))"))
+
+(test match-integer-form
+  (expect (out "E0002\nm/f/2/1/0\n':i64' has no variants: a match pattern is an integer literal or '_'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (match x ((a) (ret 1)) (_ (ret 0))))"))
+
+(test match-integer-string
+  (expect (out "E0002\nm/f/2\na match pattern is an integer literal or '_'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (match x (\"s\" (ret 1)) (_ (ret 0))))"))
+
+(test match-arity
+  (expect (out "E0102\nm/f/2/0\n'match' takes a scrutinee and at least one arm\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (match x)))"))
+
+(test match-arm-token
+  (expect (out "E0002\nm/f/2/0\na match arm must be (pattern body...)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (ret (match x 3)))"))
+
+(test match-arm-empty
+  (expect (out "E0002\nm/f/2/1/0\na match pattern is a variant name, (variant name) or '_'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b)))\n(fn f :i64 ((x e)) (match x (() (ret 1)) (b (ret 0))))"))
+
+(test match-arm-no-body
+  (expect (out "E0102\nm/f/2/2\na match arm needs a pattern and a body\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b)))\n(fn f :i64 ((x e)) (match x ((a) (ret 1)) (b)))"))
+
+(test match-pattern-head
+  (expect (out "E0100\nm/f/2/1/0\nenum 'e' has no variant ':a'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((:a n) (ret 1)) (b (ret 0))))"))
+
+(test match-pattern-number-form
+  (expect (out "E0002\nm/f/2/1/0\na match pattern is a variant name, (variant name) or '_'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b)))\n(fn f :i64 ((x e)) (match x ((1 2) (ret 1)) (b (ret 0))))"))
+
+(test match-not-closed
+  (expect (out "E0100\nm/f/2\n'match' needs an integer, an enum, a result or an optional, found :f64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :f64)) (match x ((a) (ret 1))))"))
+
+(test match-bool
+  (expect (out "E0100\nm/f/2\n'match' needs an integer, an enum, a result or an optional, found :bool\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :bool)) (match x (true (ret 1))))"))
+
+(test return-missing
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x :i64 1))"))
+
+(test return-missing-if
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (ret 1) (println 1)))"))
+
+(test return-if
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (ret 1) (ret 2)))"))
+
+(test return-match
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (match x (0 (ret 1)) (_ (ret 2))))"))
+
+(test return-match-missing
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (match x (0 (ret 1)) (_ (println 2))))"))
+
+(test return-void
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (println 1))"))
+
+(test return-after-ret
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret 1) (println 2))"))
+
+(test return-in-while
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (while c (ret 1)))"))
+
+(test and-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool) (b :bool)) (ret (and a (or b (not a)))))"))
+
+(test and-arity
+  (expect (out "E0102\nm/f/2/0\n'and' takes two operands\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool)) (ret (and a)))"))
+
+(test and-operand
+  (expect (out "E0100\nm/f/2/0\n'and' needs :bool operands, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :i64)) (ret (and a true)))"))
+
+(test or-operand
+  (expect (out "E0100\nm/f/2/0\n'or' needs :bool operands, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :i64) (b :bool)) (ret (or a b)))"))
+
+(test not-arity
+  (expect (out "E0102\nm/f/2/0\n'not' takes one operand\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :bool) (b :bool)) (ret (not a b)))"))
+
+(test not-operand
+  (expect (out "E0100\nm/f/2/0\n'not' needs a :bool operand, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((a :i64)) (ret (not a)))"))
+
+(test if-and-condition
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a :bool)) (if (and a (not a)) (ret 1) (ret 0)))"))

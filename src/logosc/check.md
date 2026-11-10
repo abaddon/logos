@@ -1,16 +1,19 @@
-# `src/logosc/check.logos` — the declaration pass and the scalar body pass
+# `src/logosc/check.logos` — the declaration pass and the body pass
 
 The Logos port of `logos/check.py`, in two halves. The **declaration pass** is
 everything a module says about a name before any body is read: `fn` and
 `extern fn` signatures, `type` declarations and their struct fields or enum
 variants, the reserved names, the visibility a `use` buys, and the generic
-instantiation counter. The **body pass** (W6 B1) reads a `fn` body and decides
-the scalar rules: literals with their widths, arithmetic, shifts, casts,
-comparisons, `let`/`letmut`/`set` and `ret`. `gen2 check <file>` is both.
+instantiation counter. The **body pass** (W6 B1, B2) reads a `fn` body and
+decides the scalar rules — literals with their widths, arithmetic, shifts,
+casts, comparisons, `let`/`letmut`/`set` — and the control-flow rules: `if`,
+`while`, `match` with exhaustiveness and patterns, `ret`, `break`/`continue`,
+the boolean forms, blocks, and E0105 for a function that falls off its end.
+`gen2 check <file>` is both.
 
-Control flow, calls and containers are B2/B3, and ownership is PR C. A form the
-body pass cannot type answers an unknown type rather than a diagnostic, so a
-program is never refused for a rule a later pass owns. That boundary is the
+Calls and containers are B3, and ownership is PR C. A form the body pass cannot
+type answers an unknown type rather than a diagnostic, so a program is never
+refused for a rule a later pass owns. That boundary is the
 point of the coverage list in `tools/selfhost-check.txt`: a fixture named there
 is one this pass decides, and one that is not named is one it deliberately
 leaves to a later pass.
@@ -168,7 +171,7 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   has nothing to refuse in either. They stay out of the coverage list until
   PR B, which is where a call site exists for a corpus case to name.
 
-## The body pass (W6 B1)
+## The body pass (W6 B1, B2)
 
 `check-module-fns` records each own non-generic `fn` as it declares the
 signature — the node and its `fn` type id, in the order the source declares
@@ -201,20 +204,26 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 | `bn` | binding | the name's text id (dormant, see below) |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | mutable (`letmut` is 1, `let` and a parameter 0) |
-| `bv` | binding | moved (never set in B1; PR C sets it) |
+| `bv` | binding | moved (never set in B1 or B2; PR C sets it) |
 | `bu` | binding | used — set by a read, never by a `set` (dormant, see below) |
-| `bd` | binding | the scope depth that declared it (always 0 in B1) |
+| `bd` | binding | the scope depth that declared it (`bctl[0]` at the time) |
 | `br` | function | one entry: the declared return type |
 | `bl` | function | one entry: the label a message names, `function 'f'` |
 | `bk`/`bvl`/`bsl` | binding | the `map` from name to index; `map-get` is a lookup |
+| `bctl` | function | two entries: the block depth, and the loop depth |
 
-Two columns are written and never read, and both are dormant until the rule
-that reads them lands with B2. `bn` has no reader at all: a lookup is the map,
-and the name's text is needed only by E0107's message, which names the binding.
-`bu` is set by `body-read` and read by nothing: E0107's unused test is its
-reader, and that rule is deferred because a name read inside a form B1 does not
-type — a call, an `if` — must not read as unused. `bd` is live but constant:
-the duplicate-definition test compares depths, and B1 has one depth.
+`bctl` is the block and loop counter B2's forms need. Every branch, every
+`while` body and every match arm raises `bctl[0]` for its statements, so `bd`
+answers the "same scope" half of the duplicate test and a `let` in an arm is a
+fresh binding rather than a redefinition of one in a sibling arm. `bctl[1]`
+counts the enclosing loops: `break` and `continue` are legal only when it is
+non-zero, and it is raised *before* a `while` condition is typed, because
+Python puts the condition inside the loop.
+
+`bu` is still written and never read. E0107's unused test is its only reader,
+and that rule cannot land before B3: a name read inside a call is an argument
+B2 does not visit, so it would read as unused. `moved` is still never set —
+ownership is PR C — but the join that B2 implements is the one it will need.
 
 `body-bind` appends a declaration and `map-put`s its index; a name already in
 the map at the same depth is E0003. `body-snapshot`/`body-restore` are the pair
@@ -232,6 +241,16 @@ plus the bindings Python gets from its block scopes:
 - `used` is not part of it. Python records only `moved`: `moved` is a property
   of the path a branch took, `used` a property of the whole function, so a read
   in one branch is a read after the join and must survive the restore.
+
+A restore is used in exactly one pattern, strictly paired with one snapshot
+taken by the same construct: `body-if`, `body-while` and `body-match` take one
+before their first branch, restore it before each branch, restore it again after
+the last, and then re-apply the union of the branches' `moved` flags through
+`body-union-moved`. Restoring in any other order would resurrect a binding an
+inner snapshot had killed, so the nesting is by construction LIFO: a form
+restores its own snapshot only after every form it contains has returned, and
+`match-nested-if` in the suite pins a `match` inside an `if` inside a `match`
+arm that binds the same name twice.
 
 Logos has no `vec-truncate`, so no environment vector is ever shrunk. A binding
 a branch appended keeps its slot and the restored map is what makes it
@@ -269,6 +288,24 @@ Python's node:
 | `set` needs a mutable binding | E0104 |
 | the value must fit the binding's type | E0100 |
 | an integer literal outside its resolved width | E0106 |
+| `if` takes a condition, a then and an else | E0102 |
+| an `if`/`while` condition must be `:bool` | E0100 |
+| `if` branches must agree | E0100 |
+| `while` takes a condition and an optional body | E0102 |
+| `match` takes a scrutinee and at least one arm | E0102 |
+| a match arm must be `(pattern body...)`, with a body | E0002 / E0102 |
+| `match` needs an integer, an enum, a result or an optional | E0100 |
+| a variant pattern must name a variant of the scrutinee's type | E0100 |
+| a payload variant needs `(variant name)`; a bare variant takes no name | E0100 / E0102 |
+| a variant pattern binds one atom name, not a type | E0002 |
+| an arm for a variant already handled can never match | E0002 |
+| an arm after `_` can never match | E0002 |
+| a closed set must be exhaustive | E0600 |
+| match arms must agree | E0100 |
+| an integer pattern is a literal that fits or `_` | E0002 / E0106 / E0100 |
+| `break`/`continue` take no operands and need a loop | E0102 / E0002 |
+| `and`/`or`/`not` take their operands and need `:bool` | E0102 / E0100 |
+| a function must not fall off its end (E0105) | E0105 |
 
 The literal's width is the expected type when that type is a matching
 primitive, and `:i64`/`:f64` otherwise; arithmetic, shifts, comparisons, a
@@ -282,6 +319,40 @@ maximum (and the magnitude of its minimum for a signed width).
 A `set` still needs `letmut`: a parameter is immutable for `set`, as Python
 says, even though a later pass lets some container forms write through one.
 
+### Control flow (W6 B2)
+
+`body-if`, `body-while` and `body-match` are Python's `_if`, `_while` and
+`_match`; `body-arm-run` is `_arm` and is also the block an `if` branch uses
+(one item, checked as a value). Each branch is checked from the state before the
+first one, and the state is restored before each sibling.
+
+`match` reads its spine first, with Python's `match_shape`, and only then the
+scrutinee — so a malformed arm beats a bad scrutinee. The spine refuses a match
+without an arm or a body, an arm that is not a form, a pattern form whose head
+is not a name, and an arm after `_`. The scrutinee then picks one of four
+readings: an integer (its arms are literals, because no finite list of them
+covers the domain; a fall-through is the runtime's), an enum, a result or an
+optional. The last three are *closed* sets, so the same fall-through is
+statically impossible and a missing arm is E0600; a `_` arm covers the rest.
+
+The variant table is the one thing the declaration pass had to grow. An enum's
+payload types were already in the arena (`extra` variants at `pbase` in
+`pchild`), but their *names* were only ever used to refuse a duplicate and then
+dropped, so a match on an imported enum had nothing to resolve an arm against.
+`pvname` is one name per `pchild` slot, pushed beside every payload and field
+the declaration pass records, so variant `i` of enum `e` is
+`(pvname (+ (pbase e) i))` with payload `(pchild (+ (pbase e) i))` — `-1` for a
+variant that holds nothing. A result's variants are `ok`/`err` and an
+optional's are `some`/`none`, spelled in `body-variant-name`; both take their
+payload types from `elem`/`extra` of the type node.
+
+E0105 is `body-any-terminates` over the body's statements: a `ret` terminates,
+an `if` terminates when both arms do, a `match` when every arm does, and
+`(while true ...)` when nothing in it can `break` out. A block terminates when
+*any* of its statements does, so unreachable code after a `ret` is allowed, as
+Python allows it. The check runs after the statements are read, at the `fn`
+node, with the enclosing block's label and return type.
+
 ### What it deliberately does not decide
 
 Every form outside the table answers `body-unknown` (`-2`). `body-fits` treats
@@ -290,8 +361,6 @@ takes its default width, and no check runs against an unknown — so a body is
 never refused because a later pass would have typed it. The forms left alone
 are:
 
-- control flow: `if`, `while`, `match`, `break`, `continue`, and the boolean
-  forms `and`, `or`, `not`;
 - calls, and a bare atom that is not a local binding and not `true`/`false` —
   a visible function's name, a variant constructor, or a name that Python
   would call E0005 are all unknown here (so `tests/type/unknown-name.logos`
@@ -300,14 +369,18 @@ are:
   `vec-*`, `str-*`, `read-*`, `args`, `run*`, `alloc`, `free`, `ptr*`,
   `deref`, `set-deref`, `spawn`, `join`, `mutex`, `lock`, `unlock`, `chan`,
   `send`, `recv`, `atomic-*`, `ok`, `err`, `try`, `some`, `none`;
+- a scrutinee whose type is unknown — a call's result, a `make`, a `get` — is
+  read as "some closed set I cannot see": its arms' shapes are checked (the
+  spine is a spine whatever the type) but no variant is resolved, counted or
+  required, so `(match (parse x) ...)` is accepted unread;
 - closures, and `test` bodies;
-- E0105 (`missing return`): deciding it needs the `if`/`match`/`while`
-  termination walk, which is B2;
-- E0107 (`unused binding`): a name read inside a form this pass leaves alone
-  must not be reported unused, and the block-exit bookkeeping that makes the
-  answer exact arrives with B2's scopes. `bu`, which E0107 reads, is written
-  and unread until then;
-- ownership, results and every E03xx/E04xx/E06xx rule: PR C.
+- E0107 (`unused binding`): `bu` still has no reader. The rule cannot land
+  before B3, because a name read inside a call is an argument this pass never
+  visits, so it would read as unused;
+- ownership, results and every E03xx/E04xx/E06xx rule: PR C. That includes
+  `_branches`' other job: E0402 for an `if`/`match` whose arms select a vector
+  or an owner, and the `(res …)` obligation a matched scrutinee discharges
+  (E0602).
 
 A form's error ordering inside a body is Python's — arguments are visited left
 to right and a bad operand stops the form — and the order across the module is
@@ -325,6 +398,7 @@ containers.
 |---|---|---|
 | `tags names elem extra pbase powner pnames ptypes` | type node | the A1 arena, `parse-type` and `type-text` |
 | `pchild` | struct field or enum payload | the field/payload type id, at `pbase[ty] + i` |
+| `pvname` | struct field or enum payload | its name, at the same index — what a match arm resolves against |
 | `ents` (`check-entry`) | visible definition | name, type or signature id, kind (0 type, 1 fn, 2 extern), owner module, type-variable range |
 | `vindex` | a module's visible entry | an index into `ents`; a module's `vis-s..vis-e` is its slice |
 | `mods` (`check-mod`) | module | name, file, own range, visible range, state |
@@ -404,30 +478,35 @@ tests/type/immutable-set.logos         E0104
 tests/type/shift-float.logos           E0100
 tests/type/literal-range.logos         E0106
 tests/type/compare-bool.logos          E0100
+tests/type/non-exhaustive.logos        E0600
+tests/type/missing-return.logos        E0105
+tests/type/match-duplicate.logos       E0002
 ```
 
-The last seven are the body pass's: a cast of a `:bool`, a cast that would not
+The last ten are the body pass's: a cast of a `:bool`, a cast that would not
 change the type, a float beside an `:i64` in `+`, a `set` of a plain `let`, a
-shift of a `:f64`, a `:u8` literal that does not fit, and an ordered
-comparison of two `:bool`s. `literal-range` and `compare-bool` are new corpus
-cases added with the pass, because no existing fixture named E0106 or the
-ordered-comparison rule.
+shift of a `:f64`, a `:u8` literal that does not fit, an ordered comparison of
+two `:bool`s, a match that misses a variant, a function that falls off its end,
+and a match arm for a variant an earlier arm already handled.
+`literal-range`, `compare-bool`, `missing-return` and `match-duplicate` are new
+corpus cases added with their pass, because no existing fixture named E0106, the
+ordered-comparison rule, E0105 or the duplicate-arm rule.
 
 The gate compares the whole line `gen2 check` prints — path, code and message —
 with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 14: a pruned list fails rather than passing over
+matching code. Its floor is 17: a pruned list fails rather than passing over
 fewer fixtures. `widening` (E0100 at an argument) and `arity` (E0102 at a call)
-still need B2's call rule; `move`, `loop-move`, `free-raw` and the other
+still need B3's call rule; `move`, `loop-move`, `free-raw` and the other
 ownership cases need PR C; `alloc-enum` and `alloc-enum-in-struct` need
 `alloc`; `unknown-name` needs the function/variant namespace; the visibility
 fixtures under `src/logosc/fixtures/check` are unit cases, not corpus cases.
 
 ## Tests
 
-`src/logosc/body_test.logos` has 44 cases for the scalar body pass, each run at
+`src/logosc/body_test.logos` has 122 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -447,11 +526,39 @@ fixtures under `src/logosc/fixtures/check` are unit cases, not corpus cases.
   accepted `letmut` write;
 - `ret`: a value of the wrong type, a bare `ret` in a non-`void` function and
   the arity;
-- the boundary: `if` and a call are accepted unread, and a parameter is typed;
+- the boundary: a call is accepted unread, and a parameter is typed;
 - the environment: `body-snapshot`/`body-restore` restore the `moved` flags and
   the map through three branches — one that shadows an outer name, one that
   binds a new name, and one that leaves the environment untouched — asserting
-  the state after each branch and again after a second restore.
+  the state after each branch and again after a second restore;
+- `if`: an accepted pair, a value in expression position, the arity, a
+  `:i64` condition, disagreeing branches and the void pair;
+- `while`: a counted loop, the arity, a `:i64` condition, a body statement that
+  is not a form, a binding shadowed inside the body, a duplicate inside the
+  body, `(while true ...)` that never returns, one that `break`s, a `break`
+  under an `if`, `break`/`continue` outside a loop, a `break` with an operand,
+  and `continue` in a body;
+- `match` on an enum: an exhaustive pair, one missing variant and two, a `_`
+  arm, an arm after `_`, a duplicate arm, an unknown variant, a payload written
+  bare, a payload written on a payload-less variant, two bound names, a payload
+  whose binding is used at the wrong type, a `:type` where a name belongs, an
+  ignored `_` payload, `set` on the payload, a payload that shadows an outer
+  binding, a `let` inside an arm, an arm's value, disagreeing arms, a nested
+  match, and a `match` inside an `if` inside an arm that rebinds the same name
+  twice;
+- `match` on a result and an optional: `ok`/`err`, `some`/`none` both spellings,
+  and a missing variant in each;
+- `match` on an integer: a literal table with and without `_`, a non-literal
+  pattern, a literal outside the width, a float pattern, a form pattern and a
+  string pattern;
+- `match`'s spine and type: the arity, a bare-token arm, an empty arm, an arm
+  with no body, a form pattern whose head is not a name, a number-headed form
+  pattern, and a `:f64`/`:bool` scrutinee;
+- E0105: a function that ends without a `ret`, an `if` with one arm missing it,
+  the accepted `if` and `match` pairs, `void` needing none, code after a `ret`,
+  and `(while c (ret ...))` which is not a terminating loop;
+- `and`/`or`/`not`: the accepted nest, their arities and their operand types,
+  and an `if` whose condition is one.
 
 `src/logosc/check_test.logos` has 75 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -488,11 +595,13 @@ are reached by path.
 
 ## Parity
 
-The fourteen coverage fixtures match Python's code **and node path**, not just
+The seventeen coverage fixtures match Python's code **and node path**, not just
 the code, and the whole line, message included, is what
-`tools/check_parity.py` writes and the gate compares. The seven body cases pin
+`tools/check_parity.py` writes and the gate compares. The ten body cases pin
 `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
-`shift-float/f/2/0`, `literal-range/f/2` and `compare-bool/f/2/0`.
+`shift-float/f/2/0`, `literal-range/f/2`, `compare-bool/f/2/0`,
+`non-exhaustive/classify/2`, `missing-return/classify` and
+`match-duplicate/label/2/2/0`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
 `check_module` over the tree. A sweep of all 188 tracked sources finds:
@@ -500,11 +609,20 @@ The differential probe behind the body pass compares `gen2 check` with Python's
 - **0 false positives** — no program Python accepts is refused by `gen2 check`;
 - **0 code disagreements** — where both refuse, the code is the same;
 - 133 sources answer the same line from both;
-- 54 sources are under-reported, every one of them inside the deferred set
-  (E0107 unused bindings, E0103 from a call, and `make`/`get`), which is what
-  the coverage list says the pass does not decide;
-- against the pre-B1 binary, exactly the 7 new fixtures are refused and nothing
-  that was refused before is accepted now.
+- 53 sources are under-reported, every one of them inside the deferred set: 28
+  are a call or a name (E0103, E0100/E0102 at an argument, E0108, E0005, and
+  E0500/E0501 at a call site), 17 are ownership or a ref (E0300–E0305, E0402),
+  5 are `alloc`'s invariant rule, 2 are E0601/E0602 from a result, and 1 is a
+  closure escape (E0502);
+- against the B1 binary, exactly `tests/type/non-exhaustive.logos` is newly
+  refused, with the same line, and nothing that was refused before is accepted
+  now;
+- the two sources outside those buckets answer the same E0002 with a different
+  path spelling: `tests/parse/no-mod.logos` (Python names an empty path for a
+  file with no `(mod …)`, gen2 names the file) and
+  `src/logosc/fixtures/origins/root.logos` (Python prints absolute paths in the
+  duplicate-module message, gen2 relative ones). Both are declaration-pass edge
+  cases from W6 A, untouched by B2.
 
 ## Building it
 

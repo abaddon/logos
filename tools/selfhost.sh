@@ -57,10 +57,11 @@ FLOOR=100
 # imported file must fail to lex.
 RESOLVE_FLOOR=14
 # The checker's list names exactly the corpus cases the checker decides: the
-# declaration cases, plus the scalar body cases the W6 body pass reads.
-# Fourteen today; a pruned list is a failure, not a smaller pass.
+# declaration cases, the scalar body cases, and the control-flow cases the W6
+# B2 pass reads. Seventeen today; a pruned list is a failure, not a smaller
+# pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=14
+CHECK_FLOOR=17
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

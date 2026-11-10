@@ -169,6 +169,8 @@ tests/type/free-raw.logos
 tests/type/immutable-set.logos
 tests/type/literal-range.logos
 tests/type/loop-move.logos
+tests/type/match-duplicate.logos
+tests/type/missing-return.logos
 tests/type/move-immutable.logos
 tests/type/move.logos
 tests/type/non-exhaustive.logos

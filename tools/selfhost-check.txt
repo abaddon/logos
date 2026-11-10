@@ -12,3 +12,6 @@ tests/type/immutable-set.logos
 tests/type/shift-float.logos
 tests/type/literal-range.logos
 tests/type/compare-bool.logos
+tests/type/non-exhaustive.logos
+tests/type/missing-return.logos
+tests/type/match-duplicate.logos
