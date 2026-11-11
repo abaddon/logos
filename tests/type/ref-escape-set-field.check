@@ -1,0 +1,1 @@
+ref-escape-set-field/f/3: E0305: a ref cannot escape the call: storing it in a field

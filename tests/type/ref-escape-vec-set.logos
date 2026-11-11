@@ -1,0 +1,8 @@
+(mod ref-escape-vec-set)
+
+(fn f :void ((v (ref (vec :i64))))
+  (letmut xs
+    (vec (ref (vec :i64)))
+    (make (vec (ref (vec :i64)))))
+  (vec-set xs 0 v)
+  (vec-free xs))

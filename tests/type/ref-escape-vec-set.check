@@ -1,0 +1,1 @@
+ref-escape-vec-set/f/3: E0305: a ref cannot escape the call: storing it in a vector element

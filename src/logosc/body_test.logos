@@ -1473,3 +1473,93 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (let ok (fn :i64 () (ret 1))) (let x (ok)) (ret 0))"))
+
+(test ref-escape-return
+  (expect (out "E0305\nm/same/2\na ref cannot escape the call: returning it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn same (ref (vec :i64)) ((v (ref (vec :i64)))) (ret v))"))
+
+(test ref-escape-field
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: storing it in a field\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type box (struct (v (ref (vec :i64))))) (fn f :void ((v (ref (vec :i64)))) (letmut b box (make box v)))"))
+
+(test ref-escape-set-field
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in a field\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type box (struct (n :i64) (v (ref (vec :i64))))) (fn f :void ((p box) (w (ref (vec :i64)))) (letmut b box p) (set-field b v w))"))
+
+(test ref-escape-push
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: pushing it into a vector\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (ref (vec :i64))) (make (vec (ref (vec :i64))))) (vec-push xs v) (vec-free xs))"))
+
+(test ref-escape-vec-set
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in a vector element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (ref (vec :i64))) (make (vec (ref (vec :i64))))) (vec-set xs 0 v) (vec-free xs))"))
+
+(test ref-escape-array
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: storing it in an array element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut a (arr (ref (vec :i64)) 2) (make (arr (ref (vec :i64)) 2) v v)))"))
+
+(test ref-escape-arr-set
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in an array element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (arr (ref (vec :i64)) 2)) (v (ref (vec :i64)))) (letmut a (arr (ref (vec :i64)) 2) p) (arr-set a 0 v))"))
+
+(test ref-escape-payload
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in enum 'e'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad (ref (vec :i64))))) (fn f :void ((v (ref (vec :i64)))) (letmut e e (bad v)))"))
+
+(test ref-escape-alloc
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: allocating a block of it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut p (own (ref (vec :i64))) (alloc (ref (vec :i64)) 1)) (free p))"))
+
+(test ref-escape-argument
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: passing it to argument 1 of 'take'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((v (vec :i64))) (vec-free v)) (fn f :void ((w (ref (vec :i64)))) (take w))"))
+
+(test ref-escape-function-value
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: passing it to a function value, which may outlive the call\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((g (fn ((ref (vec :i64))) :void)) (w (ref (vec :i64)))) (g w))"))
+
+(test ref-read-through
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn peek :i64 ((v (ref (vec :i64)))) (ret (vec-len v)))"))
+
+(test ref-two-params
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn both :i64 ((a (ref (vec :i64))) (b (ref (vec :i64)))) (ret (+ (vec-len a) (vec-len b))))"))
+
+(test ref-pass-through
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn inner :void ((v (ref (vec :i64)))) (vec-push v 1)) (fn outer :void ((w (ref (vec :i64)))) (inner w))"))
+
+(test ref-letmut-argument
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1)) (fn f :void () (letmut v (vec :i64) (make (vec :i64))) (grow v) (vec-free v))"))

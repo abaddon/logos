@@ -181,6 +181,16 @@ tests/type/move.logos
 tests/type/non-exhaustive.logos
 tests/type/not-a-str.logos
 tests/type/param-bare-name.logos
+tests/type/ref-escape-alloc.logos
+tests/type/ref-escape-arg.logos
+tests/type/ref-escape-arr-set.logos
+tests/type/ref-escape-array.logos
+tests/type/ref-escape-field.logos
+tests/type/ref-escape-fn-value.logos
+tests/type/ref-escape-payload.logos
+tests/type/ref-escape-set-field.logos
+tests/type/ref-escape-vec-set.logos
+tests/type/ref-escape-vec.logos
 tests/type/ref-escapes-capture.logos
 tests/type/ref-escapes-return.logos
 tests/type/ref-not-a-vector.logos

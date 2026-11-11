@@ -36,6 +36,16 @@ PASS type/move -
 PASS type/non-exhaustive -
 PASS type/not-a-str -
 PASS type/param-bare-name -
+PASS type/ref-escape-alloc -
+PASS type/ref-escape-arg -
+PASS type/ref-escape-arr-set -
+PASS type/ref-escape-array -
+PASS type/ref-escape-field -
+PASS type/ref-escape-fn-value -
+PASS type/ref-escape-payload -
+PASS type/ref-escape-set-field -
+PASS type/ref-escape-vec-set -
+PASS type/ref-escape-vec -
 PASS type/ref-escapes-capture -
 PASS type/ref-escapes-return -
 PASS type/ref-not-a-vector -

@@ -44,3 +44,15 @@ tests/regress/loop-condition.logos
 tests/regress/move-join.logos
 tests/regress/move-set.logos
 tests/type/unused-deref-own.logos
+tests/type/ref-escapes-return.logos
+tests/regress/ref-channel-element.logos
+tests/type/ref-escape-field.logos
+tests/type/ref-escape-set-field.logos
+tests/type/ref-escape-vec.logos
+tests/type/ref-escape-vec-set.logos
+tests/type/ref-escape-array.logos
+tests/type/ref-escape-arr-set.logos
+tests/type/ref-escape-payload.logos
+tests/type/ref-escape-alloc.logos
+tests/type/ref-escape-arg.logos
+tests/type/ref-escape-fn-value.logos

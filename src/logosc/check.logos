@@ -3223,6 +3223,9 @@
   (vec-push val -1)
   (letmut err check-error (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex (check-child nodes id 0) ret-ty id val))
   (let ty :i64 (vec-get val 0))
+  (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags ty (check-child nodes id 0) id "returning it"))
+    (check-nothing))
   (if (and (check-ok err)
         (and (not (= ty (body-unknown)))
           (not (body-fits tags names elem extra pbase powner ptypes ret-ty ty))))
@@ -4058,6 +4061,14 @@
          (= (type-tag tags ty)
            (type-tag-fn)))))
 
+(fn body-refuse-ref check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (tags (ref (vec :i64))) (ty :i64) (item :i64) (owner :i64) (what :str))
+  (if (body-ref-ty? tags ty)
+    (ret (check-fail-at nodes ntexts
+           (body-at nodes item owner) 305
+           (str-concat "a ref cannot escape the call: " what)))
+    (check-nothing))
+  (ret (check-pass)))
+
 (fn body-count-text :str ((n :i64))
   (ret (if (= n 1) "1 argument"
          (str-concat (str-from-i64 n) " arguments"))))
@@ -4561,6 +4572,9 @@
     (vec-push one -1)
     (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item fty id one))
     (if (check-ok err)
+      (set err (body-refuse-ref nodes ntexts tags (vec-get one 0) item id "storing it in a field"))
+      (check-nothing))
+    (if (check-ok err)
       (if (not (body-fits tags names elem extra pbase powner ptypes fty (vec-get one 0)))
         (set err (check-fail-at nodes ntexts
                    (body-at nodes item id) 100
@@ -4601,6 +4615,9 @@
       (make (vec :i64)))
     (vec-push one -1)
     (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item et id one))
+    (if (check-ok err)
+      (set err (body-refuse-ref nodes ntexts tags (vec-get one 0) item id "storing it in an array element"))
+      (check-nothing))
     (if (check-ok err)
       (if (not (body-fits tags names elem extra pbase powner ptypes et (vec-get one 0)))
         (set err (check-fail-at nodes ntexts
@@ -4691,6 +4708,9 @@
   (vec-push one -1)
   (letmut err check-error (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item fty id one))
   (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags (vec-get one 0) item id "storing it in a field"))
+    (check-nothing))
+  (if (check-ok err)
     (if (not (body-fits tags names elem extra pbase powner ptypes fty (vec-get one 0)))
       (set err (check-fail-at nodes ntexts
                  (body-at nodes item id) 200
@@ -4773,6 +4793,9 @@
   (let et :i64 (vec-get elem ty))
   (let item :i64 (check-child nodes id 2))
   (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item et id one))
+  (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags (vec-get one 0) item id "storing it in an array element"))
+    (check-nothing))
   (if (check-ok err)
     (if (not (body-fits tags names elem extra pbase powner ptypes et (vec-get one 0)))
       (set err (check-fail-at nodes ntexts
@@ -4916,6 +4939,9 @@
     (check-nothing))
   (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item et id tv))
   (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags (vec-get tv 0) item id "pushing it into a vector"))
+    (check-nothing))
+  (if (check-ok err)
     (if (and (not (= vb (body-unknown)))
           (not (body-fits tags names elem extra pbase powner ptypes et (vec-get tv 0))))
       (set err (check-fail-at nodes ntexts
@@ -4953,6 +4979,9 @@
     (set et (vec-get elem vb))
     (check-nothing))
   (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex item et id tv))
+  (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags (vec-get tv 0) item id "storing it in a vector element"))
+    (check-nothing))
   (if (check-ok err)
     (if (and (not (= vb (body-unknown)))
           (not (body-fits tags names elem extra pbase powner ptypes et (vec-get tv 0))))
@@ -5272,6 +5301,10 @@
     (ret (check-free-one one err))
     (check-nothing))
   (let elem-ty :i64 (vec-get one 0))
+  (set err (body-refuse-ref nodes ntexts tags elem-ty id id "allocating a block of it"))
+  (if (not (check-ok err))
+    (ret (check-free-one one err))
+    (check-nothing))
   (if (check-is-void tags names elem-ty)
     (ret (check-free-one one (check-fail-at nodes ntexts id 100 "cannot allocate :void")))
     (check-nothing))
@@ -5354,7 +5387,7 @@
     (check-nothing))
   (ret (body-store out (body-prim-ty tags names elem extra pbase powner "void"))))
 
-(fn body-ref-arg check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (id :i64) (index :i64) (arg :i64) (param :i64) (name :str))
+(fn body-ref-arg check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (id :i64) (index :i64) (arg :i64) (param :i64) (name :str) (indirect :i64))
   (if (not (body-atom? nodes arg))
     (ret (check-fail-at nodes ntexts (body-at nodes arg id) 304 "a ref argument must be a mutable binding"))
     (check-nothing))
@@ -5372,6 +5405,10 @@
     (ret (check-fail-at nodes ntexts
            (body-at nodes arg id) 304
            (str-concat "a ref argument must be a mutable binding, and '" (str-concat an "' is not"))))
+    (check-nothing))
+  (if (and (= indirect 1)
+        (body-ref-ty? tags (vec-get bt at)))
+    (ret (check-fail-at nodes ntexts (body-at nodes arg id) 305 "a ref cannot escape the call: passing it to a function value, which may outlive the call"))
     (check-nothing))
   (letmut given :i64 (vec-get bt at))
   (if (body-ref-ty? tags given)
@@ -5402,6 +5439,13 @@
   (if (not (check-ok err))
     (ret err)
     (check-nothing))
+  (set err (body-refuse-ref nodes ntexts tags
+             (vec-get out 0) arg id
+             (str-concat "passing it to argument " (str-concat (str-from-i64 index)
+                                                     (str-concat " of '" (str-concat name "'"))))))
+  (if (not (check-ok err))
+    (ret err)
+    (check-nothing))
   (if (not (body-fits tags names elem extra pbase powner ptypes param (vec-get out 0)))
     (ret (check-fail-at nodes ntexts
            (body-at nodes arg id) 100
@@ -5414,7 +5458,7 @@
     (check-nothing))
   (ret (check-pass)))
 
-(fn body-arguments check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (id :i64) (name :str) (sig :i64) (out (ref (vec :i64))))
+(fn body-arguments check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (id :i64) (name :str) (sig :i64) (indirect :i64) (out (ref (vec :i64))))
   (let arity :i64 (vec-get extra sig))
   (let got :i64 (check-count nodes id))
   (if (not (= got arity))
@@ -5434,7 +5478,7 @@
     (let param :i64 (type-param-type ptypes pbase sig i))
     (vec-set one 0 -1)
     (if (body-ref-ty? tags param)
-      (set err (body-ref-arg nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id index arg param name))
+      (set err (body-ref-arg nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id index arg param name indirect))
       (set err (body-plain-arg nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id index arg param name one)))
     (set i (+ i 1)))
   (vec-free one)
@@ -5496,6 +5540,11 @@
                                (str-concat "variant '" (str-concat name (str-concat "' holds " (str-concat (body-type-text tags names elem extra pbase ptypes payload)
                                                                                                  (str-concat ", found " (body-type-text tags names elem extra pbase ptypes (vec-get one 0))))))))))
     (check-nothing))
+  (if (check-ok err)
+    (set err (body-refuse-ref nodes ntexts tags
+               (vec-get one 0) item id
+               (str-concat "carrying it in enum '" (str-concat (type-name names enumty) "'"))))
+    (check-nothing))
   (if (and (check-ok err)
         (body-move-only? tags elem extra pbase pchild (vec-get one 0)))
     (set err (body-move-out nodes ntexts tags elem extra pbase pchild bt bv bm bd bk bvl bsl bctl item 0 id))
@@ -5533,7 +5582,7 @@
   (if (and (>= at 0)
         (not (= (vec-get bt at)
                (body-unknown))))
-    (ret (body-arguments nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id name (vec-get bt at) out))
+    (ret (body-arguments nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id name (vec-get bt at) 1 out))
     (check-nothing))
   (let e :i64 (body-fn-find ents vindex
                 (vec-get bctl 2)
@@ -5556,7 +5605,7 @@
     (ret (check-fail-at nodes ntexts id 108 "the entry point is not callable"))
     (check-nothing))
   (if (>= e 0)
-    (ret (body-arguments nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id name (get (vec-get ents e) ty) out))
+    (ret (body-arguments nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id name (get (vec-get ents e) ty) 0 out))
     (check-nothing))
   (if (body-printer? name)
     (ret (body-printer nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex id out))

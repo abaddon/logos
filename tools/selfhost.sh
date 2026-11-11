@@ -58,12 +58,13 @@ FLOOR=100
 RESOLVE_FLOOR=14
 # The checker's list names exactly the corpus cases the checker decides: the
 # declaration cases, the scalar and control-flow body cases, the calls,
-# containers, strings and memory forms the W6 B3 pass reads, and the ownership
+# containers, strings and memory forms the W6 B3 pass reads, the ownership
 # rules of W6 C1 (moves, frees, E0302/E0303, E0402, E0005) and the narrowed
-# E0107 deferral. Forty-six today; a pruned list is a failure, not a smaller
-# pass.
+# E0107 deferral, and the ref rules of W6 C2 (E0304 at the argument shape and
+# E0305 at every escape site). Fifty-eight today; a pruned list is a failure,
+# not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=46
+CHECK_FLOOR=58
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

@@ -141,6 +141,7 @@ The body pass adds:
 | `print`/`println` arity, and only a number, `:bool` or `:str` | E0102 / E0100 | the call / the argument |
 | a vector argument must be a name | E0402 | the argument |
 | a ref argument must be a mutable binding (and be one) | E0304 | the argument / the call |
+| a ref escapes the call: return, struct field, `set-field`, vector or array element, enum payload, `alloc`, a non-ref argument, a function value | E0305 | the escaping value, or the form when it is an atom |
 | `make` arity; a vector starts empty; field or element counts | E0102 | the `make` |
 | field or element type in a `make` | E0100 | the value |
 | an owning array element or `make` of an enum | E0002 | the type / the `make` |
@@ -189,10 +190,17 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   type variables. Python checks such a body once per instantiation; until the
   call site unifies, `gen2 check` cannot know which copy it is reading, so it
   reads none.
-- **Refs beyond the argument shape.** A `(ref (vec T))` parameter is read
-  through and its argument is checked for mutability (E0304), which is what
-  keeps a call from disagreeing with Python. Returning, storing, capturing or
-  sending a ref (E0305) is C2.
+- **Ref escapes behind forms C3 and C4 own.** Every escape site this pass can
+  reach is decided, and reports E0305 with Python's path and message: returning
+  a ref, storing one in a struct field, a `set-field`, a vector element, a
+  fixed-array element, an enum payload, allocating a block of one, passing one
+  to a parameter that is not a ref, and passing one to a function value. Three
+  sites sit behind a form that is not typed yet and are left untouched rather
+  than guessed: a ref carried in a result or an optional slot (`ok`/`err`/
+  `some`/`none`, C3), and a ref captured by a closure or sent on a channel or
+  to `spawn` (C4). The channel *element* rule is type-level, not a body rule,
+  and is decided where a channel appears in a declaration; a `chan` in a body
+  expression is C4's form and is untouched.
 - **Closures, threads, raw pointers and results as expressions.** `fn`,
   `spawn`/`join`, `mutex`/`lock`/`unlock`, `chan`/`send`/`recv`,
   `atomic*`, `ptr`/`deref`/`set-deref`/`ptr-add`, `ok`/`err`/`some`/`none` and
@@ -225,7 +233,7 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   reads names from the tree, which it still has (and records the declaring
   node for E0107).
 
-## The body pass (W6 B1–B3, C1)
+## The body pass (W6 B1–B3, C1, C2)
 
 `check-module-fns` records each own non-generic `fn` as it declares the
 signature — the node and its `fn` type id, in the order the source declares
@@ -468,7 +476,8 @@ are:
   nothing at all is E0005 (see below);
 - `fn`, `ptr`, `deref`, `set-deref`, `ptr-add`, `spawn`, `join`, `mutex`,
   `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*`, `ok`, `err`, `some`,
-  `none` and `try` — C2/C3's forms and the closure form. Their operands are not
+  `none` and `try` — C3's result forms, C4's closure and concurrency forms,
+  and the pointer forms. Their operands are not
   typed, but every atom anywhere inside one is marked read, so E0107 cannot
   blame a binding the deferred form used;
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
@@ -508,12 +517,16 @@ definition this build lowers is a value, so a bare extern (`(let x abs)`) and an
 imported function are E0103 at the atom's path —
 `cannot use 'abs' as a function value: 'abs' is not part of this build` — while
 a function of this module stays a value with an unknown type (its signature is
-C2/C3).
+still deferred).
 
 `body-arguments` walks the arguments left to right. A `(ref (vec T))`
 parameter reads its argument as a place — only a name can be borrowed (E0304),
 an unknown name is E0005, and the name must be a `letmut` or another ref
-(E0304) — and checks the referenced type, never the address. A parameter that
+(E0304) — and checks the referenced type, never the address. A ref handed to a
+parameter that is not a ref is E0305, `passing it to argument N of 'f'`, and an
+indirect call through a function value refuses a ref argument outright:
+`passing it to a function value, which may outlive the call` — the value can be
+stored and called after the frame that lent the address has gone. A parameter that
 holds a vector needs the argument to be a whole name (E0402, `a vector argument
 must be a name`), because the callee owns the descriptor; a temporary would
 leave two names for one buffer. A vector or an owner parameter *moves* its
@@ -566,8 +579,8 @@ A deferred form Python types `:void` (`set-deref`, `send`, `join`, `lock`,
 else is suppressed: `(ptr q)`, `(ptr-add (ptr q) 1)`, `(some 1)` and
 `(deref q)` where `q` is `(own :i64)` all report E0107 at the `let`, as Python
 does. A `deref` whose operand is not an atom stays silent because the pointee's
-type would need the operand typed first (C2); that is an under-report, not a
-wrong code.
+type would need the operand typed first (the deferred `ptr`/`deref` forms, C4);
+that is an under-report, not a wrong code.
 
 Two more families defer, and each is keyed on the head *and* on what that head
 names, so an ordinary binding with one of these heads keeps its E0107:
@@ -620,11 +633,65 @@ value check, the type fit and the binding. So:
 `body-atom-value` ends in Python's `_token` order: a binding, `true`/`false`, a
 visible function's name, an enum variant's name, and only then E0005
 `unknown name 'x'` at the atom. Function and variant names therefore stay
-values (their *type* is still unknown, a C2/C3 deferral); a name that genuinely
+values (their *type* is still unknown, a C3 deferral); a name that genuinely
 resolves to nothing is E0005 with Python's path — the enclosing form, which is
 the node the atom folds into. `(ret zzz)`, `(let x zzz)`, a read of another
 function's local, and the `set r y` shape whose `r` is undeclared all report
 E0005 first, as Python does.
+
+### Refs and E0305 (C2)
+
+A `(ref (vec T))` is an address into the caller's frame. Reading one through
+(as a `vec-*` operand, or the target of a mutating vector form) is legal; the
+moment a value of that type would outlive the call, Python refuses it and the
+port refuses it with the same code, path and sentence. One predicate,
+`body-refuse-ref`, is called at each site in Python's order relative to the
+value check, the type fit and the move:
+
+| site | message after `a ref cannot escape the call: ` | where |
+|---|---|---|
+| `(ret v)` | `returning it` | the value, or the `ret` |
+| `(make S … v …)` field | `storing it in a field` | the field value |
+| `(set-field s f v)` | `storing it in a field` | the value, or the form |
+| `(vec-push xs v)` | `pushing it into a vector` | the value, or the form |
+| `(vec-set xs i v)` | `storing it in a vector element` | the value, or the form |
+| `(make (arr T n) … v …)` | `storing it in an array element` | the element |
+| `(arr-set a i v)` | `storing it in an array element` | the value, or the form |
+| `(variant v)` | `carrying it in enum 'e'` | the payload |
+| `(alloc (ref …) n)` | `allocating a block of it` | the `alloc` |
+| a non-ref argument | `passing it to argument N of 'f'` | the argument, or the call |
+| an argument of a function value | `passing it to a function value, which may outlive the call` | the argument, or the call |
+
+`alloc`'s refusal precedes the invariant check it would otherwise hit, so a
+block of refs is E0305 rather than the E0002 the type would earn; `vec-push`
+and `vec-set` refuse the value even when the element type is unknown, because
+the ref is known and Python checks it first. The argument sites share
+`body-ref-arg` with a flag: a direct call may lend a ref to a `(ref …)`
+parameter, an indirect call through a function value may not, since that value
+can be stored and called after the lending frame returns.
+
+Three sites are deliberately untouched because the form around them is not
+typed by this pass. A ref in a result or optional slot (`(ok v)`, `(some v)`)
+is C3's; a ref captured by a closure (`(fn …)`) is C4's; and the value
+arguments of `(send c v)` and `(spawn f v)` are C4's. Each is named as an
+under-report with the code Python gives rather than guessed at here. In the
+corpus `ref-escapes-capture` is Python's E0305 from the closure's `_lookup`
+and the port stays silent (the E0107 deferral guard keeps it from reporting a
+wrong code); `ref-escape-spawn` is E0305 at the spawn argument; and
+`ref-escape-send` fails earlier in Python, at the `(chan (ref (vec :i64)))`
+element (`f/2/1`), but `chan` is itself one of C4's deferred body forms, so the
+port is silent at both points. The channel **element** rule is decided where a
+channel appears in a declaration — a parameter type, say — and
+`ref-channel-element` pins that at `f/1/0/0`. A ref returned from a closure is
+refused by Python at the capture that reads it, not at the `ret`, so it is the
+same C4 site.
+
+One shape is a known **wrong code**, and it belongs to C3: `(let o (opt (ref
+(vec :i64))) (some v))` is Python's E0305 `carrying it in an optional` at the
+payload (`f/2/2`), but `some` is not typed here, and the C1 E0107 narrowing
+reports `unused binding 'o'` at the `let`. Typing `some` is C3's; the site is
+not guessed at here, and the shape is recorded so the sweep's "0 code
+disagreements" is not read as covering it.
 
 ## The arena of checked modules
 
@@ -785,6 +852,18 @@ tests/regress/loop-condition.logos      E0303
 tests/regress/move-join.logos           E0300
 tests/regress/move-set.logos            E0300
 tests/type/unused-deref-own.logos       E0107
+tests/type/ref-escapes-return.logos     E0305
+tests/regress/ref-channel-element.logos E0305
+tests/type/ref-escape-field.logos       E0305
+tests/type/ref-escape-set-field.logos   E0305
+tests/type/ref-escape-vec.logos         E0305
+tests/type/ref-escape-vec-set.logos     E0305
+tests/type/ref-escape-array.logos       E0305
+tests/type/ref-escape-arr-set.logos     E0305
+tests/type/ref-escape-payload.logos     E0305
+tests/type/ref-escape-alloc.logos       E0305
+tests/type/ref-escape-arg.logos         E0305
+tests/type/ref-escape-fn-value.logos    E0305
 ```
 
 The last ten of the original seventeen are the B1/B2 body cases: a cast of a
@@ -819,21 +898,31 @@ C" in this list's own note until C1 decided them. `unused-deref-own` is the
 narrowed guard's fixture: Python reads no owner through `(deref q)`, so its only
 diagnostic is E0107 and the port must print the same line.
 
+The last twelve are C2's: a returned ref, the channel element rule, and one
+fixture per body escape site — struct field, `set-field`, vector element,
+`vec-set`, array element, `arr-set`, enum payload, `alloc`, a non-ref argument
+and a function value. `ref-escapes-return` and `ref-channel-element` are
+existing fixtures whose rule C2 decides; the other ten are new corpus cases
+added with the pass, because no fixture named E0305 at those sites. Each was
+checked to fail for its own rule: removing that one `body-refuse-ref` call
+makes only that fixture's line differ.
+
 The gate compares the whole line `gen2 check` prints — path, code and message —
 with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 46: a pruned list fails rather than passing over
-fewer fixtures. `try-mismatch`, `unhandled-result`, `closure-escape`,
-`owner-place-read` (a `deref` read, deferred with the deref form), the other
-ref-escape cases and `generic-vector` still need C2/C3; `limit` and `unbound`
-need a generic call site; the visibility fixtures under
+matching code. Its floor is 58: a pruned list fails rather than passing over
+fewer fixtures. `try-mismatch`, `unhandled-result` and `closure-escape` need
+C3; `owner-place-read` (a `deref` read) and `generic-vector` need the deferred
+`deref` form or a generic call site; `ref-escapes-capture`, `ref-escape-spawn`
+and `ref-to-function-value` are ref escapes behind C4 forms; `limit` and
+`unbound` need a generic call site; the visibility fixtures under
 `src/logosc/fixtures/check` are unit cases, not corpus cases.
 
 ## Tests
 
-`src/logosc/body_test.logos` has 221 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 236 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -932,7 +1021,13 @@ need a generic call site; the visibility fixtures under
   (E0300), `vec-free` twice and reading the length after it (both accepted,
   because Python does not move on `vec-free`), returning an owner, and the four
   E0005 shapes plus the function- and variant-value atoms that must not be
-  E0005.
+  E0005;
+- refs (C2): E0305 at every escape site this pass decides — a returned ref, a
+  struct field, `set-field`, `vec-push`, `vec-set`, a `make` array element,
+  `arr-set`, an enum payload, `alloc`, a non-ref argument and a function-value
+  argument — each at Python's path and with Python's sentence, plus the
+  accepted shapes: a ref read through `vec-len`, two ref parameters, a ref
+  passed to another `(ref …)` parameter, and a `letmut` vector argument.
 
 `src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -969,7 +1064,7 @@ are reached by path.
 
 ## Parity
 
-The forty-six coverage fixtures match Python's code **and node path**, not
+The fifty-eight coverage fixtures match Python's code **and node path**, not
 just the code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
@@ -987,22 +1082,30 @@ pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
 `loop-release/f/4/1`, `loop-condition/f/4/0/1/1`), the two E0005 names
 (`m/f/2` in `unknown-name` and `unknown-name-binding/f/2`), E0402 from
 `if-ownership/f/4/1`, `match-ownership/f/4/1` and `vec-arg-twice/f/4`, and the
-narrowed guard's `unused-deref-own/f/2` (E0107).
+narrowed guard's `unused-deref-own/f/2` (E0107). The twelve C2 cases pin every
+escape site against Python's own line — `ref-escapes-return/same/2`
+(returning), `ref-escape-field/f/2/2` and `ref-escape-set-field/f/3` (a field),
+`ref-escape-vec/f/3` and `ref-escape-vec-set/f/3` (a vector element),
+`ref-escape-array/f/2/2` and `ref-escape-arr-set/f/3` (an array element),
+`ref-escape-payload/f/2/2`, `ref-escape-alloc/f/2/2`, `ref-escape-arg/f/2`, a
+function value in `ref-escape-fn-value/f/2`, and the type-level
+`ref-channel-element/f/1/0/0`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 201 tracked and new sources finds:
+`check_module` over the tree. A sweep of all 211 tracked and new sources finds:
 
 - **0 false positives** — no program Python accepts is refused by `gen2 check`;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 86 are refused by both: 85 with the
+- 93 sources are accepted by both, and 118 are refused by both: 117 with the
   same line and one with the same code and a different path spelling;
-- 21 sources are under-reported, every one of them inside the deferred set:
+- 20 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
-  bodies), 5 are a ref escape (E0305: return, capture, send, spawn, function
-  value), 1 is the owner read behind `(deref p)` (E0402, deferred with the
-  deref form), 1 is the `sibling-set` read after a join through `deref`
-  (E0300 behind the same deferred form), 3 are E0500/E0501 or a generic call
-  site, 2 are E0601/E0602 from a result, and 1 is a closure escape (E0502);
+  bodies), 4 are a ref escape behind a form that is not typed yet (E0305:
+  capture, send-value, spawn, function value through a closure), 1 is the
+  owner read behind `(deref p)` (E0402, deferred with the deref form), 1 is
+  the `sibling-set` read after a join through `deref` (E0300 behind the same
+  deferred form), 3 are E0500/E0501 or a generic call site, 2 are E0601/E0602
+  from a result, and 1 is a closure escape (E0502);
 - against the W6 B3 binary, 6 existing sources are newly refused with Python's
   own line — `move`, `move-immutable`, `loop-move`, `loop-release`,
   `loop-condition` and `unknown-name` — plus the six new fixtures this pass
