@@ -184,7 +184,7 @@ type variables. Python's `check_module` checks the root's bodies and leaves an
 import's bodies to the module that owns them; a generic body has no single type
 and is checked per instantiation, which is B3. `gen2 check <file>` therefore
 rejects bodies while every earlier accepted program — every module Python's
-checker accepts — stays accepted: a whole-tree sweep over all 188 tracked
+checker accepts — stays accepted: a whole-tree sweep over all 190 tracked
 sources found no program Python accepts that `gen2 check` refuses.
 
 The walk lives in `check.logos` rather than a new `body.logos` because it needs
@@ -215,15 +215,22 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 `bctl` is the block and loop counter B2's forms need. Every branch, every
 `while` body and every match arm raises `bctl[0]` for its statements, so `bd`
 answers the "same scope" half of the duplicate test and a `let` in an arm is a
-fresh binding rather than a redefinition of one in a sibling arm. `bctl[1]`
-counts the enclosing loops: `break` and `continue` are legal only when it is
-non-zero, and it is raised *before* a `while` condition is typed, because
-Python puts the condition inside the loop.
+fresh binding rather than a redefinition of one in a sibling arm. The function
+body is the one block that does not raise it: its statements run at the depth
+of its parameters, which is what makes `(fn f :i64 ((x :i64)) (let x :i64 5)
+…)` E0003, as Python answers. `body-walk` is that depth-preserving loop;
+`body-block` is `body-walk` inside one raise, and is what a `while` body uses
+(`body-statements` calls `body-walk`, so a nested block still shadows legally).
+`bctl[1]` counts the enclosing loops: `break` and `continue` are legal only
+when it is non-zero, and it is raised *before* a `while` condition is typed,
+because Python puts the condition inside the loop.
 
 `bu` is still written and never read. E0107's unused test is its only reader,
 and that rule cannot land before B3: a name read inside a call is an argument
-B2 does not visit, so it would read as unused. `moved` is still never set —
-ownership is PR C — but the join that B2 implements is the one it will need.
+B2 does not visit, so it would read as unused. The `moved` join is the same
+shape: `body-restore` and `body-union-moved` write `bv`, but nothing sets a
+moved flag until PR C, so the join is written and PR C is what makes it
+observable.
 
 `body-bind` appends a declaration and `map-put`s its index; a name already in
 the map at the same depth is E0003. `body-snapshot`/`body-restore` are the pair
@@ -604,25 +611,23 @@ the code, and the whole line, message included, is what
 `match-duplicate/label/2/2/0`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 188 tracked sources finds:
+`check_module` over the tree. A sweep of all 190 tracked sources finds:
 
 - **0 false positives** — no program Python accepts is refused by `gen2 check`;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 133 sources answer the same line from both;
+- 136 sources answer the same line from both;
 - 53 sources are under-reported, every one of them inside the deferred set: 28
   are a call or a name (E0103, E0100/E0102 at an argument, E0108, E0005, and
   E0500/E0501 at a call site), 17 are ownership or a ref (E0300–E0305, E0402),
   5 are `alloc`'s invariant rule, 2 are E0601/E0602 from a result, and 1 is a
   closure escape (E0502);
-- against the B1 binary, exactly `tests/type/non-exhaustive.logos` is newly
-  refused, with the same line, and nothing that was refused before is accepted
-  now;
-- the two sources outside those buckets answer the same E0002 with a different
-  path spelling: `tests/parse/no-mod.logos` (Python names an empty path for a
-  file with no `(mod …)`, gen2 names the file) and
-  `src/logosc/fixtures/origins/root.logos` (Python prints absolute paths in the
-  duplicate-module message, gen2 relative ones). Both are declaration-pass edge
-  cases from W6 A, untouched by B2.
+- against the B1 binary, exactly the three fixtures the coverage list gains are
+  newly refused (`non-exhaustive` and the two new files), with their lines, and
+  nothing that was refused before is accepted now;
+- the one source outside those buckets answers the same E0002 with a different
+  path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
+  for a file with no `(mod …)` and gen2 names the file. It is the W6 A
+  declaration edge, untouched by B2.
 
 ## Building it
 

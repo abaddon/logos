@@ -231,6 +231,18 @@
     (leaks 0))
   (dump-src "(fn f :void () (let x :i64 1) (let x :i64 2) (ret))"))
 
+(test param-shadow
+  (expect (out "E0003\nm/f/2\nduplicate definition 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (let x :i64 5) (ret x))"))
+
+(test param-shadow-nested
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((x :i64)) (while false (let x :i64 5) (println x) (break)) (ret x))"))
+
 (test set-immutable
   (expect (out "E0104\nm/f/3\ncannot set immutable binding 'x'\n")
     (code 0)
@@ -515,10 +527,10 @@
   (dump-src "(fn f :i64 () (while true (while true (break)) (break)))"))
 
 (test match-enum
-  (expect (out "E0100\nm/f/2/1/1\nfunction 'f' returns :i64, found :u64\n")
+  (expect (out "OK\n")
     (code 0)
     (leaks 0))
-  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) (b (ret 0))))"))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret (cast :i64 n))) (b (ret 0))))"))
 
 (test match-nonexhaustive
   (expect (out "E0600\nm/f/2\nthis match on e does not handle 'b'\n")
@@ -533,10 +545,10 @@
   (dump-src "(type e (enum (a :u64) (b) (c)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n))))"))
 
 (test match-wildcard
-  (expect (out "E0100\nm/f/2/1/1\nfunction 'f' returns :i64, found :u64\n")
+  (expect (out "OK\n")
     (code 0)
     (leaks 0))
-  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret n)) (_ (ret 0))))"))
+  (dump-src "(type e (enum (a :u64) (b)))\n(fn f :i64 ((x e)) (match x ((a n) (ret (cast :i64 n))) (_ (ret 0))))"))
 
 (test match-after-wildcard
   (expect (out "E0002\nm/f/2/2\nan arm after '_' can never match\n")

@@ -3450,9 +3450,7 @@
   (vec-set bctl 0 d0)
   (ret err))
 
-(fn body-block check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (items :i64) (count :i64) (owner :i64))
-  (let d0 :i64 (vec-get bctl 0))
-  (vec-set bctl 0 (+ d0 1))
+(fn body-walk check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (items :i64) (count :i64) (owner :i64))
   (letmut c :i64 items)
   (letmut i :i64 0)
   (letmut err check-error (check-pass))
@@ -3465,6 +3463,12 @@
     (set c (if (= c -1) -1
              (get (vec-get nodes c) next)))
     (set i (+ i 1)))
+  (ret err))
+
+(fn body-block check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (items :i64) (count :i64) (owner :i64))
+  (let d0 :i64 (vec-get bctl 0))
+  (vec-set bctl 0 (+ d0 1))
+  (letmut err check-error (body-walk nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl items count owner))
   (vec-set bctl 0 d0)
   (ret err))
 
@@ -3907,7 +3911,7 @@
   (ret err))
 
 (fn body-statements check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (bn (ref (vec :i64))) (bt (ref (vec :i64))) (bm (ref (vec :i64))) (bv (ref (vec :i64))) (bu (ref (vec :i64))) (bd (ref (vec :i64))) (br (ref (vec :i64))) (bl (ref (vec :str))) (bk (ref (vec :str))) (bvl (ref (vec :i64))) (bsl (ref (vec :i64))) (bctl (ref (vec :i64))) (start :i64) (owner :i64))
-  (letmut err check-error (body-block nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl start (body-list-count nodes start) owner))
+  (letmut err check-error (body-walk nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl start (body-list-count nodes start) owner))
   (if (and (check-ok err)
         (not (body-void-ty? tags names (vec-get br 0))))
     (if (not (body-any-terminates nodes ntexts start))
