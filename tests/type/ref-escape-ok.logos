@@ -1,0 +1,10 @@
+(mod ref-escape-ok)
+
+(type failure (enum (bad)))
+
+(fn f
+  (res (ref (vec :i64)) failure) ((v (ref (vec :i64))))
+  (letmut o
+    (res (ref (vec :i64)) failure)
+    (ok v))
+  (ret o))

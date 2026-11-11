@@ -1,0 +1,5 @@
+(mod ref-escape-some-bare)
+
+(fn f :void ((v (ref (vec :i64))))
+  (letmut o (some v))
+  (ret))

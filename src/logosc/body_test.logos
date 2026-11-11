@@ -1563,3 +1563,57 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1)) (fn f :void () (letmut v (vec :i64) (make (vec :i64))) (grow v) (vec-free v))"))
+
+(test ref-escape-optional
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((v (ref (vec :i64)))) (letmut o (opt (ref (vec :i64))) (some v)) (ret o))"))
+
+(test ref-escape-optional-bare
+  (expect (out "E0305\nm/f/2/1\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (some v)) (ret))"))
+
+(test ref-escape-optional-return
+  (expect (out "E0305\nm/f/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((v (ref (vec :i64)))) (ret (some v)))"))
+
+(test ref-escape-result
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in a result\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type failure (enum (bad))) (fn f (res (ref (vec :i64)) failure) ((v (ref (vec :i64)))) (letmut o (res (ref (vec :i64)) failure) (ok v)) (ret o))"))
+
+(test ref-optional-int-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt :i64) (some 1)) (ret))"))
+
+(test ref-none-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (ref (vec :i64))) (none)) (ret))"))
+
+(test ref-arg-immutable-alias
+  (expect (out "E0304\nm/f/3\na ref argument must be a mutable binding, and 'r' is not\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((v (ref (vec :i64)))) (let r v) (grow r) (ret))"))
+
+(test ref-arg-immutable-param
+  (expect (out "E0304\nm/f/2\na ref argument must be a mutable binding, and 'n' is not\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((n :i64)) (grow n) (ret))"))
+
+(test ref-letmut-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((v (ref (vec :i64)))) (letmut r v) (grow r) (ret))"))

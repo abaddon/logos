@@ -1,0 +1,9 @@
+(mod ref-arg-alias)
+
+(fn grow :void ((x (ref (vec :i64))))
+  (vec-push x 1))
+
+(fn f :void ((v (ref (vec :i64))))
+  (let r v)
+  (grow r)
+  (ret))

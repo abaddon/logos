@@ -1,0 +1,8 @@
+(mod ref-escape-some)
+
+(fn f
+  (opt (ref (vec :i64))) ((v (ref (vec :i64))))
+  (letmut o
+    (opt (ref (vec :i64)))
+    (some v))
+  (ret o))
