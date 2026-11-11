@@ -186,10 +186,26 @@ where the tree keeps the form's head, and the diagnostic follows Python.
 - **Ownership and results.** E0300–E0303, E0305, E0402's move half and
   E0600–E0602 are PR C; the type-shape half that a declaration can state (an
   owning field, a vector field, a result field or payload) is decided here.
-  `free`/`vec-free` therefore do not empty a binding, a call does not move its
-  arguments, and an unused binding whose value owns memory is not reported by
-  E0107 — the ownership rules that would have refused its declaration first
-  are the deferred ones.
+  `free`/`vec-free` therefore do not empty a binding, and a call does not move
+  its arguments.
+- **E0107 and ownership.** E0107 is not reported for a binding whose initialiser
+  is a name Python would move, because there Python's first diagnostic is E0302
+  at a later line and a bare E0107 here would be the wrong code. The test is
+  broader than that case: a plain `alloc` or `make` initialiser also escapes
+  E0107, and Python does report it, so `(let v (vec :i64) (make (vec :i64)))`
+  with no read is accepted by `gen2 check` and refused by Python. This is an
+  under-report PR C narrows.
+- **E0107 and unknown types.** A binding whose initialiser is unknown-typed
+  (`(some 1)`, a `deref`, a function value) is not reported either. That guard
+  exists because an unresolvable name is accepted here and Python's E0005 for
+  it would otherwise be replaced by a wrong E0107; it costs the same class of
+  under-report, and it goes when E0005 lands.
+- **E0005 is not ported.** An atom that resolves to nothing is accepted.
+  Python's `unknown name 'zzz'` is therefore missing, a read of another
+  function's binding is accepted, and where an unrelated rule fires later the
+  first diagnostic can differ (a body that Python refuses with E0005 can be
+  refused here with E0105 instead). `tests/type/unknown-name.logos` stays off
+  the coverage list for that reason.
 - **Refs beyond the argument shape.** A `(ref (vec T))` parameter is read
   through and its argument is checked for mutability (E0304), which is what
   keeps a call from disagreeing with Python. Returning, storing, capturing or
