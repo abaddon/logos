@@ -134,6 +134,8 @@ tests/regress/libc-interposition.logos
 tests/regress/loop-condition.logos
 tests/regress/loop-release.logos
 tests/regress/main-call.logos
+tests/regress/move-join.logos
+tests/regress/move-set.logos
 tests/regress/multi-module/program.logos
 tests/regress/multi-module/util.logos
 tests/regress/owner-place-read.logos
@@ -166,11 +168,13 @@ tests/type/compare-bool.logos
 tests/type/extern-noncl.logos
 tests/type/float-mix.logos
 tests/type/free-raw.logos
+tests/type/if-ownership.logos
 tests/type/immutable-set.logos
 tests/type/index-type.logos
 tests/type/literal-range.logos
 tests/type/loop-move.logos
 tests/type/match-duplicate.logos
+tests/type/match-ownership.logos
 tests/type/missing-return.logos
 tests/type/move-immutable.logos
 tests/type/move.logos
@@ -186,9 +190,11 @@ tests/type/sibling-set.logos
 tests/type/try-mismatch.logos
 tests/type/unhandled-result.logos
 tests/type/unknown-fn.logos
+tests/type/unknown-name-binding.logos
 tests/type/unknown-name.logos
 tests/type/unknown-type.logos
 tests/type/unused-binding.logos
 tests/type/vec-arg-temp.logos
+tests/type/vec-arg-twice.logos
 tests/type/vec-get-place.logos
 tests/type/widening.logos

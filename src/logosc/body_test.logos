@@ -391,15 +391,20 @@
   (letmut snap
     (vec :i64)
     (make (vec :i64)))
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "x" -1 1 0 0 -1)
+  (letmut bctl
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push bctl 0)
+  (vec-push bctl 0)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "x" -1 1 0 0 -1)
   (body-snapshot bv bk bvl snap)
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "x" -1 2 0 1 -1)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "x" -1 2 0 1 -1)
   (println (str-concat "shadow " (str-from-i64 (body-find bk bvl bsl "x"))))
   (vec-set bv 0 1)
   (body-restore bv bvl snap)
   (println (if (= (body-find bk bvl bsl "x") 0) "outer" "wrong"))
   (println (if (= (vec-get bv 0) 0) "restored" "leaked"))
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "y" -1 3 0 1 -1)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "y" -1 3 0 1 -1)
   (println (if (> (body-find bk bvl bsl "y") 0) "new" "absent"))
   (body-restore bv bvl snap)
   (println (if (= (body-find bk bvl bsl "y") -1) "absent" "leaked"))
@@ -416,7 +421,8 @@
   (vec-free bk)
   (vec-free bvl)
   (vec-free bsl)
-  (vec-free snap))
+  (vec-free snap)
+  (vec-free bctl))
 
 (test if-accepted
   (expect (out "OK\n")
@@ -1179,3 +1185,183 @@
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (a :i64))) (fn f :i64 ((x e)) (match x ((a n) (ret 0))))"))
+
+(test move-double-free
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 2)) (free p) (free p))"))
+
+(test move-read-after-free
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 1)) (free p) (ret p))"))
+
+(test move-immutable
+  (expect (out "E0302\nm/f/3\ncannot move out of immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (let q p))"))
+
+(test move-immutable-call
+  (expect (out "E0302\nm/f/3\ncannot move out of immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :void ((p (own :i64))) (free p)) (fn f :void () (let p (alloc :i64 1)) (g p))"))
+
+(test move-letmut-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut p (alloc :i64 1)) (letmut q p) (free q) (ret 0))"))
+
+(test move-vec-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut v (make (vec :i64))) (letmut w v) (let n (vec-len w)) (vec-free w) (ret n))"))
+
+(test move-loop-free
+  (expect (out "E0303\nm/f/3/1\na binding declared outside a loop cannot be released or moved inside it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 2)) (while false (free p)) (free p) (ret 0))"))
+
+(test move-loop-own-body
+  (expect (out "E0300\nm/f/2/3\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (while c (letmut p (alloc :i64 1)) (free p) (free p)))"))
+
+(test move-match-arm
+  (expect (out "E0300\nm/f/3/1/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b))) (fn f :void ((x e)) (letmut p (alloc :i64 1)) (match x ((a) (free p) (free p)) ((b) 0)))"))
+
+(test move-join-if
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (let p (alloc :i64 1)) (if c (free p) (free p)) (free p))"))
+
+(test move-join-set
+  (expect (out "E0300\nm/f/4\nset of moved binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut p (alloc :i64 1)) (free p) (set p (alloc :i64 1)))"))
+
+(test move-vec-twice
+  (expect (out "E0402\nm/f/4\na value containing a vector is not copyable; 'v' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((v (vec :i64))) (ret (vec-len v))) (fn f :i64 () (letmut v (make (vec :i64))) (g v) (g v) (ret 0))"))
+
+(test move-owner-twice
+  (expect (out "E0402\nm/f/4\na value containing an owner is not copyable; 'p' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((p (own :i64))) (free p) (ret 0)) (fn f :i64 () (letmut p (alloc :i64 1)) (g p) (g p) (ret 0))"))
+
+(test move-if-owner
+  (expect (out "E0402\nm/f/4/1\nan owning value cannot be selected by if or match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((c :bool)) (let a (alloc :i64 1)) (let b (alloc :i64 1)) (let p (if c a b)) (free p) (ret true))"))
+
+(test move-if-vec
+  (expect (out "E0402\nm/f/4/1\na vector cannot be selected by if or match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((c :bool)) (letmut a (make (vec :i64))) (letmut b (make (vec :i64))) (let v (if c a b)) (vec-free v) (ret true))"))
+
+(test move-if-temp-owner
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (if c (free (alloc :i64 1)) (free (alloc :i64 1))))"))
+
+(test move-vec-push-twice
+  (expect (out "E0300\nm/f/5\nuse after move of 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut w (make (vec (vec :i64)))) (letmut v (make (vec :i64))) (vec-push w v) (vec-push w v) (ret 0))"))
+
+(test move-vec-free-twice
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut v (make (vec :i64))) (vec-free v) (vec-free v) (let n (vec-len v)) (ret n))"))
+
+(test move-unused-vec-temp
+  (expect (out "E0107\nm/f/2\nunused binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let v (vec :i64) (make (vec :i64))) (ret 0))"))
+
+(test move-unused-args
+  (expect (out "E0107\nm/f/2\nunused binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let v (args)) (ret 0))"))
+
+(test move-ret-owner
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :(own :i64) () (letmut p (alloc :i64 1)) (ret p))"))
+
+(test move-unknown-ret
+  (expect (out "E0005\nm/f/2\nunknown name 'zzz'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret zzz))"))
+
+(test move-unknown-let
+  (expect (out "E0005\nm/f/2\nunknown name 'zzz'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x zzz) (ret x))"))
+
+(test move-unknown-fn-binding
+  (expect (out "E0005\nm/f/2\nunknown name 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 () (let y 1) (ret y)) (fn f :i64 () (ret y))"))
+
+(test move-unknown-first-diag
+  (expect (out "E0005\nm/f/2/1/2\nunknown name 'r'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (while false (let y 1) (set r y)) (ret y)) (ret r))"))
+
+(test move-fn-value-not-unknown
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 () (ret 1)) (fn f :i64 () (let x g) (ret 0))"))
+
+(test move-variant-value-not-unknown
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b :i64))) (fn f :i64 () (let x a) (ret 0))"))
+
+(test move-loop-arm-decl
+  (expect (out "E0303\nm/f/2/1/2/1\na binding declared outside a loop cannot be released or moved inside it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a))) (fn f :void ((x e) (c :bool)) (match x ((a) (let p (alloc :i64 1)) (while c (free p)))))"))
+
+(test move-loop-local
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (while c (let p (alloc :i64 1)) (free p)))"))
+
+(test move-loop-arm-local
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a))) (fn f :void ((x e) (c :bool)) (match x ((a) (while c (let p (alloc :i64 1)) (free p)))))"))

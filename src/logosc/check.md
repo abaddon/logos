@@ -158,6 +158,12 @@ The body pass adds:
 | `alloc` arity, count, a `:void` or invariant-bearing element | E0102 / E0100 / E0002 | the form / the count |
 | `free` of a raw pointer | E0301 | the operand |
 | `free` of anything that is not an owner | E0100 | the operand |
+| a read of a binding a move or `free` emptied | E0300 | the read |
+| a move out of a plain `let` | E0302 | the move |
+| a release or move of a binding declared outside a loop | E0303 | the form |
+| a second transfer of a value that has no copy | E0402 | the second transfer |
+| an `if` or `match` whose arms select an owner or a vector | E0402 | the form |
+| an atom that names nothing | E0005 | the atom |
 | a binding is never read | E0107 | its declaration |
 
 The messages are Python's, word for word, and so are the node paths: the
@@ -183,39 +189,27 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   type variables. Python checks such a body once per instantiation; until the
   call site unifies, `gen2 check` cannot know which copy it is reading, so it
   reads none.
-- **Ownership and results.** E0300–E0303, E0305, E0402's move half and
-  E0600–E0602 are PR C; the type-shape half that a declaration can state (an
-  owning field, a vector field, a result field or payload) is decided here.
-  `free`/`vec-free` therefore do not empty a binding, and a call does not move
-  its arguments.
-- **E0107 and ownership.** E0107 is not reported for a binding whose initialiser
-  is a name Python would move, because there Python's first diagnostic is E0302
-  at a later line and a bare E0107 here would be the wrong code. The test is
-  broader than that case: a plain `alloc` or `make` initialiser also escapes
-  E0107, and Python does report it, so `(let v (vec :i64) (make (vec :i64)))`
-  with no read is accepted by `gen2 check` and refused by Python. This is an
-  under-report PR C narrows.
-- **E0107 and unknown types.** A binding whose initialiser is unknown-typed
-  (`(some 1)`, a `deref`, a function value) is not reported either. That guard
-  exists because an unresolvable name is accepted here and Python's E0005 for
-  it would otherwise be replaced by a wrong E0107; it costs the same class of
-  under-report, and it goes when E0005 lands.
-- **E0005 is not ported.** An atom that resolves to nothing is accepted.
-  Python's `unknown name 'zzz'` is therefore missing, a read of another
-  function's binding is accepted, and where an unrelated rule fires later the
-  first diagnostic can differ (a body that Python refuses with E0005 can be
-  refused here with E0105 instead). `tests/type/unknown-name.logos` stays off
-  the coverage list for that reason.
 - **Refs beyond the argument shape.** A `(ref (vec T))` parameter is read
   through and its argument is checked for mutability (E0304), which is what
   keeps a call from disagreeing with Python. Returning, storing, capturing or
-  sending a ref (E0305) is PR C.
+  sending a ref (E0305) is C2.
 - **Closures, threads, raw pointers and results as expressions.** `fn`,
   `spawn`/`join`, `mutex`/`lock`/`unlock`, `chan`/`send`/`recv`,
   `atomic*`, `ptr`/`deref`/`set-deref`/`ptr-add`, `ok`/`err`/`some`/`none` and
   `try` still answer the unknown type. Nothing inside one is refused for a
   rule this pass owns, and every name an atom in one is marked read so E0107
   cannot blame a binding the deferred form used.
+- **Results.** E0600–E0602 and the discharge a matched result performs are C3;
+  a `(res …)` obligation is not tracked here.
+- **Function values and variant values in value position.** A visible
+  function's name and an enum variant's name are read as values by Python; this
+  pass answers the unknown type for both instead of deciding their type, so
+  E0103 "not part of this build" for an imported function value and E0100 for
+  a payload-carrying variant are still under-reported. They are *not* E0005:
+  the name resolves, and the E0005 rule only fires for an atom that names
+  nothing.
+- **`some`/`ok`/`err` payload moves.** Those forms are C3's; an owning payload
+  inside one is not moved here, which is one more C3 under-report.
 - **Test bodies.** Python checks a module's `test` bodies as well as its
   `fn`s; the port reads only `fn` bodies. A `test` body is therefore accepted
   unread, and any diagnostic Python raises inside one is under-reported.
@@ -231,7 +225,7 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   reads names from the tree, which it still has (and records the declaring
   node for E0107).
 
-## The body pass (W6 B1–B3)
+## The body pass (W6 B1–B3, C1)
 
 `check-module-fns` records each own non-generic `fn` as it declares the
 signature — the node and its `fn` type id, in the order the source declares
@@ -245,8 +239,8 @@ import's bodies to the module that owns them; a generic body has no single type
 and is checked per instantiation, which a call site does not fix yet (see
 above). `gen2 check <file>` therefore rejects bodies while every earlier
 accepted program — every module Python's checker accepts — stays accepted: a
-whole-tree sweep over all 194 tracked sources found no program Python accepts
-that `gen2 check` refuses.
+whole-tree sweep over all 200 tracked and new sources found no program Python
+accepts that `gen2 check` refuses.
 
 `check-module-fn-bodies` carries the visible window (`ents`, `vindex`,
 `vis-s`, `vis-e`) and the module's own name, because a call resolves its callee
@@ -271,9 +265,9 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 | `bn` | binding | the id of the node that declared it — the path E0107 prints |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | 1 for `letmut`, 2 for a parameter, 0 for a plain `let` |
-| `bv` | binding | moved (never set in B1–B3; PR C sets it) |
+| `bv` | binding | moved — set by a transfer or a `free`, cleared only by a branch restore |
 | `bu` | binding | used — set by a read, by a call argument, by a place write, and read by E0107 |
-| `bd` | binding | the scope depth that declared it (`bctl[0]` at the time) |
+| `bd` | binding | packed declaration scope: `depth * 1048576 + loops`, so both the duplicate test (block depth) and E0303 (loop depth) read the state at the declaration |
 | `br` | function | one entry: the declared return type |
 | `bl` | function | two entries: the label a message names (`function 'f'`) and the module's own name |
 | `bk`/`bvl`/`bsl` | binding | the `map` from name to index; `map-get` is a lookup |
@@ -296,23 +290,42 @@ of its parameters, which is what makes `(fn f :i64 ((x :i64)) (let x :i64 5)
 (a nested block raises the depth in `body-block`/`body-arm-run`, so shadowing there is legal; the body itself does not raise).
 `bctl[1]` counts the enclosing loops: `break` and `continue` are legal only
 when it is non-zero, and it is raised *before* a `while` condition is typed,
-because Python puts the condition inside the loop.
+because Python puts the condition inside the loop. Python keeps a binding's
+`decl_loop` separately from its block scope, and so does the port: `body-bind`
+packs the block depth and the loop count into one entry (`depth * 1048576 +
+loops`), the duplicate test and `body-unused` divide for the block half, and
+E0303 takes the remainder. Keeping one vector costs no extra plumbing and makes
+a `let` declared in a match arm and released in a loop inside that arm E0303,
+as Python says — the two numbers are not the same, because an arm raises the
+block depth without being a loop.
 
-`bu` now has its reader: `body-unused` scans a closing scope for the first
-binding at that depth that no read reached. The scan runs where Python's
-`_unused` does — at the end of every block (`body-block`), every if branch and
-match arm (`body-arm-run`), and the function block (`check-body-fn`) — and
-after E0105, because a function that falls off its end answers that first. `_`
-is the opt-out, a parameter is skipped by its `bm == 2`, and a write never sets
-the flag, so a `letmut` that is only ever assigned is E0107. A binding whose
-initial value came from a form this pass does not type, or whose value owns
-memory, is marked read at its declaration: Python would refuse that
-declaration under a rule PR C owns, so E0107 must not be the answer that
-disagrees with it.
+`bu` has its reader: `body-unused` scans a closing scope for the first binding
+at that depth that no read reached. The scan runs where Python's `_unused` does
+— at the end of every block (`body-block`), every if branch and match arm
+(`body-arm-run`), and the function block (`check-body-fn`) — and after E0105,
+because a function that falls off its end answers that first. `_` is the
+opt-out, a parameter is skipped by its `bm == 2`, and a write never sets the
+flag, so a `letmut` that is only ever assigned is E0107. A binding whose
+initialiser is an atom that moved a value is marked read at its declaration —
+that is Python's alias shape, where its first diagnostic is E0302 at the second
+`let` and an E0107 at the first would be the wrong code. Nothing else is
+suppressed: a move-only or unknown-typed temporary that is never read is E0107,
+exactly as Python reports it.
 
-The `moved` join is the same shape as before: `body-restore` and
-`body-union-moved` write `bv`, but nothing sets a moved flag until PR C, so the
-join is written and PR C is what makes it observable.
+A transfer is `body-move-out`: it is a no-op unless the operand is an atom whose
+binding the current scope can see, is not already moved, and has a move-only
+type. A binding declared outside the enclosing loop is E0303 first; a plain
+`let` holding an `(own T)` is E0302 unless this is a release; every other case
+sets `bv`, including a vector or a value that holds one out of a plain `let` —
+the value moved, so the binding is empty and the `let`'s promise holds.
+`body-transfer` is the other half: a second use of an already-moved binding is
+E0402 when the value holds a vector or an owner, and the message names which.
+`body-read` stays E0300 for a plain read of an emptied binding.
+
+The `moved` join is observable now: `body-restore` and `body-union-moved` write
+`bv`, a move in one `if` branch or `match` arm is replayed onto the join, and
+`(if c (free p) (free p))` followed by a read is E0300 on the `free` path
+Python refuses.
 
 `body-bind` appends a declaration and `map-put`s its index; a name already in
 the map at the same depth is E0003. `body-snapshot`/`body-restore` are the pair
@@ -450,13 +463,12 @@ takes its default width, and no check runs against an unknown — so a body is
 never refused because a later pass would have typed it. The forms left alone
 are:
 
-- a bare atom that is not a local binding and not `true`/`false` — a visible
-  function's name used as a value, a variant constructor, or a name that Python
-  would call E0005 are all unknown here (so `tests/type/unknown-name.logos`
-  stays out of the list);
+- a bare atom that names a visible function or an enum variant is a value in
+  Python; here it is unknown, so its type is not decided. An atom that names
+  nothing at all is E0005 (see below);
 - `fn`, `ptr`, `deref`, `set-deref`, `ptr-add`, `spawn`, `join`, `mutex`,
   `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*`, `ok`, `err`, `some`,
-  `none` and `try` — PR C's forms and the closure form. Their operands are not
+  `none` and `try` — C2/C3's forms and the closure form. Their operands are not
   typed, but every atom anywhere inside one is marked read, so E0107 cannot
   blame a binding the deferred form used;
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
@@ -464,10 +476,9 @@ are:
   checked (the spine is a spine whatever the type) but no variant is resolved,
   counted or required, so `(match (parse x) ...)` is accepted unread;
 - `test` bodies, and every `fn` whose signature mentions a type variable;
-- ownership, results and every E03xx/E04xx/E06xx rule: PR C. That includes
-  `_branches`' other job: E0402 for an `if`/`match` whose arms select a vector
-  or an owner, and the `(res …)` obligation a matched scrutinee discharges
-  (E0602).
+- results and every E06xx rule: C3. A matched scrutinee's `(res …)` obligation
+  is not discharged here (E0602). Ownership itself — E0300–E0303, the E0402
+  move half and the `if`/`match` selection refusal — is decided (C1).
 
 A form's error ordering inside a body is Python's — arguments are visited left
 to right and a bad operand stops the form — and the order across the module is
@@ -499,10 +510,12 @@ an unknown name is E0005, and the name must be a `letmut` or another ref
 (E0304) — and checks the referenced type, never the address. A parameter that
 holds a vector needs the argument to be a whole name (E0402, `a vector argument
 must be a name`), because the callee owns the descriptor; a temporary would
-leave two names for one buffer. Every other parameter types its argument at
-the parameter's type, which is what lets an integer literal sit in a narrower
-width, and a mismatch is E0100 with Python's `argument N of 'f' expects …`
-sentence.
+leave two names for one buffer. A vector or an owner parameter *moves* its
+argument (`body-transfer` then `body-move-out`), so the second call with the
+same name is E0402 and the callee owns the only one. Every other parameter
+types its argument at the parameter's type, which is what lets an integer
+literal sit in a narrower width, and a mismatch is E0100 with Python's
+`argument N of 'f' expects …` sentence.
 
 The container families are one function each, dispatched by `body-expr`. What
 they share: `make` reads its type with `check-type` (so a struct or array
@@ -523,7 +536,52 @@ E0107 is the scope-closing rule above. It reports the first binding of the
 closing scope in declaration order, so a declaration's path is the node recorded
 in `bn` and the name is recovered from the map (`body-name-at`). Because a
 branch restores the map before its sibling runs, and a scope closes before its
-parent resumes, the scan sees exactly the bindings that scope declared.
+parent resumes, the scan sees exactly the bindings that scope declared. Two
+declarations are marked read instead of reported: an atom initialiser that moved
+a value out of a plain `(own T)` binding — Python's E0302 alias shape, where the
+first diagnostic is E0302 at the second `let` — and an initialiser that is a
+form this pass deliberately leaves untyped (`body-deferred?`: `deref`, `fn`,
+`some`, the thread forms and the rest of C2/C3). The second guard is not an
+ownership rule: it keeps E0107 from pre-empting the E0402/E0305/E0502/E0602
+those forms will raise once they are typed, and it costs the E0107 Python would
+report for an unread deferred result — one of the C2/C3 under-reports, not a
+wrong code.
+
+### Moves, frees and E0005 (C1)
+
+`body-move-out` is Python's `_consume` and `body-transfer` is its `_transfer`;
+they are called where Python calls them, in the same order relative to the
+value check, the type fit and the binding. So:
+
+- a `let` transfers its initialiser before typing it and empties it after the
+  fit, which makes `(let p (alloc :i64 1)) (let q p)` E0302 at `q` and
+  `(free p) (free p)` E0300 at the second `free` — the read inside `free`
+  happens first;
+- `set` transfers its value first, refuses a moved target with E0300
+  `set of moved binding`, and moves the new value in; `ret`, `vec-push`,
+  `vec-set`, a vector/owner argument, a variant payload and `run`'s argument
+  vector all empty their source the same way;
+- `vec-free` is the exception Python makes: it checks the loop rule (E0303) but
+  does **not** empty the binding, because it zeroes the descriptor and a second
+  `vec-free` is released by `rt_free` as `free(NULL)`. `(vec-free v)` followed
+  by `(vec-len v)` or a second `(vec-free v)` is accepted, exactly as Python
+  accepts it;
+- a `match` consumes a move-only scrutinee before its arms, so a match on an
+  owner empties the binding and a second use is E0300; an `if` or `match` whose
+  *result* is move-only is E0402, `a vector cannot be selected by if or match`
+  or `an owning value cannot be selected by if or match`;
+- E0303 is raised by `body-move-out`, so a `free`, a `vec-free` or any move of
+  a binding declared outside the loop — in the body **or the condition** — is
+  refused, and the branch snapshot keeps a move made on one path at the join.
+
+`body-atom-value` ends in Python's `_token` order: a binding, `true`/`false`, a
+visible function's name, an enum variant's name, and only then E0005
+`unknown name 'x'` at the atom. Function and variant names therefore stay
+values (their *type* is still unknown, a C2/C3 deferral); a name that genuinely
+resolves to nothing is E0005 with Python's path — the enclosing form, which is
+the node the atom folds into. `(ret zzz)`, `(let x zzz)`, a read of another
+function's local, and the `set r y` shape whose `r` is undeclared all report
+E0005 first, as Python does.
 
 ## The arena of checked modules
 
@@ -634,6 +692,18 @@ tests/regress/alloc-enum-in-struct.logos E0002
 tests/regress/alloc-fn.logos            E0002
 tests/type/alloc-fn.logos               E0002
 tests/type/alloc-result.logos           E0002
+tests/type/move.logos                   E0300
+tests/type/move-immutable.logos         E0302
+tests/type/loop-move.logos              E0303
+tests/type/unknown-name.logos           E0005
+tests/type/unknown-name-binding.logos   E0005
+tests/type/if-ownership.logos           E0402
+tests/type/match-ownership.logos        E0402
+tests/type/vec-arg-twice.logos          E0402
+tests/regress/loop-release.logos        E0303
+tests/regress/loop-condition.logos      E0303
+tests/regress/move-join.logos           E0300
+tests/regress/move-set.logos            E0300
 ```
 
 The last ten of the original seventeen are the B1/B2 body cases: a cast of a
@@ -656,22 +726,30 @@ five `alloc` cases whose element has an invariant. `index-type`,
 with the pass: nothing named E0400, E0401 or E0107, and no fixture passed a
 temporary where a vector was expected.
 
+The last twelve are C1's: the double free and the alias Python calls E0302, the
+loop release, the two E0005 shapes, an `if` and a `match` selecting a vector or
+an owner, a vector passed twice, a release inside a loop condition, a move kept
+at a join, and `set` of a moved binding. `unknown-name`, `unknown-name-binding`,
+`if-ownership`, `match-ownership`, `vec-arg-twice`, `move-join` and `move-set`
+are new corpus cases added with the pass; the other five are existing fixtures
+whose rule C1 decides. `move` and `loop-move` were "needs PR C" in this list's
+own note until C1 decided them.
+
 The gate compares the whole line `gen2 check` prints — path, code and message —
 with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 33: a pruned list fails rather than passing over
-fewer fixtures. `move`, `loop-move`, `try-mismatch`, `unhandled-result`,
-`closure-escape`, the ref-escape cases and `owner-place-read` need PR C;
-`limit` and `unbound` need a generic call site; `unknown-name` needs E0005 from
-the function/variant namespace; `generic-vector` needs the generic call's
-argument rules; the visibility fixtures under `src/logosc/fixtures/check` are
-unit cases, not corpus cases.
+matching code. Its floor is 45: a pruned list fails rather than passing over
+fewer fixtures. `try-mismatch`, `unhandled-result`, `closure-escape`,
+`owner-place-read` (a `deref` read, deferred with the deref form), the other
+ref-escape cases and `generic-vector` still need C2/C3; `limit` and `unbound`
+need a generic call site; the visibility fixtures under
+`src/logosc/fixtures/check` are unit cases, not corpus cases.
 
 ## Tests
 
-`src/logosc/body_test.logos` has 173 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 203 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -746,10 +824,24 @@ unit cases, not corpus cases.
   `run` needs the name of a `(vec :str)`;
 - E0107: an unread `let`, the `_` opt-out, a binding read only as a call
   argument, one read only by `set`, a parameter (never reported), a `let`
-  inside an if branch, a match payload, and E0105 winning over E0107 when the
-  function also falls off its end.
+  inside an if branch, a match payload, an unread move-only temporary and an
+  unread unknown-typed temporary, and E0105 winning over E0107 when the
+  function also falls off its end;
+- ownership (C1): a double free, a read after `free`, a move out of a plain
+  `let` (E0302, as a local `let` and as a call argument), the accepted
+  `letmut` and vector aliases, a release inside a loop (E0303), a binding
+  declared in a match arm and released in a loop inside that arm (E0303), a
+  release of a binding declared inside the loop (accepted), a second free
+  inside a loop body (E0300), a second free in a match arm, the `if` join that
+  keeps a move, `set` of a moved binding, a vector and an owner passed twice
+  (E0402), an `if` and a `match` selecting a vector or an owner (E0402), an
+  `if` freeing a temporary on both paths (accepted), a vector pushed twice
+  (E0300), `vec-free` twice and reading the length after it (both accepted,
+  because Python does not move on `vec-free`), returning an owner, and the four
+  E0005 shapes plus the function- and variant-value atoms that must not be
+  E0005.
 
-`src/logosc/check_test.logos` has 75 cases, each run at `-O0` and `-O2` with
+`src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 - one per declaration rule above, through `check-file` on a synthetic source —
@@ -784,7 +876,7 @@ are reached by path.
 
 ## Parity
 
-The thirty-three coverage fixtures match Python's code **and node path**, not
+The forty-five coverage fixtures match Python's code **and node path**, not
 just the code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
@@ -796,31 +888,35 @@ pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
 `index-type/f/2/0`, `not-a-str/f/2/0`, `unused-binding/f/2`,
 `vec-arg-temp/f/2/0`, `main-call/helper/2/0`, `alloc-enum/f/2/1`,
 `alloc-enum-in-struct/f/2/1`, `alloc-fn/f/2/1` (twice, from `tests/regress` and
-`tests/type`) and `alloc-result/f/2/1`.
+`tests/type`) and `alloc-result/f/2/1`. The twelve C1 cases pin the second
+`free` (`move/f/4`, `move-join/f/4`, `move-set/f/4`), the alias
+(`move-immutable/f/3`), the loop (`loop-move/f/5/2`,
+`loop-release/f/4/1`, `loop-condition/f/4/0/1/1`), the two E0005 names
+(`m/f/2` in `unknown-name` and `unknown-name-binding/f/2`), and E0402 from
+`if-ownership/f/4/1`, `match-ownership/f/4/1` and `vec-arg-twice/f/4`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 194 tracked sources finds:
+`check_module` over the tree. A sweep of all 200 tracked and new sources finds:
 
 - **0 false positives** — no program Python accepts is refused by `gen2 check`;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 74 are refused by both: 73 with the
+- 93 sources are accepted by both, and 86 are refused by both: 85 with the
   same line and one with the same code and a different path spelling;
-- 27 sources are under-reported, every one of them inside the deferred set:
+- 21 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
-  bodies), 12 are ownership or a ref (E0300/E0302/E0303/E0305, and E0402's
-  owner-place half), 2 are E0500/E0501 at an unported generic call site, 1 is
-  `generic-vector` (the same call site), 2 are E0601/E0602 from a result, 1 is
-  a closure escape (E0502), and 1 is E0005 for an unbound name (B1's deferred
-  namespace lookup);
-- against the B2 binary, 30 sources are newly refused with Python's line — the
-  16 coverage fixtures this pass gains, 13 programs that call an imported
-  definition (E0103, the rule a resolved import now reaches), and
-  `tests/type/ref-not-mutable.logos` (the argument-shape half of E0304) — and
-  nothing B2 refused is accepted now;
+  bodies), 5 are a ref escape (E0305: return, capture, send, spawn, function
+  value), 1 is the owner read behind `(deref p)` (E0402, deferred with the
+  deref form), 1 is the `sibling-set` read after a join through `deref`
+  (E0300 behind the same deferred form), 3 are E0500/E0501 or a generic call
+  site, 2 are E0601/E0602 from a result, and 1 is a closure escape (E0502);
+- against the W6 B3 binary, 6 existing sources are newly refused with Python's
+  own line — `move`, `move-immutable`, `loop-move`, `loop-release`,
+  `loop-condition` and `unknown-name` — plus the six new fixtures this pass
+  adds, and nothing B3 refused is accepted now;
 - the one source outside those buckets answers the same E0002 with a different
   path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
   for a file with no `(mod …)` and gen2 names the file. It is the W6 A
-  declaration edge, untouched by B2 and B3.
+  declaration edge, untouched by C1.
 
 ## Building it
 

@@ -1,0 +1,8 @@
+(mod unknown-name-binding)
+
+(fn g :i64 ()
+  (let y 1)
+  (ret y))
+
+(fn f :i64 ()
+  (ret y))

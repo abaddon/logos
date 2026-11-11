@@ -1,0 +1,10 @@
+(mod match-ownership)
+
+(type choose (enum (left) (right)))
+
+(fn f :bool ((x choose))
+  (letmut a (make (vec :i64)))
+  (letmut b (make (vec :i64)))
+  (let v (match x ((left) a) ((right) b)))
+  (vec-free v)
+  (ret true))

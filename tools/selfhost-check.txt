@@ -31,3 +31,15 @@ tests/regress/alloc-enum-in-struct.logos
 tests/regress/alloc-fn.logos
 tests/type/alloc-fn.logos
 tests/type/alloc-result.logos
+tests/type/move.logos
+tests/type/move-immutable.logos
+tests/type/loop-move.logos
+tests/type/unknown-name.logos
+tests/type/unknown-name-binding.logos
+tests/type/if-ownership.logos
+tests/type/match-ownership.logos
+tests/type/vec-arg-twice.logos
+tests/regress/loop-release.logos
+tests/regress/loop-condition.logos
+tests/regress/move-join.logos
+tests/regress/move-set.logos

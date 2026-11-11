@@ -1,0 +1,10 @@
+(mod vec-arg-twice)
+
+(fn g :i64 ((v (vec :i64)))
+  (ret (vec-len v)))
+
+(fn f :i64 ()
+  (letmut v (make (vec :i64)))
+  (g v)
+  (g v)
+  (ret 0))

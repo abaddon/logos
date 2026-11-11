@@ -23,11 +23,13 @@ PASS type/compare-bool -
 PASS type/extern-noncl -
 PASS type/float-mix -
 PASS type/free-raw -
+PASS type/if-ownership -
 PASS type/immutable-set -
 PASS type/index-type -
 PASS type/literal-range -
 PASS type/loop-move -
 PASS type/match-duplicate -
+PASS type/match-ownership -
 PASS type/missing-return -
 PASS type/move-immutable -
 PASS type/move -
@@ -43,10 +45,12 @@ PASS type/sibling-set -
 PASS type/try-mismatch -
 PASS type/unhandled-result -
 PASS type/unknown-fn -
+PASS type/unknown-name-binding -
 PASS type/unknown-name -
 PASS type/unknown-type -
 PASS type/unused-binding -
 PASS type/vec-arg-temp -
+PASS type/vec-arg-twice -
 PASS type/vec-get-place -
 PASS type/widening -
 PASS exec/args/args -
@@ -218,6 +222,8 @@ PASS regress/libc-interposition/a-user-write-does-not-take-over-printing -
 PASS regress/loop-condition -
 PASS regress/loop-release -
 PASS regress/main-call -
+PASS regress/move-join -
+PASS regress/move-set -
 PASS regress/multi-module/program/program -
 PASS regress/owner-place-read -
 PASS regress/print-small-numbers/every-small-width -
