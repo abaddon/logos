@@ -49,6 +49,7 @@ PASS type/unknown-name-binding -
 PASS type/unknown-name -
 PASS type/unknown-type -
 PASS type/unused-binding -
+PASS type/unused-deref-own -
 PASS type/vec-arg-temp -
 PASS type/vec-arg-twice -
 PASS type/vec-get-place -

@@ -84,6 +84,12 @@ as Python reports.
       non-owning pointer, a move out of a loop; plus E0005 unknown name (which
       B3's two E0107 suppressions wait on) and narrowing the move-only E0107
       suppression to the shape Python's E0302 actually decides.
+- [ ] C1b the resolver's memory: `resolve` grows quadratically in top-level
+      definitions (500 → 57 MB, 1,000 → 222, 2,000 → 880, 4,000 → 3,510 MB,
+      6,300 ≈ 8.7 GB and the kernel kills it). Find the structure that is
+      O(n²), replace it with the map from `src/std/map.logos` where the key is a
+      string, and pin the growth with a generated-file case at 1,000 and 4,000
+      definitions (peak RSS bounds recorded in the report, not in a gate).
 - [ ] C2 `(ref T)`: E0304/E0305 at every escape site.
 - [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602.
 - [ ] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.

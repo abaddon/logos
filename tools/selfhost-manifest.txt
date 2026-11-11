@@ -194,6 +194,7 @@ tests/type/unknown-name-binding.logos
 tests/type/unknown-name.logos
 tests/type/unknown-type.logos
 tests/type/unused-binding.logos
+tests/type/unused-deref-own.logos
 tests/type/vec-arg-temp.logos
 tests/type/vec-arg-twice.logos
 tests/type/vec-get-place.logos

@@ -1365,3 +1365,51 @@
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (a))) (fn f :void ((x e) (c :bool)) (match x ((a) (while c (let p (alloc :i64 1)) (free p)))))"))
+
+(test defer-deref-own-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (deref q)))"))
+
+(test defer-ptr-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (ptr q)))"))
+
+(test defer-ptr-add-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (ptr-add (ptr q) 1)))"))
+
+(test defer-some-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x (some 1)))"))
+
+(test defer-deref-place-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (ptr (own :i64)))) (let q (deref p)))"))
+
+(test defer-closure-ref-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn peek :i64 ((v (ref (vec :i64)))) (let g (fn :i64 () (vec-len v))) (ret 0))"))
+
+(test defer-deref-moved-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (letmut p (alloc :i64 2)) (if c (free p) (set p (alloc :i64 1))) (let x :i64 (deref p)))"))
+
+(test extern-value-not-in-build
+  (expect (out "E0103\nm/f/2\ncannot use 'abs' as a function value: 'abs' is not part of this build\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn abs :i64 ((x :i64))) (fn f :i64 () (let x abs) (ret 0))"))

@@ -43,3 +43,4 @@ tests/regress/loop-release.logos
 tests/regress/loop-condition.logos
 tests/regress/move-join.logos
 tests/regress/move-set.logos
+tests/type/unused-deref-own.logos
