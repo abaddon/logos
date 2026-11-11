@@ -327,8 +327,8 @@
     (leaks 0))
   (dump-src "(fn f :i64 () (if true (ret 1) (ret 2)))"))
 
-(test later-call-accepted
-  (expect (out "OK\n")
+(test later-call-unknown
+  (expect (out "E0103\nm/f/2/0\nunknown function 'g'\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (ret (g)))"))
@@ -885,3 +885,297 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 ((a :bool)) (if (and a (not a)) (ret 1) (ret 0)))"))
+
+(test call-direct
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((a :i64)) (ret a)) (fn f :i64 () (ret (g 1)))"))
+
+(test call-arity
+  (expect (out "E0102\nm/f/2/0\nfunction 'g' takes 1 argument, got 0\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((a :i64)) (ret a)) (fn f :i64 () (ret (g)))"))
+
+(test call-arity-two
+  (expect (out "E0102\nm/f/2/0\nfunction 'g' takes 1 argument, got 2\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((a :i64)) (ret a)) (fn f :i64 () (ret (g 1 2)))"))
+
+(test call-arg-type
+  (expect (out "E0100\nm/f/2/0/0\nargument 1 of 'take32' expects :i32, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take32 :i32 ((a :i32)) (ret a)) (fn id64 :i64 ((x :i64)) (ret x)) (fn f :i64 () (ret (take32 (id64 1))))"))
+
+(test call-unknown
+  (expect (out "E0103\nm/f/2/0\nunknown function 'nope'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (nope 1)))"))
+
+(test call-main
+  (expect (out "E0108\nm/f/2/0\nthe entry point is not callable\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn main :i64 () (ret 0)) (fn f :i64 () (ret (main)))"))
+
+(test extern-call
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn getpid :i64 ()) (fn f :i64 () (ret (getpid)))"))
+
+(test extern-arity
+  (expect (out "E0102\nm/f/2/0\nfunction 'write' takes 2 arguments, got 1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn write :i64 ((fd :i64) (text :str))) (fn f :i64 () (ret (write 1)))"))
+
+(test print-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (print 1) (println \"x\"))"))
+
+(test print-arity
+  (expect (out "E0102\nm/f/2\nfunction 'println' takes 1 argument, got 0\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (println))"))
+
+(test print-type
+  (expect (out "E0100\nm/f/2\nprintln takes a number, :bool or :str, found (vec :i64)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (vec :i64))) (println v))"))
+
+(test vec-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut v (vec :i64) (make (vec :i64))) (vec-push v 1) (vec-set v 0 2) (let n (vec-len v)) (let x (vec-get v 0)) (vec-free v) (ret (+ n x)))"))
+
+(test vec-push-arity
+  (expect (out "E0102\nm/f/3\nvec-push takes a vector name and a value\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut v (vec :i64) (make (vec :i64))) (vec-push v) (vec-free v))"))
+
+(test vec-index-type
+  (expect (out "E0400\nm/f/2/0\nvector index must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((v (vec :i64))) (ret (vec-get v \"0\")))"))
+
+(test vec-place-copy
+  (expect (out "E0402\nm/f/4/1\na vector cannot be read out of a place yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (vec (vec :i64)) (make (vec (vec :i64)))) (vec-push o (make (vec :i64))) (let w (vec-get o 0)) (vec-free w) (vec-free o))"))
+
+(test vec-free-immutable
+  (expect (out "E0104\nm/f/3\ncannot free immutable binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let v (vec :i64) (make (vec :i64))) (vec-free v))"))
+
+(test vec-push-immutable
+  (expect (out "E0104\nm/f/3\ncannot push to immutable binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let v (vec :i64) (make (vec :i64))) (vec-push v 1))"))
+
+(test vec-set-index
+  (expect (out "E0400\nm/f/3\nvector index must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut v (vec :i64) (make (vec :i64))) (vec-set v \"0\" 1) (vec-free v))"))
+
+(test vec-set-type
+  (expect (out "E0100\nm/f/3\ncannot store :str in (vec :i64)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut v (vec :i64) (make (vec :i64))) (vec-set v 0 \"x\") (vec-free v))"))
+
+(test make-vec-elements
+  (expect (out "E0102\nm/f/2/2\na vector starts empty: make takes no elements\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let v (vec :i64) (make (vec :i64) 1)))"))
+
+(test arr-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut a (arr :i64 2) (make (arr :i64 2) 1 2)) (arr-set a 0 3) (ret (arr-get a 0)))"))
+
+(test arr-get-arity
+  (expect (out "E0102\nm/f/2/0\n'arr-get' takes an array and an index\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a (arr :i64 2))) (ret (arr-get a)))"))
+
+(test arr-index-type
+  (expect (out "E0400\nm/f/2/0\narray index must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a (arr :i64 2))) (ret (arr-get a \"0\")))"))
+
+(test make-array-count
+  (expect (out "E0102\nm/f/2/2\narray '(arr :i64 2)' takes 2 elements, got 1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let a (arr :i64 2) (make (arr :i64 2) 1)))"))
+
+(test get-field
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type point (struct (x :i64))) (fn f :i64 () (let p (make point 1)) (ret (get p x)))"))
+
+(test get-unknown-field
+  (expect (out "E0200\nm/f/3/0\nstruct 'point' has no field 'z'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type point (struct (x :i64))) (fn f :i64 () (let p (make point 1)) (ret (get p z)))"))
+
+(test get-non-struct
+  (expect (out "E0100\nm/f/2/0\n'get' needs a struct, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (get 1 x)))"))
+
+(test set-field-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type point (struct (x :i64))) (fn f :i64 () (letmut p (make point 1)) (set-field p x 2) (ret (get p x)))"))
+
+(test set-field-immutable
+  (expect (out "E0104\nm/f/3\ncannot set immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type point (struct (x :i64))) (fn f :void () (let p (make point 1)) (set-field p x 2))"))
+
+(test alloc-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 2)) (free p) (ret 0))"))
+
+(test alloc-invariants
+  (expect (out "E0002\nm/f/2/1\nallocation of e is not supported: it has invariants\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a))) (fn f :void () (let p (alloc e 1)))"))
+
+(test alloc-count
+  (expect (out "E0100\nm/f/2/1\nalloc count must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 \"x\")))"))
+
+(test free-raw
+  (expect (out "E0301\nm/f/2\ncannot free (ptr :i64): it does not own its memory\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (ptr :i64))) (free p))"))
+
+(test free-not-own
+  (expect (out "E0100\nm/f/2\nfree needs an (own T), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (free 1))"))
+
+(test str-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let a (str-concat \"a\" \"b\")) (ret (str-len a)))"))
+
+(test str-len-type
+  (expect (out "E0401\nm/f/2/0\n'str-len' takes a :str, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (str-len 5)))"))
+
+(test str-slice-index
+  (expect (out "E0400\nm/f/2/0\nslice index must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :str () (ret (str-slice \"abc\" \"0\" 1)))"))
+
+(test str-from-i64-hint
+  (expect (out "E0100\nm/f/2/0\n'str-from-i64' takes an :i64, found :u32; cast it to :i64 first\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :str ((a :u32)) (ret (str-from-i64 a)))"))
+
+(test read-file-type
+  (expect (out "E0100\nm/f/2/0\n'read-file' takes a :str, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :str () (ret (read-file 1)))"))
+
+(test args-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut a (args)) (let n (vec-len a)) (vec-free a) (ret n))"))
+
+(test run-argv-name
+  (expect (out "E0100\nm/f/2/1/1\n'run' needs the name of a (vec :str) to pass\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let r (run \"sh\" (make (vec :str)))) (ret (run-status r)))"))
+
+(test unused-let
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x 1) (ret 0))"))
+
+(test unused-underscore
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let _ 1) (ret 0))"))
+
+(test unused-call-arg
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((a :i64)) (ret a)) (fn f :i64 () (let x 1) (ret (g x)))"))
+
+(test unused-in-if
+  (expect (out "E0107\nm/f/2/1\nunused binding 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (let y 1) (ret 2)))"))
+
+(test unused-param
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((a :i64)) (ret 0))"))
+
+(test unused-set-only
+  (expect (out "E0107\nm/f/2\nunused binding 'i'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut i 0) (set i 1) (ret 0))"))
+
+(test unused-before-missing-return
+  (expect (out "E0105\nm/f\nfunction 'f' must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x 1))"))
+
+(test unused-match-payload
+  (expect (out "E0107\nm/f/2/1/0\nunused binding 'n'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a :i64))) (fn f :i64 ((x e)) (match x ((a n) (ret 0))))"))

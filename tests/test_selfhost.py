@@ -70,7 +70,7 @@ class SelfhostGateTest(unittest.TestCase):
         self.assertEqual(resolve_differences, 0)
 
         checked, check_differences = (int(group) for group in check_match.groups())
-        self.assertGreaterEqual(checked, 17, "the checker fixture list was pruned")
+        self.assertGreaterEqual(checked, 33, "the checker fixture list was pruned")
         self.assertEqual(check_differences, 0)
 
 
