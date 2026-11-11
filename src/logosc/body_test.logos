@@ -1617,3 +1617,69 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((v (ref (vec :i64)))) (letmut r v) (grow r) (ret))"))
+
+(test ref-escape-optional-nested
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-deep
+  (expect (out "E0305\nm/f/2/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (opt (ref (vec :i64))))) (some (some (some v)))) (ret))"))
+
+(test ref-escape-optional-nested-return
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (ret (some (some v))))"))
+
+(test ref-escape-result-nested
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :void ((v (ref (vec :i64)))) (letmut r (res (opt (ref (vec :i64))) e) (ok (some v))) (ret))"))
+
+(test ref-escape-optional-nested-bare
+  (expect (out "E0305\nm/f/2/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-vector
+  (expect (out "E0305\nm/f/3/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (opt (ref (vec :i64)))) (make (vec (opt (ref (vec :i64)))))) (vec-push xs (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-set
+  (expect (out "E0305\nm/f/3/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (none)) (set o (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-branch
+  (expect (out "E0305\nm/f/2/2/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((b :bool) (v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (if b (some (some v)) (none))) (ret))"))
+
+(test ref-optional-nested-empty
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (none)) (ret o))"))
+
+(test ref-optional-nested-none
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (some (none))) (ret o))"))
+
+(test ref-optional-int-nested-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (opt :i64)) (some (some 1))) (ret))"))

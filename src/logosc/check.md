@@ -482,9 +482,10 @@ are:
   `none` and `try` — C3's result forms, C4's closure and concurrency forms,
   and the pointer forms. Their operands are not typed, but every atom anywhere
   inside one is marked read, so E0107 cannot blame a binding the deferred form
-  used. The exception is a ref payload in `some`/`ok`/`err`: its type is
-  already known from the binding, so the escape is refused (E0305) even though
-  the wrapper itself stays unknown;
+  used. The exception is a ref payload carried in `some`/`ok`/`err` — directly,
+  or through further `some`/`ok`/`err` wrappers: its type is already known from
+  the binding, so the escape is refused (E0305) even though the wrapper itself
+  stays unknown;
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
   call's — is read as "some closed set I cannot see": its arms' shapes are
   checked (the spine is a spine whatever the type) but no variant is resolved,
@@ -684,23 +685,43 @@ can be stored and called after the lending frame returns.
 The tagged-value sites are `body-slot-ref`, and they do not type the optional.
 `some`, `ok` and `err` still answer the unknown type (C3), but the *payload's*
 type is already known when the payload is a name, so the escape is decided
-without typing the wrapper. `(some v)` refuses a ref payload when the expected
-element is that ref — the annotated case, where Python's fit check passes
-first — and also when there is no optional annotation at all, because Python's
-`_some` then falls back to the payload's own type with no fit check. When the
-annotation names a *different* element type, Python's E0100 fit mismatch comes
-first and the port leaves the shape alone (a C3 under-report, never a wrong
-code). `(ok v)` and `(err v)` refuse only when the annotated slot itself is the
-ref, which is the only order in which Python's `_refuse_carried` runs; an `err`
-payload can never be a ref there, because a result's error slot must be a
-declared enum, so its E0100 mismatch precedes the escape rule and this site
-never fires. `(none)` is untouched.
+without typing the wrapper. The decision itself is `body-carried-ref-at`, a
+syntactic walk: an atom whose type is a ref carries one; a `some`/`ok`/`err`
+whose single argument carries carries it too, however many wrappers deep; a
+`none`, a literal or a form this pass cannot type carries nothing. The walk
+returns the *innermost* creating form, because Python builds a tagged value from
+the inside out: the inner form refuses first, so its node is the path the
+diagnostic names and its head chooses the sentence (`carrying it in an optional`
+for `some`, `carrying it in a result` for `ok`/`err`). So `(some (some v))`
+refuses at the inner `some` (`f/2/2/0`), three levels deep at `f/2/2/0/0`, and
+`(ok (some v))` in a `(res (opt (ref …)) e)` at the inner `some` — Python's own
+line for each.
+
+The fit gate is carried down the same walk, one level at a time: the expected
+type at a `some` is the element of its optional, at an `ok`/`err` the ok or
+error slot of its result, and when that slot is known and the payload is the ref
+the fit passes, so the escape rule fires. When the slot is a *different* type
+Python's E0100 fit mismatch comes first and the port leaves the shape alone (a
+C3 under-report, never a wrong code); an `ok`/`err` whose context declares no
+result is that same E0100, so the walk stops without refusing. `(some v)`
+refuses a ref payload when the expected element is that ref — the annotated
+case, where Python's fit check passes first — and also when there is no optional
+annotation at all, because Python's `_some` then falls back to the payload's own
+type with no fit check. `(ok v)` and `(err v)` refuse only when the annotated
+slot itself is the ref, which is the only order in which Python's
+`_refuse_carried` runs; an `err` payload can never be a ref there, because a
+result's error slot must be a declared enum, so its E0100 mismatch precedes the
+escape rule and this site never fires. `(none)` is untouched, and so is an empty
+container of ref type: `(opt (opt (ref …)))` bound to `(none)` carries no
+pointer and Python accepts it, so a recursive check of the *declared type* alone
+would be a false positive.
 
 The C1 E0107 narrowing keys its deferral on the *payload* of `some`, not on the
-annotation: a `some` whose one argument is a ref binding is not a form that
-leaves its binding unread, so the wrapper's own site owns the diagnostic and
-the `let` is not reported as unused. `(some 1)`, `(none)` and
-`(opt :i64) (some 1)` keep reporting `unused binding` exactly as before.
+annotation: a `some` whose argument carries a ref is not a form that leaves its
+binding unread, so the wrapper's own site owns the diagnostic and the `let` is
+not reported as unused. `(some 1)`, `(none)` and `(opt :i64) (some 1)` keep
+reporting `unused binding` exactly as before, and so does a nested
+`(opt (opt :i64)) (some (some 1))`.
 
 Two sites remain deliberately untouched because the form around them is not
 typed by this pass: a ref captured by a closure (`(fn …)`, C4) and the value

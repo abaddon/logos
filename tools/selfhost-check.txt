@@ -60,3 +60,6 @@ tests/type/ref-escape-some.logos
 tests/type/ref-escape-some-bare.logos
 tests/type/ref-escape-ok.logos
 tests/type/ref-arg-alias.logos
+tests/type/ref-escape-some-nested.logos
+tests/type/ref-escape-ok-nested.logos
+tests/type/ref-escape-some-nested-vector.logos
