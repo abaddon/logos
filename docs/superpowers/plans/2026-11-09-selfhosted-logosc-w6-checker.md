@@ -81,7 +81,9 @@ as Python reports.
 ## PR C — ownership, containers, results, threads
 
 - [ ] C1 moves and frees: E0300–E0303, the leak-balance rule, `free` of a
-      non-owning pointer, a move out of a loop.
+      non-owning pointer, a move out of a loop; plus E0005 unknown name (which
+      B3's two E0107 suppressions wait on) and narrowing the move-only E0107
+      suppression to the shape Python's E0302 actually decides.
 - [ ] C2 `(ref T)`: E0304/E0305 at every escape site.
 - [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602.
 - [ ] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.
