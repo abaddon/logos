@@ -1,0 +1,6 @@
+(mod missing-return)
+
+(fn classify :i64 ((x :i64))
+  (if (< x 0)
+    (ret 0)
+    (println x)))

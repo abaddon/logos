@@ -1,0 +1,1 @@
+non-exhaustive/classify/2: E0600: this match on parse-error does not handle 'overflow'

@@ -1,0 +1,5 @@
+(mod unused-binding)
+
+(fn f :i64 ()
+  (let x 1)
+  (ret 0))

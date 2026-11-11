@@ -1,0 +1,7 @@
+(mod vec-arg-temp)
+
+(fn take :void ((v (vec :i64)))
+  (vec-free v))
+
+(fn f :void ()
+  (take (make (vec :i64))))

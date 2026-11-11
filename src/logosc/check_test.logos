@@ -851,3 +851,15 @@
   (vec-free ents)
   (vec-free vindex)
   (vec-free mods))
+
+(test decl-before-body
+  (expect (out "E0101\nord/g/1/0\nunknown type ':nope'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src-at "src/logosc/check_test.logos" "(mod ord)\n(fn f :void () (let x :u8 256) (ret))\n(fn g :void ((a :nope)))"))
+
+(test decl-before-body-dup
+  (expect (out "E0003\nord/g/1/1\nduplicate definition 'a'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src-at "src/logosc/check_test.logos" "(mod ord)\n(fn f :void () (let x :u8 256) (ret))\n(fn g :void ((a :i64) (a :i64)))"))

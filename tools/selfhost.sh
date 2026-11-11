@@ -26,7 +26,8 @@
 # below it fails rather than passing over a smaller set.
 #
 # A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
-# lists one fixture per line — only the cases the declaration pass can decide — and
+# lists one fixture per line — only the cases the checker can decide: the
+# declaration rules and the scalar body rules — and
 # each fixture's .check names the whole line `gen2 check` must print, path, code and
 # message, as the reference implementation prints it. A wrong path or a reworded
 # message is a difference, not just a wrong code. tools/check_parity.py writes the
@@ -55,10 +56,12 @@ FLOOR=100
 # checker case, plus `bad-lex`, whose sources are `*.logos.txt` because the
 # imported file must fail to lex.
 RESOLVE_FLOOR=14
-# The checker's list names exactly the corpus cases the declaration pass
-# decides. Seven today; a pruned list is a failure, not a smaller pass.
+# The checker's list names exactly the corpus cases the checker decides: the
+# declaration cases, the scalar and control-flow body cases, and the calls,
+# containers, strings and memory forms the W6 B3 pass reads. Thirty-three
+# today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=7
+CHECK_FLOOR=33
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

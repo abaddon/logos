@@ -1,0 +1,4 @@
+(mod index-type)
+
+(fn f :i64 ((v (vec :i64)))
+  (ret (vec-get v "0")))

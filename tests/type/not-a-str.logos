@@ -1,0 +1,4 @@
+(mod not-a-str)
+
+(fn f :i64 ()
+  (ret (str-len 5)))

@@ -1,0 +1,6 @@
+(mod match-duplicate)
+
+(type digit (enum (zero) (many :u64)))
+
+(fn label :i64 ((d digit))
+  (match d ((many n) (ret (cast :i64 n))) ((many m) (ret (cast :i64 m))) (zero (ret 0))))

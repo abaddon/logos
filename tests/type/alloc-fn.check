@@ -1,0 +1,1 @@
+alloc-fn/f/2/1: E0002: allocation of (fn (:i64) :i64) is not supported: it has invariants
