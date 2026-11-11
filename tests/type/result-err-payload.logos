@@ -1,0 +1,9 @@
+(mod result-err-payload)
+
+(type e (enum (bad :i64) (plain)))
+
+(fn f :void ()
+  (letmut r
+    (res :i64 e)
+    (err (bad "s")))
+  (ret))

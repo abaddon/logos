@@ -60,13 +60,16 @@ RESOLVE_FLOOR=14
 # declaration cases, the scalar and control-flow body cases, the calls,
 # containers, strings and memory forms the W6 B3 pass reads, the ownership
 # rules of W6 C1 (moves, frees, E0302/E0303, E0402, E0005) and the narrowed
-# E0107 deferral, and the ref rules of W6 C2 (E0304 at the argument shape and
+# E0107 deferral, the ref rules of W6 C2 (E0304 at the argument shape and
 # E0305 at every escape site, plus the ref payloads of `some`/`ok`, the E0107
 # deferral keyed on that payload, E0304's mutability rule, and the nested payload
-# rule that walks a ref through `some`/`ok`/`err` however deeply it is carried).
-# Sixty-five today; a pruned list is a failure, not a smaller pass.
+# rule that walks a ref through `some`/`ok`/`err` however deeply it is carried),
+# and the results and optionals of W6 C3 (a typed `some`/`none`/`ok`/`err`,
+# `try` with E0601, result obligations with E0602, matches that must name every
+# variant with E0600, and the four ref escapes the C2 re-review found).
+# Eighty-three today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=65
+CHECK_FLOOR=83
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

@@ -1,0 +1,6 @@
+(mod result-unhandled-param)
+
+(type e (enum (bad :i64) (plain)))
+
+(fn take :void ((r (res :i64 e)))
+  (println 1))

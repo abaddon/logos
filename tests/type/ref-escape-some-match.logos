@@ -1,0 +1,5 @@
+(mod ref-escape-some-match)
+
+(fn f
+  (opt (ref (vec :i64))) ((n :i64) (v (ref (vec :i64))))
+  (ret (some (match n (0 v) (_ v)))))

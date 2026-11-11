@@ -1,0 +1,7 @@
+(mod some-fit)
+
+(fn f :void ()
+  (let o :
+    (opt :i64)
+    (some "x"))
+  (println 1))

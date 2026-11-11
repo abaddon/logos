@@ -194,24 +194,24 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   is decided, and reports E0305 with Python's path and message: returning a
   ref, storing one in a struct field, a `set-field`, a vector element, a
   fixed-array element, an enum payload, carrying one in an optional or result
-  slot (decided from the payload's known type, without typing the wrapper),
-  allocating a block of one, passing one to a parameter that is not a ref, and
-  passing one to a function value. Two sites sit behind a form that is not
-  typed yet and are left untouched rather than guessed: a ref captured by a
+  slot (the wrapper is typed, so both the slot's fit and the payload's type are
+  known), allocating a block of one, passing one to a parameter that is not a
+  ref, and passing one to a function value. Two sites sit behind a form that is
+  not typed yet and are left untouched rather than guessed: a ref captured by a
   closure, and the value arguments of `send` and `spawn` (C4). The channel
   *element* rule is type-level and runs wherever a channel type is resolved —
   a parameter, a `shared (chan …)` wrapper, or a `let` annotation in a body
   (`f/2/1`) — so it is decided there, at the type, in both implementations; a
   `chan` **value** form in a body expression is C4's and is untouched.
-- **Closures, threads, raw pointers and results as expressions.** `fn`,
-  `spawn`/`join`, `mutex`/`lock`/`unlock`, `chan`/`send`/`recv`,
-  `atomic*`, `ptr`/`deref`/`set-deref`/`ptr-add`, `ok`/`err`/`some`/`none` and
-  `try` still answer the unknown type. The one thing read inside them is the
-  payload a tag carries: `some`/`ok`/`err` refuse a ref there (E0305), and
-  every other name an atom in one is marked read so E0107 cannot blame a
-  binding the deferred form used.
-- **Results.** E0600–E0602 and the discharge a matched result performs are C3;
-  a `(res …)` obligation is not tracked here.
+- **Closures, threads and raw pointers.** `fn`, `spawn`/`join`,
+  `mutex`/`lock`/`unlock`, `chan`/`send`/`recv`, `atomic*`,
+  `ptr`/`deref`/`set-deref`/`ptr-add` still answer the unknown type, and every
+  atom inside one is marked read so E0107 cannot blame a binding the deferred
+  form used. Results and optionals are no longer in this list: they are typed
+  (see the section above), and E0600–E0602 are decided. A `spawn` whose callee
+  returns a result is therefore still accepted where Python says E0100 (a
+  thread's function must return `:void`); that is C4's `spawn`, not a result
+  rule.
 - **Function values and variant values in value position.** A visible
   function's name and an enum variant's name are read as values by Python; this
   pass answers the unknown type for both instead of deciding their type, so
@@ -219,8 +219,6 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   a payload-carrying variant are still under-reported. They are *not* E0005:
   the name resolves, and the E0005 rule only fires for an atom that names
   nothing.
-- **`some`/`ok`/`err` payload moves.** Those forms are C3's; an owning payload
-  inside one is not moved here, which is one more C3 under-report.
 - **Test bodies.** Python checks a module's `test` bodies as well as its
   `fn`s; the port reads only `fn` bodies. A `test` body is therefore accepted
   unread, and any diagnostic Python raises inside one is under-reported.
@@ -419,6 +417,12 @@ Python's node:
 | `break`/`continue` take no operands and need a loop | E0102 / E0002 |
 | `and`/`or`/`not` take their operands and need `:bool` | E0102 / E0100 |
 | a function must not fall off its end (E0105) | E0105 |
+| `some`/`none`/`ok`/`err`/`try` arity | E0102 |
+| an optional or result fit: `some`'s element, `ok`/`err`'s slot, `none`'s inferred element, `ok`/`err` with no result in context | E0100 |
+| a payload that cannot be carried in a tagged value (a ref, a vector, a result) | E0305 / E0402 / E0602 |
+| `try` needs a result and a function returning the same error | E0601 |
+| an enum, result or optional match must name every variant | E0600 |
+| a result must be handled: matched, tried, returned, passed, or copied | E0602 |
 
 The literal's width is the expected type when that type is a matching
 primitive, and `:i64`/`:f64` otherwise; arithmetic, shifts, comparisons, a
@@ -466,6 +470,61 @@ an `if` terminates when both arms do, a `match` when every arm does, and
 Python allows it. The check runs after the statements are read, at the `fn`
 node, with the enclosing block's label and return type.
 
+### Results and optionals (W6 C3)
+
+`some`, `none`, `ok`, `err` and `try` are typed, through `body-result-form`.
+The rules are Python's `_result_form`, in Python's order:
+
+- `(some v)` takes its element from the annotation when the context declares
+  one and from `v` otherwise; a declared element that `v` does not fit is
+  E0100 at the `some`. `(none)` has no value to infer from, so without an
+  optional annotation it is E0100 at the `none`. An inferred element that is
+  itself unknown (`(some (deref p))`) answers unknown rather than inventing a
+  type; the wrapper is not refused on a guess.
+- `(ok v)` and `(err e)` take the result type the context declares — a `ret`'s
+  return type or a `let` annotation — and check `v` against the ok slot or the
+  error slot. Without a result annotation they are E0100: nothing else could
+  choose the error enum. The payload is now typed through the ordinary value
+  walk, so an enum payload is checked by `body-construct`: a ref there is
+  E0305 `carrying it in enum 'e'`, and a payload of the wrong type is E0100
+  at the variant.
+- `(try e)` needs a result, and the enclosing function must return a result
+  whose error type is exactly `e`'s: a non-result, a non-result-returning
+  function and a different error enum are all E0601 at the `try`. The ok type
+  of `e` is the type of the `try`, and the error is handed to the caller.
+
+A payload that cannot be copied into the tagged value is refused where it is
+built, by `body-refuse-carried`: a ref (E0305, `carrying it in an optional` /
+`carrying it in a result`), a value holding a vector (E0402) and a result
+(E0602). Because `some`/`ok`/`err` are typed, this walk now reaches a payload
+behind `if`/`match`: `(some (if b v v))` passes the expected element to both
+branches, the `if` answers the ref type, and the refusal lands at the `if`
+form with Python's path and sentence. The C2 syntactic walk was only ever a
+stand-in for this typing and is no longer the path a typed wrapper takes.
+
+A result is an obligation. Each binding of a `(res T E)` carries a handled
+flag in the top bit of `bv` (2 = handled; moved is 1, and a result is never
+move-only because a result of a vector is refused at its declaration). The flag
+is marked by `body-handle` at every Python discharge site: a `match` over the
+scrutinee, `try`, `ret`, a call argument (direct or indirect), and a copy into
+a new binding. `set` checks the old value's flag before overwriting (E0602
+`cannot overwrite 'r': its result was never handled`) and clears it, so the
+new value is pending again. The flag survives a branch restore, because
+Python's `handled` is not part of the ownership snapshot: handling a result in
+one arm of an `if` is enough. At the end of every block — the function block,
+an `if` branch (through `body-arm-run`) and a `while` body — `body-pending`
+runs before `body-unused`, as Python's `_pending` runs before `_unused`. A
+result expression in statement position is E0602 at the expression.
+
+E0600 is `body-exhaust`: once the scrutinee is typed, a `match` on an enum, a
+result or an optional must name every variant (or use `_`), and the message
+names the first missing one. The four ref escapes the C2 re-review found are
+all refused by this section, with Python's code, path and sentence:
+`(some (if b v v))` and the same through `match` arms, `(err (bad v))` through
+a ref-carrying enum payload, `(some (some v))` into an `(opt (opt (ptr …)))`
+(the inner `some` fits its declared element, so E0100), and `(some (some 1))`
+into an `(opt (opt (ref …)))` (also E0100, not the old E0107).
+
 ### What it deliberately does not decide
 
 Every form outside the table answers `body-unknown` (`-2`). `body-fits` treats
@@ -478,22 +537,19 @@ are:
   Python; here it is unknown, so its type is not decided. An atom that names
   nothing at all is E0005 (see below);
 - `fn`, `ptr`, `deref`, `set-deref`, `ptr-add`, `spawn`, `join`, `mutex`,
-  `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*`, `ok`, `err`, `some`,
-  `none` and `try` — C3's result forms, C4's closure and concurrency forms,
-  and the pointer forms. Their operands are not typed, but every atom anywhere
-  inside one is marked read, so E0107 cannot blame a binding the deferred form
-  used. The exception is a ref payload carried in `some`/`ok`/`err` — directly,
-  or through further `some`/`ok`/`err` wrappers: its type is already known from
-  the binding, so the escape is refused (E0305) even though the wrapper itself
-  stays unknown;
+  `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*` — C4's closure and
+  concurrency forms, and the pointer forms. Their operands are not typed, but
+  every atom anywhere inside one is marked read, so E0107 cannot blame a
+  binding the deferred form used. `some`/`none`/`ok`/`err`/`try` are no longer
+  here: they are typed by `body-result-form` (see the section above);
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
   call's — is read as "some closed set I cannot see": its arms' shapes are
   checked (the spine is a spine whatever the type) but no variant is resolved,
   counted or required, so `(match (parse x) ...)` is accepted unread;
-- `test` bodies, and every `fn` whose signature mentions a type variable;
-- results and every E06xx rule: C3. A matched scrutinee's `(res …)` obligation
-  is not discharged here (E0602). Ownership itself — E0300–E0303, the E0402
-  move half and the `if`/`match` selection refusal — is decided (C1).
+- `test` bodies, and every `fn` whose signature mentions a type variable.
+  Ownership itself — E0300–E0303, the E0402 move half and the `if`/`match`
+  selection refusal — is decided (C1), and results with all their E06xx rules
+  are decided (C3, see above).
 
 A form's error ordering inside a body is Python's — arguments are visited left
 to right and a bad operand stops the form — and the order across the module is
@@ -592,13 +648,14 @@ does. A `deref` whose operand is not an atom stays silent because the pointee's
 type would need the operand typed first (the deferred `ptr`/`deref` forms, C4);
 that is an under-report, not a wrong code.
 
-Two more families defer, and each is keyed on the head *and* on what that head
+The result forms and `spawn` are keyed on the head *and* on what that head
 names, so an ordinary binding with one of these heads keeps its E0107:
 
-4. `(ok v)` and `(err e)` while the name is the builtin and no binding shadows
-   it. The rule Python applies to the initialiser answers first in every case:
-   a `(res …)` annotation makes this binding a pending result, which Python
-   reports as **E0602** at the binding before it looks for an unread one, and
+4. `(ok v)`/`(err e)` used to be deferred here while the name was the builtin
+   and no binding shadowed it; W6 C3 types the forms instead, and the rule
+   Python applies to the initialiser now answers for real: a `(res …)`
+   annotation makes the binding a pending result and `body-pending` reports
+   **E0602** at the binding before `body-unused` looks for an unread one, and
    any other annotation — or none — makes the form itself **E0100** (`cannot
    infer the result type of 'ok'`). So `(let c (res :i64 e) (ok 1))` is E0602,
    `(let c (ok 1))` and `(let c :i64 (ok 1))` are E0100, and none is E0107. A
@@ -643,7 +700,8 @@ value check, the type fit and the binding. So:
 `body-atom-value` ends in Python's `_token` order: a binding, `true`/`false`, a
 visible function's name, an enum variant's name, and only then E0005
 `unknown name 'x'` at the atom. Function and variant names therefore stay
-values (their *type* is still unknown, a C3 deferral); a name that genuinely
+values (their *type* is still unknown, one of the function-value deferrals); a
+name that genuinely
 resolves to nothing is E0005 with Python's path — the enclosing form, which is
 the node the atom folds into. `(ret zzz)`, `(let x zzz)`, a read of another
 function's local, and the `set r y` shape whose `r` is undeclared all report
@@ -682,39 +740,22 @@ the ref is known and Python checks it first. The argument sites share
 parameter, an indirect call through a function value may not, since that value
 can be stored and called after the lending frame returns.
 
-The tagged-value sites are `body-slot-ref`, and they do not type the optional.
-`some`, `ok` and `err` still answer the unknown type (C3), but the *payload's*
-type is already known when the payload is a name, so the escape is decided
-without typing the wrapper. The decision itself is `body-carried-ref-at`, a
-syntactic walk: an atom whose type is a ref carries one; a `some`/`ok`/`err`
-whose single argument carries carries it too, however many wrappers deep; a
-`none`, a literal or a form this pass cannot type carries nothing. The walk
-returns the *innermost* creating form, because Python builds a tagged value from
-the inside out: the inner form refuses first, so its node is the path the
-diagnostic names and its head chooses the sentence (`carrying it in an optional`
-for `some`, `carrying it in a result` for `ok`/`err`). So `(some (some v))`
-refuses at the inner `some` (`f/2/2/0`), three levels deep at `f/2/2/0/0`, and
-`(ok (some v))` in a `(res (opt (ref …)) e)` at the inner `some` — Python's own
-line for each.
-
-The fit gate is carried down the same walk, one level at a time: the expected
-type at a `some` is the element of its optional, at an `ok`/`err` the ok or
-error slot of its result, and when that slot is known and the payload is the ref
-the fit passes, so the escape rule fires. When the slot is a *different* type
-Python's E0100 fit mismatch comes first and the port leaves the shape alone (a
-C3 under-report, never a wrong code); an `ok`/`err` whose context declares no
-result is that same E0100, so the walk stops without refusing. `(some v)`
-refuses a ref payload when the expected element is that ref — the annotated
-case, where Python's fit check passes first — and also when there is no optional
-annotation at all, because Python's `_some` then falls back to the payload's own
-type with no fit check. `(ok v)` and `(err v)` refuse only when the annotated
-slot itself is the ref, which is the only order in which Python's
-`_refuse_carried` runs; an `err` payload can never be a ref there, because a
-result's error slot must be a declared enum, so its E0100 mismatch precedes the
-escape rule and this site never fires. `(none)` is untouched, and so is an empty
-container of ref type: `(opt (opt (ref …)))` bound to `(none)` carries no
-pointer and Python accepts it, so a recursive check of the *declared type* alone
-would be a false positive.
+The tagged-value sites used to be `body-slot-ref`, a syntactic walk, because
+C2 did not type the optional or the result. W6 C3 types `some`/`ok`/`err`, so
+the escape is now decided by `body-refuse-carried` from the payload's real
+type, with the same sentence and at the same innermost form; both
+`body-slot-ref` and its `body-carried-ref-at` walk are gone, and the E0107
+deferral no longer needs a `some` exception because a `some` that carries a ref
+is refused before any block ends. The four escapes the C2
+re-review found are refused by the typed rules: `(some (if b v v))` and the
+same through `match` arms (E0305 at the `if`/`match`, because both branches are
+checked at the optional's element), `(err (bad v))` through a ref-carrying enum
+payload (E0305 `carrying it in enum 'e'`, raised by the enum constructor), and
+the two nested fit shapes `(some (some v))` into `(opt (opt (ptr …)))` and
+`(some (some 1))` into `(opt (opt (ref …)))` (E0100 at the inner `some`, not
+the old E0107). An empty container of ref type — `(opt (opt (ref …)))` bound to
+`(none)`, or `(some (none))` — is still accepted by both, because no value
+carrying a pointer is built.
 
 The C1 E0107 narrowing keys its deferral on the *payload* of `some`, not on the
 annotation: a `some` whose argument carries a ref is not a form that leaves its
@@ -921,7 +962,35 @@ tests/type/ref-escape-some.logos        E0305
 tests/type/ref-escape-some-bare.logos   E0305
 tests/type/ref-escape-ok.logos          E0305
 tests/type/ref-arg-alias.logos          E0304
+tests/type/unhandled-result.logos       E0602
+tests/type/try-mismatch.logos           E0601
+tests/type/some-fit.logos               E0100
+tests/type/none-infer.logos             E0100
+tests/type/ok-infer.logos               E0100
+tests/type/result-err-payload.logos     E0100
+tests/type/opt-nested-ptr.logos         E0100
+tests/type/opt-nested-ref.logos         E0100
+tests/type/result-match-miss-err.logos  E0600
+tests/type/opt-match-miss-none.logos    E0600
+tests/type/try-nonresult-fn.logos       E0601
+tests/type/try-nonresult.logos          E0601
+tests/type/result-unhandled-param.logos E0602
+tests/type/result-carried-optional.logos E0602
+tests/type/set-result-unhandled.logos   E0602
+tests/type/ref-escape-some-if.logos     E0305
+tests/type/ref-escape-some-match.logos  E0305
+tests/type/ref-escape-err-enum.logos    E0305
 ```
+
+The last eighteen are C3's: a typed result or optional at the wrong element or
+slot, `none` and `ok` with nothing to infer from, an enum payload of the wrong
+type, a match over a result or optional that misses a variant, `try` of a
+non-result, `try` in a function that does not return a result and `try` with a
+different error enum, a result in statement position, a parameter never
+handled, a result carried in an optional, a `set` over an unhandled result, and
+the four ref escapes the C2 re-review found (`some` over an `if`, `some` over a
+`match` returning a ref, `err` over a ref-carrying enum payload, and the two
+nested fit shapes).
 
 The last ten of the original seventeen are the B1/B2 body cases: a cast of a
 `:bool`, a cast that would not change the type, a float beside an `:i64` in
@@ -971,13 +1040,15 @@ with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 62: a pruned list fails rather than passing over
-fewer fixtures. `try-mismatch`, `unhandled-result` and `closure-escape` need
-C3; `owner-place-read` (a `deref` read) and `generic-vector` need the deferred
-`deref` form or a generic call site; `ref-escapes-capture`, `ref-escape-spawn`
-and `ref-to-function-value` are ref escapes behind C4 forms; `limit` and
-`unbound` need a generic call site; the visibility fixtures under
-`src/logosc/fixtures/check` are unit cases, not corpus cases.
+matching code. Its floor is 83: a pruned list fails rather than passing over
+fewer fixtures. `closure-escape` needs C4; `owner-place-read` (a `deref` read)
+and `generic-vector` need the deferred `deref` form or a generic call site;
+`ref-escapes-capture`, `ref-escape-spawn` and `ref-to-function-value` are ref
+escapes behind C4 forms; `limit` and `unbound` need a generic call site; the
+visibility fixtures under `src/logosc/fixtures/check` are unit cases, not corpus
+cases. `try-mismatch` and `unhandled-result` are now decided and named by the
+list, as are the sixteen C3 fixtures for the typed containers, E0600–E0602 and
+the four ref escapes the C2 re-review found.
 
 ## Tests
 
@@ -1153,28 +1224,30 @@ its unannotated spelling in `ref-escape-some-bare/f/2/1`, a result slot in
 `ref-escape-ok/f/2/2`, and E0304's immutable alias in `ref-arg-alias/f/3`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 215 tracked and new sources finds:
+`check_module` over the tree. A sweep of all 234 tracked sources finds:
 
 - **0 false positives** — no program Python accepts is refused by `gen2 check`;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 102 are refused by both: 101 with the
+- 93 sources are accepted by both, and 123 are refused by both: 122 with the
   same line and one with the same code and a different path spelling;
-- 20 sources are under-reported, every one of them inside the deferred set:
+- 18 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
   bodies), 4 are a ref escape behind a form that is not typed yet (E0305:
   capture, send-value, spawn, function value through a closure), 1 is the
   owner read behind `(deref p)` (E0402, deferred with the deref form), 1 is
   the `sibling-set` read after a join through `deref` (E0300 behind the same
-  deferred form), 3 are E0500/E0501 or a generic call site, 2 are E0601/E0602
-  from a result, and 1 is a closure escape (E0502);
-- against the W6 B3 binary, 6 existing sources are newly refused with Python's
-  own line — `move`, `move-immutable`, `loop-move`, `loop-release`,
-  `loop-condition` and `unknown-name` — plus the six new fixtures this pass
-  adds, and nothing B3 refused is accepted now;
+  deferred form), 3 are E0500/E0501 or a generic call site, and 1 is a
+  closure escape (E0502). The two result under-reports of C2 — E0601/E0602 —
+  are gone: `try-mismatch` and `unhandled-result` are decided;
+- against the C2 binary (`2c7538e`, built in a throwaway worktree), exactly
+  two existing sources are newly refused and both are those fixtures —
+  `try-mismatch/caller/3/1` E0601 and `unhandled-result/caller/2` E0602 —
+  with nothing newly accepted and no other source's line changed. The sixteen
+  new C3 fixtures are refused with Python's own line;
 - the one source outside those buckets answers the same E0002 with a different
   path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
   for a file with no `(mod …)` and gen2 names the file. It is the W6 A
-  declaration edge, untouched by C1.
+  declaration edge, untouched by C3.
 
 ## Building it
 

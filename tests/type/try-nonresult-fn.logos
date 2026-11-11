@@ -1,0 +1,10 @@
+(mod try-nonresult-fn)
+
+(type e (enum (bad :i64) (plain)))
+
+(fn g :
+  (res :i64 e) ()
+  (ret (ok 1)))
+
+(fn f :i64 ()
+  (ret (try (g))))

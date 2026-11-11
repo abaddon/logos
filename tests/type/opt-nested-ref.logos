@@ -1,0 +1,7 @@
+(mod opt-nested-ref)
+
+(fn f :void ()
+  (letmut o
+    (opt (opt (ref (vec :i64))))
+    (some (some 1)))
+  (ret))

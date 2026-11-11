@@ -1414,32 +1414,32 @@
     (leaks 0))
   (dump-src "(extern fn abs :i64 ((x :i64))) (fn f :i64 () (let x abs) (ret 0))"))
 
-(test defer-ok-pending-silent
-  (expect (out "OK\n")
+(test result-ok-pending-e0602
+  (expect (out "E0602\nm/f/2\nthe result of 'c' is never handled: match it or 'try' it\n")
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (ok 1)) (ret 0))"))
 
-(test defer-err-pending-silent
-  (expect (out "OK\n")
+(test result-err-pending-e0602
+  (expect (out "E0602\nm/f/2\nthe result of 'c' is never handled: match it or 'try' it\n")
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (err (bad))) (ret 0))"))
 
-(test defer-ok-infer-silent
-  (expect (out "OK\n")
+(test result-ok-infer-e0100
+  (expect (out "E0100\nm/f/2/1\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (let c (ok 1)) (ret 0))"))
 
-(test defer-err-infer-silent
-  (expect (out "OK\n")
+(test result-err-infer-e0100
+  (expect (out "E0100\nm/f/2/1\ncannot infer the result type of 'err': annotate the binding or the return type\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (let c (err 1)) (ret 0))"))
 
-(test defer-ok-annotated-silent
-  (expect (out "OK\n")
+(test result-ok-annotated-e0100
+  (expect (out "E0100\nm/f/2/2\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (let c :i64 (ok 1)) (ret 0))"))
@@ -1683,3 +1683,171 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void () (letmut o (opt (opt :i64)) (some (some 1))) (ret))"))
+
+(test result-some-if-escape
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((b :bool) (v (ref (vec :i64)))) (ret (some (if b v v))))"))
+
+(test result-some-match-escape
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((n :i64) (v (ref (vec :i64)))) (ret (some (match n (0 v) (_ v)))))"))
+
+(test result-err-enum-escape
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in enum 'e'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad (ref (vec :i64))) (plain))) (fn f :void ((v (ref (vec :i64)))) (letmut r (res :i64 e) (err (bad v))) (ret))"))
+
+(test result-err-payload-fit
+  (expect (out "E0100\nm/f/2/2/0\nvariant 'bad' holds :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn f :void () (letmut r (res :i64 e) (err (bad \"s\"))) (ret))"))
+
+(test result-opt-nested-ptr
+  (expect (out "E0100\nm/f/2/2/0\n'some' expects (ptr :i64), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v :i64)) (letmut o (opt (opt (ptr :i64))) (some (some v))) (ret))"))
+
+(test result-opt-nested-ref
+  (expect (out "E0100\nm/f/2/2/0\n'some' expects (ref (vec :i64)), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (opt (ref (vec :i64)))) (some (some 1))) (ret))"))
+
+(test result-some-fit
+  (expect (out "E0100\nm/f/2/3\n'some' expects :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let o :(opt :i64) (some \"x\")) (println 1))"))
+
+(test result-none-infer
+  (expect (out "E0100\nm/f/2/1\ncannot infer the element type of 'none': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let o (none)) (println 1))"))
+
+(test result-ok-infer
+  (expect (out "E0100\nm/f/2/0\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (ok 1)))"))
+
+(test result-try-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let v (try (g))) (ret (ok v)))"))
+
+(test result-try-nonresult-fn
+  (expect (out "E0601\nm/f/2/0\nfunction 'f' returns :i64, so it cannot propagate (res :i64 e)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :i64 () (ret (try (g))))"))
+
+(test result-try-diff-err
+  (expect (out "E0601\nm/f/3/1\ncannot 'try' a result whose error is e: function 'f' returns (res :i64 other)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (type other (enum (nope))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 other) () (let v (try (g))) (ret (ok v)))"))
+
+(test result-try-nonresult
+  (expect (out "E0601\nm/f/2/0\n'try' needs a result, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (try 1)))"))
+
+(test result-try-arity
+  (expect (out "E0102\nm/f/3/1\n'try' takes one result\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let v (try (g) (g))) (ret (ok v)))"))
+
+(test result-match-miss-err
+  (expect (out "E0600\nm/f/2/0\nthis match on (res :i64 e) does not handle 'err'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :i64 () (ret (match (g) ((ok v) v))))"))
+
+(test result-opt-match-miss-none
+  (expect (out "E0600\nm/f/2/0\nthis match on (opt :i64) does not handle 'none'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (match (some 1) ((some v) v))))"))
+
+(test result-unhandled-stmt
+  (expect (out "E0602\nm/f/2\nthis (res :i64 e) is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (g))"))
+
+(test result-unhandled-let
+  (expect (out "E0602\nm/f/2\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (println 1))"))
+
+(test result-unhandled-param
+  (expect (out "E0602\nm/take/1/0\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn take :void ((r (res :i64 e))) (println 1))"))
+
+(test result-carried-optional
+  (expect (out "E0602\nm/f/2/1/0\nthis result cannot be carried in an optional: handle it first\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let o (some (g))) (println 1))"))
+
+(test result-set-unhandled
+  (expect (out "E0602\nm/f/3\ncannot overwrite 'r': its result was never handled\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (letmut r (g)) (set r (g)))"))
+
+(test result-bound-handled
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (match r ((ok v) (println v)) ((err _) (println 0))))"))
+
+(test result-returned
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let r (g)) (ret r))"))
+
+(test result-passed
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn take :void ((r (res :i64 e))) (match r ((ok v) (println v)) ((err _) (println 0)))) (fn f :void () (let r (g)) (take r))"))
+
+(test result-some-vector
+  (expect (out "E0402\nm/f/3/1\na vector cannot be carried in an optional yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut v (vec :i64) (make (vec :i64))) (let o (some v)) (ret))"))
+
+(test result-some-own
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut p (alloc :i64 1)) (let o (some p)) (match o ((some q) (free q)) (none (println 0))))"))
+
+(test result-set-in-branch
+  (expect (out "E0602\nm/f/2\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void ((b :bool)) (letmut r (g)) (match r ((ok v) (println v)) ((err _) (println 0))) (if b (set r (g)) (println 1)) (println 2))"))
+
+(test result-handle-one-branch
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void ((b :bool)) (let r (g)) (if b (match r ((ok v) (println v)) ((err _) (println 0))) (println 1)) (println 2))"))

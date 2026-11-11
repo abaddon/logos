@@ -1,0 +1,1 @@
+none-infer/f/2/1: E0100: cannot infer the element type of 'none': annotate the binding or the return type

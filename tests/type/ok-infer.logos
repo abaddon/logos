@@ -1,0 +1,4 @@
+(mod ok-infer)
+
+(fn f :i64 ()
+  (ret (ok 1)))

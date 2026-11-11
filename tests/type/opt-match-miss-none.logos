@@ -1,0 +1,4 @@
+(mod opt-match-miss-none)
+
+(fn f :i64 ()
+  (ret (match (some 1) ((some v) v))))

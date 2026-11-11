@@ -1,0 +1,5 @@
+(mod ref-escape-some-if)
+
+(fn f
+  (opt (ref (vec :i64))) ((b :bool) (v (ref (vec :i64))))
+  (ret (some (if b v v))))
