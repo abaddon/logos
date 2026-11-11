@@ -698,16 +698,35 @@ result, an optional, a function value and a channel do not cross, so an
 
 ## Limits of this implementation
 
-Two limits are properties of the front end, not of the rules above, and neither
-is fixed here. **Nesting depth:** `gen2 check` dies with SIGSEGV at about
-1,400 nested forms; Python's recursive descent raises `RecursionError` at about
-400, so the corpus never reaches the point where the port crashes. Both
-binaries behave the same, so this is not a C1 regression, and the port does not
-pretend to a limit it cannot enforce. **Memory:** the resolver is quadratic in
-the number of top-level definitions — 500 → 57 MB, 1,000 → 222 MB,
-2,000 → 880 MB, 4,000 → 3,510 MB, so 6,300 wants about 8.7 GB and the kernel
-kills it. The pre-C1 checker does the same; the cause is the resolver, not this
-pass, and it has its own task after W6.
+One limit is a property of the front end, not of the rules above, and it is not
+fixed here. **Nesting depth:** `gen2 check` dies with SIGSEGV at about 1,400
+nested forms; Python's recursive descent raises `RecursionError` at about 400,
+so the corpus never reaches the point where the port crashes. Both binaries
+behave the same, so this is not a C1 regression, and the port does not pretend
+to a limit it cannot enforce.
+
+The second limit was memory, and C1b removed it. The resolver asked
+`tree-path` for each definition's own path, and `tree-path` re-walked every
+earlier top-level sibling's subtree to find it, so both time and peak RSS grew
+quadratically. The resolver now computes each top-level form's path once, in
+its own sibling walk, and hands it to the diagnostic; `tree-path` is left with
+the module header, which it sees once. Generated sources of
+`(fn gN :i64 () (ret N))` lines, `/usr/bin/time -f '%M'` under a 4 GB cap:
+
+| definitions | before, peak RSS | after, peak RSS | after per doubling |
+| ----------- | ---------------- | --------------- | ------------------ |
+| 500         | 57 MB            | 2.4 MB          | —                  |
+| 1,000       | 222 MB           | 3.4 MB          | ×1.35              |
+| 2,000       | 880 MB           | 4.7 MB          | ×1.40              |
+| 4,000       | 3,510 MB         | 7.7 MB          | ×1.63              |
+| 8,000       | R0003, out of memory at the cap | 14.2 MB | ×1.86     |
+
+Before, each doubling multiplied the footprint by 3.9–4.0; now the multiplier is
+1.35 at 500→1,000 and 1.86 at 4,000→8,000, tending to 2.0 (linear) rather than
+4.0: 16,000 definitions is 25.8 MB and 32,000 is 51.8 MB. A 6,300-definition
+file that used to want 8.7 GB resolves in about 10 MB. The generated case is
+`build/c1b/gen.py` and `build/c1b/rss.sh` under `build/`, so neither the fmt
+gate nor the selfhost manifest sees it.
 
 ## Coverage
 

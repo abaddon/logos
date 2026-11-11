@@ -249,3 +249,15 @@
     (code 0)
     (leaks 0))
   (dump-file "src/logosc/fixtures/stdlib/use-map.logos"))
+
+(test late-path-after-unnamed
+  (expect (out "E0002\nm/2\nfn needs a name\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn a :i64 () (ret 0))\n(fn b :i64 () (ret 1))\n(fn)\n(fn c :i64 () (ret 2))"))
+
+(test late-unknown-node-slot
+  (expect (out "E0002\nm/3\nunknown node 'println'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(mod m)\n(fn a :i64 () (ret 0))\n(type p (struct (x :i64)))\n(test t (expect (code 0)))\n(println 1)"))

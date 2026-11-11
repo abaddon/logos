@@ -84,12 +84,16 @@ as Python reports.
       non-owning pointer, a move out of a loop; plus E0005 unknown name (which
       B3's two E0107 suppressions wait on) and narrowing the move-only E0107
       suppression to the shape Python's E0302 actually decides.
-- [ ] C1b the resolver's memory: `resolve` grows quadratically in top-level
-      definitions (500 → 57 MB, 1,000 → 222, 2,000 → 880, 4,000 → 3,510 MB,
-      6,300 ≈ 8.7 GB and the kernel kills it). Find the structure that is
-      O(n²), replace it with the map from `src/std/map.logos` where the key is a
-      string, and pin the growth with a generated-file case at 1,000 and 4,000
-      definitions (peak RSS bounds recorded in the report, not in a gate).
+- [x] C1b the resolver's memory: `resolve` grew quadratically in top-level
+      definitions because `tree-path` was called once per definition and
+      re-walked every earlier sibling's whole subtree. `resolve-build` now
+      computes each top-level form's path once, in its own sibling walk, and
+      passes it down, so peak RSS is linear: 500 → 2.4 MB, 1,000 → 3.4 MB,
+      2,000 → 4.7 MB, 4,000 → 7.7 MB, 8,000 → 14.2 MB (×1.35–1.86 per
+      doubling; before: 57 / 222 / 880 / 3,510 MB, with 6,300 killed at the
+      4 GB cap). Pinned by the generated case `build/c1b/gen.py` +
+      `build/c1b/rss.sh`, two `resolve_test` cases, and the table in
+      `check.md`.
 - [ ] C2 `(ref T)`: E0304/E0305 at every escape site.
 - [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602.
 - [ ] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.
