@@ -709,8 +709,13 @@ The second limit was memory, and C1b removed it. The resolver asked
 `tree-path` for each definition's own path, and `tree-path` re-walked every
 earlier top-level sibling's subtree to find it, so both time and peak RSS grew
 quadratically. The resolver now computes each top-level form's path once, in
-its own sibling walk, and hands it to the diagnostic; `tree-path` is left with
-the module header, which it sees once. Generated sources of
+its own sibling walk, and hands it to the diagnostic. `tree-path` keeps three
+callers: the module header, once per file; `check-node-path` (`check.logos:42`,
+reached from `check-fail-at`) once per **reported error**; and
+`check-return-path` (`check.logos:1285`, inside a `check-fail`). The error path
+is the one to watch: it still re-walks every earlier top-level sibling, so a
+caller that asked for a node path per node rather than per diagnostic would pay
+the quadratic again. Generated sources of
 `(fn gN :i64 () (ret N))` lines, `/usr/bin/time -f '%M'` under a 4 GB cap:
 
 | definitions | before, peak RSS | after, peak RSS | after per doubling |

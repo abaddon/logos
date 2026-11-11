@@ -377,7 +377,11 @@ definition made the resolver quadratic in top-level definitions: 500 → 57 MB,
 not ×4), and 6,300 → 11.6 MB. The generated-source
 case `build/c1b/gen.py` plus `build/c1b/rss.sh` reproduces both series without a
 tracked `*.logos` file, so the fmt gate and the manifest do not see it.
-`tree-path` stays for the module header, once per file, and for the checker.
+`tree-path` stays for the module header, once per file, and for the checker,
+which calls it once per reported error (`check-node-path`, `check.logos:42`) and
+inside one `check-fail` (`check-return-path`). Each of those calls still walks
+the earlier top-level siblings, so the cost is small only because errors are
+rare; a per-node caller would be quadratic again.
 
 ## What it does not do
 
