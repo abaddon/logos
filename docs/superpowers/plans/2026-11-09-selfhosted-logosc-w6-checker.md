@@ -95,7 +95,15 @@ as Python reports.
       `build/c1b/rss.sh`, two `resolve_test` cases, and the table in
       `check.md`.
 - [ ] C2 `(ref T)`: E0304/E0305 at every escape site.
-- [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602.
+- [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602. **Type the containers.**
+      `some`/`ok`/`err`/`none` currently yield an unknown type, so no fit gate fires and four
+      accepted ref escapes survive (found by the C2 re-review, all pre-existing):
+      `(some (if b v v))` returned (Python E0305 at `f/2/2/0`; the carries-a-ref walk recurses
+      only into `some`/`ok`/`err`, not `if`/`match`), `(err (bad v))` with a ref-carrying enum
+      payload (Python E0305 `carrying it in enum 'e'`), `(some (some v))` into
+      `(opt (opt (ptr …)))` (Python E0100), and the `E0107` line that shadows the escape when the
+      binding is unused. C3 is not done until the walk covers `if`/`match` and the containers have
+      real types; an accepted ref escape outranks the task boundary, as C2 established.
 - [ ] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.
 - [ ] C5 the rest of the negative corpus, and the wave's PR with all fixtures in
       the parity list.
