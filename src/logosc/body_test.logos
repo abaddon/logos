@@ -1413,3 +1413,63 @@
     (code 0)
     (leaks 0))
   (dump-src "(extern fn abs :i64 ((x :i64))) (fn f :i64 () (let x abs) (ret 0))"))
+
+(test defer-ok-pending-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (ok 1)) (ret 0))"))
+
+(test defer-err-pending-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (err (bad))) (ret 0))"))
+
+(test defer-ok-infer-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c (ok 1)) (ret 0))"))
+
+(test defer-err-infer-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c (err 1)) (ret 0))"))
+
+(test defer-ok-annotated-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c :i64 (ok 1)) (ret 0))"))
+
+(test defer-spawn-form-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void () (ret)) (fn f :i64 () (let t (spawn (h))) (ret 0))"))
+
+(test defer-spawn-arity-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((a :i64)) (ret)) (fn f :i64 () (let t (spawn w)) (ret 0))"))
+
+(test defer-spawn-name-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 't'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void () (ret)) (fn f :i64 () (let t (spawn h)) (ret 0))"))
+
+(test defer-spawn-arg-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 't'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((a :i64)) (ret)) (fn f :i64 () (let t (spawn w 1)) (ret 0))"))
+
+(test defer-ok-shadowed-e0107
+  (expect (out "E0107\nm/f/3\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let ok (fn :i64 () (ret 1))) (let x (ok)) (ret 0))"))

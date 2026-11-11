@@ -547,8 +547,8 @@ declarations are marked read instead of reported: an atom initialiser that moved
 a value out of a plain `(own T)` binding — Python's E0302 alias shape, where the
 first diagnostic is E0302 at the second `let` — and an initialiser whose Python
 rule fires before the unused check but which this pass leaves untyped
-(`body-e0107-deferred?`). The second guard is keyed on the three shapes the
-corpus shows, not on every deferred head:
+(`body-e0107-deferred?`). The second guard is not keyed on every deferred head;
+it names the shapes the corpus shows, and the witnesses follow:
 
 1. `(deref p)` where `p` is a binding already moved — Python **E0300** at the
    `deref` (`use after move of 'p'`). Today that is `sibling-set`.
@@ -568,6 +568,27 @@ else is suppressed: `(ptr q)`, `(ptr-add (ptr q) 1)`, `(some 1)` and
 does. A `deref` whose operand is not an atom stays silent because the pointee's
 type would need the operand typed first (C2); that is an under-report, not a
 wrong code.
+
+Two more families defer, and each is keyed on the head *and* on what that head
+names, so an ordinary binding with one of these heads keeps its E0107:
+
+4. `(ok v)` and `(err e)` while the name is the builtin and no binding shadows
+   it. The rule Python applies to the initialiser answers first in every case:
+   a `(res …)` annotation makes this binding a pending result, which Python
+   reports as **E0602** at the binding before it looks for an unread one, and
+   any other annotation — or none — makes the form itself **E0100** (`cannot
+   infer the result type of 'ok'`). So `(let c (res :i64 e) (ok 1))` is E0602,
+   `(let c (ok 1))` and `(let c :i64 (ok 1))` are E0100, and none is E0107. A
+   binding that shadows the name makes `(ok …)` an ordinary call, and
+   `(let ok (fn :i64 () (ret 1))) (let x (ok))` keeps its E0107 at the `let`.
+5. `(spawn f a …)` when Python's check of the spawn form fires before the
+   binding exists: a missing argument or a first child that is not an atom is
+   **E0103** (`spawn needs the name of a module function`), an unknown, extern
+   or imported name is **E0103**, a wrong argument count is **E0102** and a
+   function that does not return `:void` is **E0100**. A well-formed spawn of a
+   `:void` function of this module — the shape Python types as a handle —
+   keeps E0107, so `(let t (spawn work))` still reports the unread `t`
+   (`body-spawn-handle?`).
 
 ### Moves, frees and E0005 (C1)
 
@@ -788,7 +809,7 @@ need a generic call site; the visibility fixtures under
 
 ## Tests
 
-`src/logosc/body_test.logos` has 211 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 221 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -869,8 +890,12 @@ need a generic call site; the visibility fixtures under
   both sides — `(deref q)` on an `(own :i64)`, `(ptr q)`,
   `(ptr-add (ptr q) 1)` and `(some 1)` report E0107, while the three witness
   shapes (`(deref p)` of a move-only place, a closure capturing a ref, and
-  `(deref p)` of a moved binding) stay silent — and an extern used as a value
-  is E0103 at the `let`;
+  `(deref p)` of a moved binding) stay silent; the `ok`/`err` and `spawn`
+  families are pinned the same way — a pending `(res …)` binding, an
+  uninferable `(ok 1)`, an annotated `(let c :i64 (ok 1))`, `(spawn (h))` and
+  a spawn of the wrong arity stay silent, while a well-formed `(spawn h)` and
+  an `(ok)` that a shadowing binding turns into an ordinary call report
+  E0107 — and an extern used as a value is E0103 at the `let`;
 - ownership (C1): a double free, a read after `free`, a move out of a plain
   `let` (E0302, as a local `let` and as a call argument), the accepted
   `letmut` and vector aliases, a release inside a loop (E0303), a binding
