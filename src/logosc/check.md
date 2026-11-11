@@ -220,7 +220,7 @@ body is the one block that does not raise it: its statements run at the depth
 of its parameters, which is what makes `(fn f :i64 ((x :i64)) (let x :i64 5)
 …)` E0003, as Python answers. `body-walk` is that depth-preserving loop;
 `body-block` is `body-walk` inside one raise, and is what a `while` body uses
-(`body-statements` calls `body-walk`, so a nested block still shadows legally).
+(a nested block raises the depth in `body-block`/`body-arm-run`, so shadowing there is legal; the body itself does not raise).
 `bctl[1]` counts the enclosing loops: `break` and `continue` are legal only
 when it is non-zero, and it is raised *before* a `while` condition is typed,
 because Python puts the condition inside the loop.
