@@ -1,0 +1,11 @@
+(mod closure-annotated-set-ret)
+
+(fn f :
+  (fn () :void) ((x :i64))
+  (letmut c :
+    (fn () :void)
+    (fn :void ()
+      (println 1)))
+  (set c (fn :void ()
+           (println x)))
+  (ret c))

@@ -1,0 +1,12 @@
+(mod closure-opt-capture-nested)
+
+(fn take :void ((o (opt (opt (fn () :void)))))
+  (ret))
+
+(fn f :void ()
+  (let x :i64 1)
+  (let o
+    (opt (opt (fn () :void)))
+    (some (some (fn :void ()
+                  (println x)))))
+  (take o))

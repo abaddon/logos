@@ -106,3 +106,15 @@ tests/type/closure-ret-capture.logos
 tests/type/closure-result-body.logos
 tests/type/closure-field.logos
 tests/type/chan-void.logos
+tests/type/closure-annotated-let-ret.logos
+tests/type/closure-annotated-let-arg.logos
+tests/type/closure-annotated-let-vec.logos
+tests/type/closure-annotated-let-field.logos
+tests/type/closure-annotated-set-ret.logos
+tests/type/closure-annotated-set-loop.logos
+tests/type/closure-some-capture.logos
+tests/type/closure-ok-capture.logos
+tests/type/closure-opt-capture-nested.logos
+tests/type/closure-enum-capture.logos
+tests/type/closure-enum-capture-field.logos
+tests/type/closure-let-shadow.logos

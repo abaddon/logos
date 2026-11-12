@@ -1,0 +1,14 @@
+(mod closure-ok-capture)
+
+(type e (enum (bad :i64)))
+
+(fn take :void ((o (res (fn () :void) e)))
+  (match o ((ok f) (f)) ((err _) (ret))))
+
+(fn f :void ()
+  (let x :i64 1)
+  (let o
+    (res (fn () :void) e)
+    (ok (fn :void ()
+          (println x))))
+  (take o))

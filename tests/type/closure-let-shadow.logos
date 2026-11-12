@@ -1,0 +1,7 @@
+(mod closure-let-shadow)
+
+(fn f :void ((x :i64))
+  (let g (fn :void ()
+           (let x :i64 (+ x 1))
+           (println x)))
+  (g))

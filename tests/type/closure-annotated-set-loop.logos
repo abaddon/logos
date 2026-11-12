@@ -1,0 +1,14 @@
+(mod closure-annotated-set-loop)
+
+(fn f :
+  (fn () :void) ((n :i64) (x :i64))
+  (letmut c :
+    (fn () :void)
+    (fn :void ()
+      (println 1)))
+  (letmut i :i64 0)
+  (while (< i n)
+    (set c (fn :void ()
+             (println x)))
+    (break))
+  (ret c))

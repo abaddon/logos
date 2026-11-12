@@ -74,10 +74,12 @@ RESOLVE_FLOOR=14
 # generic-target rules, channels with their element, capacity and `shared`
 # marker rules, mutexes and atomics, closures with their captures and their
 # result obligations, and the five ref escapes those forms used to hide (a
-# capture, `send`, `spawn` and a function value built from a closure).
-# One hundred and eight today; a pruned list is a failure, not a smaller pass.
+# capture, `send`, `spawn` and a function value built from a closure), and the
+# C4 fix round's annotated-`let`/`set` capture flag, its payload constructors
+# and the closure `let`-shadowing order.
+# One hundred and twenty today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=108
+CHECK_FLOOR=120
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

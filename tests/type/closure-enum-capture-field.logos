@@ -1,0 +1,9 @@
+(mod closure-enum-capture-field)
+
+(type e (enum (one (fn () :void))))
+
+(type holder (struct (o e)))
+
+(fn f :void ((x :i64))
+  (letmut h holder (make holder (one (fn :void ()
+                                       (println x))))))

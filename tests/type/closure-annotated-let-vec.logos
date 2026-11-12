@@ -1,0 +1,11 @@
+(mod closure-annotated-let-vec)
+
+(fn f :void ((x :i64))
+  (letmut v
+    (vec (fn () :void))
+    (make (vec (fn () :void))))
+  (let g :
+    (fn () :void)
+    (fn :void ()
+      (println x)))
+  (vec-push v g))

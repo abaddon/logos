@@ -2193,3 +2193,75 @@
     (code 0)
     (leaks 0))
   (dump-src "(extern fn ext :void ((i :i64))) (fn f :void () (spawn ext 1))"))
+
+(test c4-annotated-let-ret
+  (expect (out "E0502\nm/f/5\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) () (let x :i64 1) (let g :(fn () :void) (fn :void () (println x))) (ret g))"))
+
+(test c4-annotated-let-arg
+  (expect (out "E0502\nm/f/3\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void ((x :i64)) (let g :(fn () :void) (fn :void () (println x))) (h g))"))
+
+(test c4-annotated-let-vec
+  (expect (out "E0502\nm/f/4\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (letmut v (vec (fn () :void)) (make (vec (fn () :void)))) (let g :(fn () :void) (fn :void () (println x))) (vec-push v g))"))
+
+(test c4-annotated-let-field
+  (expect (out "E0502\nm/f/3/2\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type holder (struct (g (fn () :void)))) (fn f :void ((x :i64)) (let g :(fn () :void) (fn :void () (println x))) (letmut s holder (make holder g)))"))
+
+(test c4-annotated-set-ret
+  (expect (out "E0502\nm/f/5\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((x :i64)) (letmut c :(fn () :void) (fn :void () (println 1))) (set c (fn :void () (println x))) (ret c))"))
+
+(test c4-annotated-set-loop
+  (expect (out "E0502\nm/f/5/1\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((n :i64) (x :i64)) (letmut c :(fn () :void) (fn :void () (println 1))) (letmut i :i64 0) (while (< i n) (set c (fn :void () (println x))) (break)) (ret c))"))
+
+(test c4-some-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((o (opt (fn () :void)))) (ret)) (fn f :void () (let x :i64 1) (let o (opt (fn () :void)) (some (fn :void () (println x)))) (take o))"))
+
+(test c4-ok-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn take :void ((o (res (fn () :void) e))) (match o ((ok f) (f)) ((err _) (ret)))) (fn f :void () (let x :i64 1) (let o (res (fn () :void) e) (ok (fn :void () (println x)))) (take o))"))
+
+(test c4-opt-capture-nested
+  (expect (out "E0502\nm/f/3/2/0/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((o (opt (opt (fn () :void))))) (ret)) (fn f :void () (let x :i64 1) (let o (opt (opt (fn () :void))) (some (some (fn :void () (println x))))) (take o))"))
+
+(test c4-enum-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (one (fn () :void)))) (fn take :void ((o e)) (ret)) (fn f :void () (let x :i64 1) (let o e (one (fn :void () (println x)))) (take o))"))
+
+(test c4-enum-capture-field
+  (expect (out "E0502\nm/f/2/2/1/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (one (fn () :void)))) (type holder (struct (o e))) (fn f :void ((x :i64)) (letmut h holder (make holder (one (fn :void () (println x))))))"))
+
+(test c4-closure-let-shadow
+  (expect (out "E0003\nm/f/2/1/2\nduplicate definition 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (let g (fn :void () (let x :i64 (+ x 1)) (println x))) (g))"))

@@ -576,14 +576,19 @@ equal names, E0100 `parameter 'x' cannot be :void` at the parameter. The body
 is then checked in an environment of its own: the closure's return type and
 the `closure` label, parameters bound as `bm == 2`, loop depth 0 (a closure
 made inside a loop starts outside it, as Python's fresh scope does), and one
-block depth deeper than the enclosing statements, so a parameter may shadow an
-outer name and a duplicate is still caught.
+block depth deeper than the enclosing statements. That block is one scope:
+parameters are bound first, and a capture joins it as the binding `_lookup`
+copies into `scopes[0]`. A parameter therefore shadows an outer name, while a
+top-level `let` whose initialiser captured a name — `(let x (+ x 1))` inside
+the closure — is E0003 `duplicate definition 'x'` at the `let`, because the
+initialiser is read against the enclosing scope before the new binding exists.
 
 Captures are found first, by `body-closure-sites`, a scan scoped the way the
-language is: a closure's parameters, a `let`/`letmut` from its initialiser on,
-and a match arm's payload inside that arm are its own names, and the first read
-that still reaches an enclosing binding is a capture. Python's `_lookup` order
-decides each one:
+language is: a closure's parameters, a `let`/`letmut` from its value on — the
+initialiser is read against the enclosing scope, before the new binding
+exists — and a match arm's payload inside that arm are its own names, and the
+first read that still reaches an enclosing binding is a capture. Python's
+`_lookup` order decides each one:
 
 - a moved binding is E0300 `use after move of 'x'` at the form that read it;
 - a ref is E0305 `a ref cannot escape the call: a closure captures 'x'`;
@@ -609,13 +614,22 @@ declared are tombstoned (`bt` unknown, `bu` read) so no later scope-closing
 check in the enclosing function can blame them.
 
 `body-fits` ignores the capture flag when both sides are function types
-(Python's `_fits`), so `(let g :(fn () :void) (fn …))` keeps its annotation;
-a *call argument* does not: E0502 `a closure that captures cannot leave its
-function` is raised at the argument before the fit. The same sentence is raised
-at every place a closure can be kept past its frame: `ret`, `spawn`, `send`, a
-struct field (`make` and `set-field`), an array element (`make` and
-`arr-set`), a vector push and element write, an enum payload and an
-`opt`/`res` slot. What is left is a closure called where it was made, which is
+(Python's `_fits`), so an annotation never decides whether a binding captures:
+`body-fn-bound` rebuilds the annotated signature with the value's `fn`/`fn*`
+head. A `let`/`letmut` keeps that rebuilt type, and `body-set` stores the new
+value's flag on the binding, so `(let g :(fn () :void) (fn …))` and
+`(set g (fn …))` are `fn*` and a later `ret g` is refused.
+
+The E0502 sentence is raised at every place a closure can be kept past its
+frame, by two rules. `ret`, a call argument, `spawn`, `send`, a struct field
+(`make` and `set-field`), an array element (`make` and `arr-set`) and a vector
+push and element write apply `check-escapes` to the value's type at the site.
+An `opt`/`res` slot and an enum payload apply it through `body-refuse-carried`,
+in Python's `_refuse_carried` order: a capturing closure E0502, then a ref
+E0305, then a value holding a vector E0402, then a result E0602. So
+`(some (fn …))` and `(one (fn …))` are E0502, not E0402 or E0305, and a
+closure one level down, `(some (some (fn …)))`, is refused at the inner
+construction. What is left is a closure called where it was made, which is
 what a capture is for.
 
 `(spawn f a…)` needs the name of a module function this build lowers: a
@@ -670,13 +684,15 @@ are:
   pointer with E0700, because the argument's type comes from the deferred
   `ptr` form. `some`/`none`/`ok`/`err`/`try` are typed by `body-result-form`,
   and the closure and concurrency forms by the C4 section above;
-- **A capturing closure stored into a binding declared outside the loop it was
-  made in.** Python's `_origin_loop` compares the loop depth where the value
-  was produced with the binding's `decl_loop` and reports E0502 at the `set`
-  or `let`. The port keeps `decl_loop` in `bd` but has no per-binding origin,
-  so `(letmut g (fn …))` outside a `while` and `(set g (fn …))` inside it is
-  accepted. One probe shape, no corpus source; a closure made and stored in
-  the same loop is unaffected.
+- **A capturing closure whose loop origin reached a `set` through a name.** A
+  `set` refuses a capturing closure made inside the loop when the target was
+  declared outside it: `body-origin-loop` reads the value's origin (a closure
+  at the current loop depth, a name's `decl_loop`, or the deepest `if`/`match`
+  arm), and `body-set` raises E0502 when it is deeper than the binding's
+  `decl_loop`, as Python's `_origin_loop` does. The port does not keep an
+  origin separate from `decl_loop`, so a loop-born closure that reaches the
+  `set` through a name assigned in an earlier loop is not tracked. One probe
+  shape, no corpus source.
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
   call's — is read as "some closed set I cannot see": its arms' shapes are
   checked (the spine is a spine whatever the type) but no variant is resolved,
@@ -1204,23 +1220,34 @@ with the pass, because no fixture named E0305 (or the alias E0304) at those
 sites. Each was checked to fail for its own rule: removing that one
 `body-refuse-ref` call makes only that fixture's line differ.
 
-The last twenty-one are C4's. Five were ref escapes that hid behind its forms:
-a ref captured by a closure, `send`'s channel element, `spawn`'s argument, a
-ref passed to a function value built from a closure, and the whole capturing
-closure (`closure-escape`). The other sixteen are body shapes: `spawn`'s owner
-argument, result-returning signature, argument type, generic target and arity;
-`send`'s wrong element and a moved binding; `lock`'s bare and mismatched
-handle; an atomic's wrong element type and a bare atomic; `join`'s non-thread;
-a returned capturing closure; a closure whose body reads a captured result
-without handling it; a capturing closure in a struct field; and a channel of
-`:void`. Every `.check` is written by `tools/check_parity.py`.
+The twenty-one C4 fixtures that came with the pass. Five were ref escapes that
+hid behind its forms: a ref captured by a closure, `send`'s channel element,
+`spawn`'s argument, a ref passed to a function value built from a closure, and
+the whole capturing closure (`closure-escape`). The other sixteen are body
+shapes: `spawn`'s owner argument, result-returning signature, argument type,
+generic target and arity; `send`'s wrong element and a moved binding; `lock`'s
+bare and mismatched handle; an atomic's wrong element type and a bare atomic;
+`join`'s non-thread; a returned capturing closure; a closure whose body reads a
+captured result without handling it; a capturing closure in a struct field;
+and a channel of `:void`. Every `.check` is written by
+`tools/check_parity.py`.
+
+The C4 fix round added twelve more, one per shape that used to walk out of its
+function: the capture flag through an annotated `let` (`closure-annotated-let-ret`,
+`-arg`, `-vec`, `-field`), through a `set` and a `set` inside a loop
+(`closure-annotated-set-ret`, `closure-annotated-set-loop`); a capturing
+closure in `some`, in `ok`, nested one optional deep, in an enum payload and in
+an enum payload inside a struct field (`closure-some-capture`,
+`closure-ok-capture`, `closure-opt-capture-nested`, `closure-enum-capture`,
+`closure-enum-capture-field`); and the closure `let` that shadows its own
+initialiser (`closure-let-shadow`, E0003).
 
 The gate compares the whole line `gen2 check` prints — path, code and message —
 with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 108: a pruned list fails rather than passing over
+matching code. Its floor is 120: a pruned list fails rather than passing over
 fewer fixtures. `owner-place-read`, `sibling-set` (both `deref`) and
 `generic-vector` need the deferred `deref` form or a generic call site;
 `limit` and `unbound` need a generic call site; the
@@ -1239,7 +1266,7 @@ out of the under-reported set with them.
 
 ## Tests
 
-`src/logosc/body_test.logos` has 341 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 353 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -1365,6 +1392,13 @@ out of the under-reported set with them.
   captured result never handled in the body and one copied into a local, a
   capture stored in a struct field); and the closure shape errors (a missing
   `ret`, a `:void` parameter, a duplicate parameter).
+- the C4 fix round: an annotated `let` whose capturing closure then leaves
+  through a `ret`, a call argument, a `vec-push` and a struct field (E0502 at
+  each site); the same through a `set` and through a `set` inside a loop; a
+  capturing closure in `some`, in `ok`, nested one optional deep, in an enum
+  payload and in an enum payload inside a struct field; and `(let x (+ x 1))`
+  inside a closure, which captures the outer `x` and then reports E0003
+  `duplicate definition 'x'` at the `let`.
 
 `src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -1401,7 +1435,7 @@ are reached by path.
 
 ## Parity
 
-The 108 coverage fixtures match Python's code **and node path**, not just the
+The 120 coverage fixtures match Python's code **and node path**, not just the
 code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
@@ -1431,16 +1465,19 @@ its unannotated spelling in `ref-escape-some-bare/f/2/1`, a result slot in
 `ref-escape-ok/f/2/2`, and E0304's immutable alias in `ref-arg-alias/f/3`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 254 tracked and new sources finds:
+`check_module` over the tree. A sweep of all 266 tracked and new sources finds:
 
-- **0 false positives over that 254-source corpus** — no source Python accepts
+- **0 false positives over that 266-source corpus** — no source Python accepts
   is refused by `gen2 check`. The scope is the corpus, not the language:
   before C3's fix round this port refused four shapes Python accepts, and each
   is a corpus-shaped program the sweep would have caught only if the tree had
   held it;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 148 are refused by both: 147 with the
-  same line and one with the same code and a different path spelling;
+- 93 sources are accepted by both, and 160 are refused by both: 159 with the
+  same line and one with the same code and a different path spelling. The
+  twelve C4 fix-round fixtures all land in the same-line bucket; every shape
+  the review found under-reported was outside the corpus until they were
+  added;
 - 13 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
   bodies), 1 is the owner read behind `(deref p)` (E0402, deferred with the
