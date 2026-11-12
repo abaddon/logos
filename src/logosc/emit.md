@@ -48,12 +48,37 @@ message names the same fact in the same words where the words are the contract:
 | `block 'x' has no terminator` | same |
 | `unknown IR terminator '…'` | `unknown IR terminator N` |
 | `no layout registered for enum 'x'` | same |
-| `no LLVM layout for type …` | `no LLVM layout for type tag N`, or `:name` for a primitive |
+| `no LLVM layout for type …` | `no LLVM layout for type <name>` for a type variable (tag 14), `:name` for a primitive, `type tag N` for any other tag |
 
 The first failure wins: `flag[0]` is set once and `why[0]` keeps its message, so
 a row that fails several ways still reports the first. A failed emission returns
 an empty `out`; callers must check `ir-good` before reading it, and the suite's
 negative cases do.
+
+### Malformed arenas
+
+Every type id is bounds-checked before it is read, so an arena built by hand —
+or by a lowering bug — is refused with an `ir-error` instead of aborting in
+`vec-get`:
+
+| malformed | message |
+|---|---|
+| a type whose child id is not older | `type N has a child id that is not older` |
+| a row's `t1` or `t2` outside the arena | `IR row N reads a type id the arena does not have` |
+| a row that needs a type but has `-1` | `IR row N has no type` |
+| a `ret` that carries a value but has `bty = -1` | `block 'x' terminator has no type` |
+| a type id in a run (`sigtys`, `ptys`, `tvals`, `dret`, `fret`) | `type run entry N reads type id M` |
+| a terminator's `bty` outside the arena | `block 'x' terminator reads a type id the arena does not have` |
+
+The forward pass's assumption is part of the contract: a type's children must
+have **older ids** — the constructors append children first and
+`type-substitute` rebuilds in the same order. `emit-types` checks that before it
+spells anything, and `emit-instr`/`emit-term` check the slots that name a type.
+`-1` is the arena's "no type"; it is accepted only where the opcode does not
+read the slot, so `alloca` with `t1 = -1` is refused rather than printing
+`  %z = alloca ` with a trailing space. An index into `svals` or `tvals` (a
+row's `sst`/`scn`/`tst`/`tcn`, a block's `bbase`/`bcnt`) remains the producer's
+invariant: the typed constructors are the only guard there.
 
 ## The module's shape
 
@@ -83,11 +108,13 @@ that difference is the difference between seconds and minutes.
 ## Types
 
 `emit-types` spells every type in the arena once, into a vector indexed by type
-id, before a single instruction is printed. A type's children are always older
+id, before a single instruction is printed. A type's children must have older
 ids — the constructors append children first, and `type-substitute` rebuilds in
 the same order — so one forward pass is enough and each spelling is O(1)
-afterwards. `emit-text texts ty` is that lookup, and `-1` reads as `""` (the
-arena's "no type", which only an opcode that does not read that slot leaves
+afterwards. `emit-types` checks that invariant and refuses a type whose child is
+not older (`Malformed arenas` above), so the sweep is a validated pass rather
+than an assumption. `emit-text texts ty` is that lookup, and `-1` reads as `""`
+(the arena's "no type", which only an opcode that does not read that slot leaves
 behind).
 
 | tag | constructor | spelling |
@@ -104,7 +131,7 @@ behind).
 | 10, 11 | `chan`, `atomic` | `i8*` — opaque runtime handles |
 | 12 | `struct` | `%struct.<decl-name>` |
 | 13 | `enum` | `{ i32, [K x i64] }`, `K` from the module's enum list |
-| 14 | `var` | refused: `no LLVM layout for type tag 14` |
+| 14 | `var` | refused: `no LLVM layout for type <name>` |
 
 Primitives: `i8 i16 i32 i64` as themselves; `u8 u16 u32 u64` on the same widths;
 `bool` as `i1`; `f32` as `float`; `f64` as `double`; `str` as `{ i8*, i64 }`;
@@ -124,11 +151,19 @@ callable's real type, `R (P1, P2)*`, from the parameter run.
 
 ### Named types and quoting
 
-A struct or enum is named by `emit-decl-name`: the bare name, or `owner.name`
-when the module says its unit is qualified (`mqual[0] = 1`). That is
-`lower.Symbols.type_name`'s rule — a single module keeps the bare name, a unit
-of several prefixes the declaring module — so two modules' `point` cannot
-become one identified type.
+A struct or enum is spelled by the name the producer stored: `emit-decl-name`
+returns `names[ty]`, and `emit-struct-line` prints `snames[i]`. Python's arena
+works the same way — `lower.Symbols.type_name` qualifies a named type once, when
+it is lowered, and `IrStruct.name` / `StructRef.name` then carry the final
+spelling — so one module stores `point` and a unit of several stores
+`shapes.point`, and the definition line and every use are the same string by
+construction.
+
+`mqual` and `powner` stay in the signature because they are fields of the
+arena, but the spelling pass does not read them: a non-empty owner beside an
+already-qualified name is provenance, not a prefix to add a second time. The
+`multi-module` parity case builds exactly that arena (final names, owners
+recorded, `mqual = 1`) and requires the definition and the use to agree.
 
 `emit-name` adds a sigil and quotes when LLVM's unquoted grammar does not accept
 the name: `[-a-zA-Z$._][-a-zA-Z$._0-9]*`, matched byte-wise against ASCII. A name
@@ -185,7 +220,7 @@ shared with the direct call.
 ## The parity harness
 
 There is no lowerer in PR A, so `emit` is tested by construction.
-`tools/ir_parity.py` holds fourteen modules as `logos.ir` values, emits each with
+`tools/ir_parity.py` holds fifteen modules as `logos.ir` values, emits each with
 `logos.llvm.emit`, and writes it to `src/logosc/fixtures/ir/<name>.ll` under a
 two-line provenance header. It also writes the same module as a sequence of
 `ir.logos` constructor calls into `src/logosc/emit_test.logos`, which builds it,
@@ -198,18 +233,25 @@ function with `add`, `icmp`, a branch and a `phi`; a struct by value through
 `alloca`/`store`/`load` and a `gep` into it; an array; a string global with a
 quote, a backslash, a newline and a NUL; a call to an `extern`; a global constant
 counter read by two functions; a name LLVM needs quoted; an enum through
-`insertvalue`/`extractvalue`/`gep`; a closure environment through `allocarec`,
-`geprec`, `bitcastrec` and `bitcastout`, and a call through `fnptr`/`faddr`/
-`icall`; every integer, float and cast row; and `unreachable`. Between them the
-cases exercise all 43 opcodes, which the generator checks before writing
-anything: a printer branch no case reaches is a build failure, not an untested
-line.
+`insertvalue`/`extractvalue`/`gep`; a two-module unit whose struct and enum are
+spelled `shapes.point` and `colors.tone`; a closure environment through
+`allocarec`, `geprec`, `bitcastrec` and `bitcastout`, and a call through
+`fnptr`/`faddr`/`icall`; every integer, float and cast row; and `unreachable`.
+Between them the cases exercise all 43 opcodes, which the generator checks
+before writing anything: a printer branch no case reaches is a build failure,
+not an untested line.
 
 `type-text` is the fifteenth-constructor row: fourteen spellings, one per type
 constructor that has a layout, compared with `type_text` of the same
 `logos.types` values. The fifteenth, a type variable, has no layout; its refusal
-is a negative case, as are a mis-shaped row (`unknown IR opcode 0`), a
-primitive outside the list, an unterminated block and an unregistered enum. The generator also proves the
+is a negative case, and the generator takes the expected text from the exception
+`type_text` raises (`no LLVM layout for type T`), so the port must reproduce
+Python's words rather than its own. The other negative cases pin a mis-shaped
+row (`unknown IR opcode 0`), a primitive outside the list, an unterminated block,
+an unregistered enum, a dangling row type id, an out-of-order type child and a
+row with an unset type slot. The last three are **port-only**: no Python
+`IrModule` reaches those checks, so their fixtures carry a third header line
+saying that the expected message is the port's. The generator also proves the
 reference still refuses an unknown opcode and still refuses to spell a type
 variable, so the port's refusals cannot drift from Python's silently.
 

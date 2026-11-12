@@ -19,8 +19,14 @@ Three guards run before anything is written:
   printer branch is untested;
 * a module with an unknown opcode must make the reference raise, so the
   refusal the emitter copies is still the reference's behaviour;
-* a type variable must make ``type_text`` raise, so the port's refusal (the
-  fifteenth constructor has no layout) is pinned rather than assumed.
+* a type variable must make ``type_text`` raise, and the fixture takes its
+  expected text from that exception, so the port reproduces Python's words
+  rather than a transcription.
+
+A refusal with no Python counterpart at all (a dangling type id, a type child
+with a newer id, a row whose type slot is unset) is a *port-only* fixture; its
+header carries a third line saying so, and the generator compares the port's
+message with itself there by design.
 
 The generated test reads the fixtures by repository-relative path, so run the
 suite from the repository root::
@@ -69,6 +75,16 @@ HEADER = (
     "; The Logos emitter must reproduce this file byte for byte.\n"
 )
 
+#: A refusal the Python reference cannot express: no ``IrModule`` reaches these
+#: checks, so the expected text is the port's own. The third line says which
+#: part of the fixture is not the oracle's.
+PORT_HEADER = HEADER + "; Port-only refusal: no Python IR can describe this arena.\n"
+
+#: Python's ``IrModule`` has no qualification flag: a qualified unit's names are
+#: already the final ones in its struct and enum tables. The Logos arena keeps
+#: that fact in ``mqual``; this set says which cases build it that way.
+QUALIFIED = {"multi-module"}
+
 FIXTURES = ROOT / "src/logosc/fixtures/ir"
 
 I8 = Prim("i8")
@@ -82,6 +98,8 @@ STR = Prim("str")
 VOID = Prim("void")
 POINT = StructRef("point")
 PARSE = EnumRef("parse-error")
+SHAPES_POINT = StructRef("shapes.point")
+COLORS_TONE = EnumRef("colors.tone")
 FN_ENV = FnTy((Ptr(I8), I64), I64, captures=True)
 
 BINARIES = (
@@ -378,6 +396,41 @@ def enum_value():
     )
 
 
+def qualified_unit():
+    """A unit of two modules: ``shapes``'s struct and ``colors``'s enum.
+
+    Python's lowerer spells both by the module that declared them, so the
+    module carries the final names ``shapes.point`` and ``colors.tone``. The
+    Logos arena records the same final names and says ``qual``; this case pins
+    that the definition line and every use agree under ``mqual = 1``.
+    """
+    return module(
+        [],
+        [
+            fn(
+                "tag",
+                [("v.0", COLORS_TONE)],
+                I64,
+                [
+                    blk(
+                        "entry",
+                        [
+                            ("alloca", "%s", SHAPES_POINT),
+                            ("extractvalue", "%t", COLORS_TONE, I32, "%v.0", 0),
+                            ("sext", "%w", I32, I64, "%t"),
+                        ],
+                        ("ret", I64, "%w"),
+                    )
+                ],
+                symbol="lg.shapes.tag",
+                internal=True,
+            )
+        ],
+        structs=[IrStruct("shapes.point", (I8, I64))],
+        enums=[IrEnum("colors.tone", 2)],
+    )
+
+
 def closure():
     env_fields = (I64, Ptr(I8))
     return module(
@@ -611,6 +664,15 @@ MODULES = [
             "%t = extractvalue { i32, [1 x i64] } %v.0, 0",
             "%e = insertvalue { i32, [1 x i64] } undef, i32 %t, 0",
             "getelementptr { i32, [1 x i64] }, { i32, [1 x i64] }* %v.0, i32 0, i32 1",
+        ],
+    ),
+    (
+        "multi-module",
+        qualified_unit(),
+        [
+            "%struct.shapes.point = type { i8, i64 }",
+            "alloca %struct.shapes.point",
+            "extractvalue { i32, [2 x i64] } %v.0, 0",
         ],
     ),
     (
@@ -851,7 +913,8 @@ def instr_types(instr):
 class Translation:
     """One module, translated into the calls that rebuild it in the arena."""
 
-    def __init__(self):
+    def __init__(self, qual: bool = False):
+        self.qual = qual
         self.types: dict[str, str] = {}
         self.type_lines: list[str] = []
         self.lines: list[str] = []
@@ -867,6 +930,17 @@ class Translation:
         self.type_lines.append(self.type_constructor(name, ty))
         return name
 
+    def type_owner(self, name: str) -> str:
+        """The declaring module recorded beside a final, qualified name.
+
+        A qualified unit's arena carries the final spelling and, for a
+        diagnostic, the module that declared it. ``emit`` must not read the
+        second: the name is already complete.
+        """
+        if not self.qual or "." not in name:
+            return ""
+        return name.rsplit(".", 1)[0]
+
     def type_constructor(self, name, ty) -> str:
         arena = TYPES_ARENA
         if isinstance(ty, Prim):
@@ -874,13 +948,13 @@ class Translation:
         if isinstance(ty, StructRef):
             return (
                 f"  (let {name} :i64 "
-                + call("type-struct", arena, [logos_str(ty.name), '""', -1, 0])
+                + call("type-struct", arena, [logos_str(ty.name), logos_str(self.type_owner(ty.name)), -1, 0])
                 + ")"
             )
         if isinstance(ty, EnumRef):
             return (
                 f"  (let {name} :i64 "
-                + call("type-enum", arena, [logos_str(ty.name), '""', -1, 0])
+                + call("type-enum", arena, [logos_str(ty.name), logos_str(self.type_owner(ty.name)), -1, 0])
                 + ")"
             )
         if isinstance(ty, TypeVar):
@@ -1115,7 +1189,7 @@ class Translation:
                     for ty in instr_types(instr):
                         self.ty(ty)
 
-        out = [f"  (ir-module mtriple mqual {logos_str(m.triple)} false)"]
+        out = [f"  (ir-module mtriple mqual {logos_str(m.triple)} {'true' if self.qual else 'false'})"]
         out.extend(self.type_lines)
         for struct in m.structs:
             out.append(
@@ -1220,6 +1294,9 @@ PRELUDE = """(mod emit-test)
 (fn t-header :str ()
   (ret HEADER_LITERAL))
 
+(fn t-port-header :str ()
+  (ret PORT_HDR_LITERAL))
+
 (fn t-nothing :void ()
   (ret))
 
@@ -1292,8 +1369,8 @@ def frees() -> str:
     return "\n".join(f"  (vec-free {name})" for group in MODULE_VECTORS for name in group)
 
 
-def module_case(name: str, m: IrModule, path: str) -> str:
-    body = Translation().build(m)
+def module_case(name: str, m: IrModule, path: str, qual: bool = False) -> str:
+    body = Translation(qual).build(m)
     args = " ".join(EMIT_ARGS)
     return f"""(fn t-case-{name.replace('-', '_')} :str ()
 {allocs()}
@@ -1307,8 +1384,9 @@ def module_case(name: str, m: IrModule, path: str) -> str:
   (ret rc))"""
 
 
-def negative_case(name: str, build: list[str], message: str, path: str) -> str:
+def negative_case(name: str, build: list[str], message: str, path: str, port_only: bool = False) -> str:
     args = " ".join(EMIT_ARGS)
+    header = "t-port-header" if port_only else "t-header"
     return f"""(fn t-case-{name.replace('-', '_')} :str ()
 {allocs()}
 {chr(10).join(build)}
@@ -1316,7 +1394,7 @@ def negative_case(name: str, build: list[str], message: str, path: str) -> str:
   (letmut rc :str "")
   (if (ir-good e)
     (set rc "FAIL {name}: emit accepted the module")
-    (set rc (t-diff {logos_str(name)} {logos_str(path)} (str-concat (t-header) (str-concat (get e text) "\\n")))))
+    (set rc (t-diff {logos_str(name)} {logos_str(path)} (str-concat ({header}) (str-concat (get e text) "\\n")))))
 {frees()}
   (ret rc))"""
 
@@ -1406,8 +1484,12 @@ def type_var_case() -> str:
   (ret rc))"""
 
 
-def negative_builds() -> list[tuple[str, list[str], str]]:
-    """``(name, Logos lines, expected message)`` for the loud refusals."""
+def negative_builds() -> list[tuple[str, list[str], str, bool]]:
+    """``(name, Logos lines, expected message, port_only)`` for the loud refusals.
+
+    ``port_only`` says the reference has no module that reaches this check: the
+    message is the port's, and the fixture's header records that.
+    """
     def rig(*tys):
         """A header call plus the type arena, with one id per requested type."""
         tr = Translation()
@@ -1462,27 +1544,56 @@ def negative_builds() -> list[tuple[str, list[str], str]]:
         "  (ir-fn-end fbase fcnt fparam fpc blabels pnames f0)",
     ]
 
+    dangling_head, (di64,) = rig(I64)
+    dangling = [
+        *dangling_head,
+        f"  (let f0 :i64 (ir-fn fnames fsyms fint fret fbase fcnt fparam fpc blabels pnames \"dangling\" \"lg.m.dangling\" true {di64}))",
+        "  (ir-block blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops \"entry\")",
+        "  (ir-alloca ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals \"%e\" 99)",
+        f"  (ir-ret ops bbase bcnt bterm bty bhas bv1 bv2 bv3 {di64} \"0\")",
+        "  (ir-fn-end fbase fcnt fparam fpc blabels pnames f0)",
+    ]
+
+    older = [
+        "  (ir-module mtriple mqual \"x86_64-unknown-linux-gnu\" false)",
+        "  (let _ :i64 (type-vec tags names elem extra pbase powner 2))",
+    ]
+
+    no_type_head, (ni64, nvoid) = rig(I64, VOID)
+    no_type = [
+        *no_type_head,
+        f"  (let f0 :i64 (ir-fn fnames fsyms fint fret fbase fcnt fparam fpc blabels pnames \"untyped\" \"lg.m.untyped\" true {nvoid}))",
+        "  (ir-block blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops \"entry\")",
+        "  (ir-alloca ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals \"%e\" -1)",
+        f"  (ir-ret ops bbase bcnt bterm bty bhas bv1 bv2 bv3 {ni64} \"0\")",
+        "  (ir-fn-end fbase fcnt fparam fpc blabels pnames f0)",
+    ]
+
     return [
-        ("unknown-op", unknown, "unknown IR opcode 0"),
-        ("unknown-prim", unknown_prim, "no LLVM layout for type :nope"),
-        ("no-terminator", no_term, "block 'entry' has no terminator"),
-        ("missing-enum", missing, "no layout registered for enum 'parse-error'"),
+        ("unknown-op", unknown, "unknown IR opcode 0", False),
+        ("unknown-prim", unknown_prim, "no LLVM layout for type :nope", False),
+        ("no-terminator", no_term, "block 'entry' has no terminator", False),
+        ("missing-enum", missing, "no layout registered for enum 'parse-error'", False),
+        ("dangling-type", dangling, "IR row 0 reads a type id the arena does not have", True),
+        ("older-type", older, "type 0 has a child id that is not older", True),
+        ("no-type", no_type, "IR row 0 has no type", True),
     ]
 
 
 def build_test(modules, negatives) -> str:
-    parts = [PRELUDE.replace("HEADER_LITERAL", logos_str(HEADER))]
+    prelude = PRELUDE.replace("PORT_HDR_LITERAL", logos_str(PORT_HEADER))
+    parts = [prelude.replace("HEADER_LITERAL", logos_str(HEADER))]
     tests = []
     for name, m, _ in modules:
         path = str(FIXTURES / (name + ".ll"))
-        parts.append(module_case(name, m, path))
+        parts.append(module_case(name, m, path, name in QUALIFIED))
         tests.append(name)
     parts.append(type_text_case())
     parts.append(type_var_case())
     tests.extend(["type-text", "type-var"])
-    for name, build, message in negatives:
+    for name, build, message, port_only in negatives:
         path = str(FIXTURES / (name + ".txt"))
-        parts.append(negative_case(name, build, message, path))
+        parts.append(negative_case(name, build, message, path, port_only))
         tests.append(name)
 
     for name in tests:
@@ -1517,17 +1628,20 @@ def main() -> int:
     )
     try:
         type_text(TypeVar("T"))
-    except ValueError:
-        pass
+    except ValueError as error:
+        type_var_message = str(error)
     else:
         raise SystemExit("the reference spells a type variable; the refusal has no row")
+    # Python's own words, not a transcription: the port names the stored type
+    # variable the way ``type_text`` does.
     (FIXTURES / "type-var.txt").write_text(
-        HEADER + "no LLVM layout for type tag 14\n", encoding="utf-8"
+        HEADER + type_var_message + "\n", encoding="utf-8"
     )
 
     negatives = negative_builds()
-    for name, _, message in negatives:
-        (FIXTURES / (name + ".txt")).write_text(HEADER + message + "\n", encoding="utf-8")
+    for name, _, message, port_only in negatives:
+        header = PORT_HEADER if port_only else HEADER
+        (FIXTURES / (name + ".txt")).write_text(header + message + "\n", encoding="utf-8")
 
     # Every opcode must be exercised, and the reference must still refuse one
     # it does not know.
