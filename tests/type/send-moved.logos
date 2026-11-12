@@ -1,0 +1,5 @@
+(mod send-moved)
+
+(fn f :void ((c (shared (chan :i64))) (p (own :i64)))
+  (free p)
+  (send c p))

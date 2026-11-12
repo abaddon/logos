@@ -1,0 +1,4 @@
+(mod chan-void)
+
+(fn f :void ()
+  (let c (chan :void 1)))

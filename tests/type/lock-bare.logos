@@ -1,0 +1,4 @@
+(mod lock-bare)
+
+(fn f :void ((m :mutex))
+  (lock m))

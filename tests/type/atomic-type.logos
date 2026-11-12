@@ -1,0 +1,4 @@
+(mod atomic-type)
+
+(fn f :void ()
+  (let a (atomic :i32 0)))

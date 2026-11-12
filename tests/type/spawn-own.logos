@@ -1,0 +1,8 @@
+(mod spawn-own)
+
+(fn work :void ((p (own :i64)))
+  (free p))
+
+(fn f :void ()
+  (let p (alloc :i64 1))
+  (spawn work p))

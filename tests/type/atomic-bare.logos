@@ -1,0 +1,4 @@
+(mod atomic-bare)
+
+(fn f :void ((a : (atomic :i64)))
+  (atomic-load a))

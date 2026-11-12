@@ -69,10 +69,15 @@ RESOLVE_FLOOR=14
 # variant with E0600, and the four ref escapes the C2 re-review found), and the
 # four C3 fix-round shapes that need the handled bit to survive a move or a
 # capture (a `set` of a moved result, a copy of an owned result, a capturing
-# closure handed to a callee, and a generic call whose result is never handled).
-# Eighty-seven today; a pruned list is a failure, not a smaller pass.
+# closure handed to a callee, and a generic call whose result is never handled),
+# and the C4 concurrency surface: threads with their argument, return and
+# generic-target rules, channels with their element, capacity and `shared`
+# marker rules, mutexes and atomics, closures with their captures and their
+# result obligations, and the five ref escapes those forms used to hide (a
+# capture, `send`, `spawn` and a function value built from a closure).
+# One hundred and eight today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=87
+CHECK_FLOOR=108
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

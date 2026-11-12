@@ -1,0 +1,7 @@
+(mod spawn-arg-type)
+
+(fn work :void ((n :i64))
+  (println n))
+
+(fn f :void ()
+  (spawn work true))

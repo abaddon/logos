@@ -1,0 +1,4 @@
+(mod lock-type)
+
+(fn f :void ((n :i64))
+  (lock n))

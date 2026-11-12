@@ -1,0 +1,1 @@
+closure-result-body/f/4/1/2: E0602: this (res :i64 e) is never handled: match it or 'try' it

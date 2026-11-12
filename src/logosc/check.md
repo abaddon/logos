@@ -4,7 +4,7 @@ The Logos port of `logos/check.py`, in two halves. The **declaration pass** is
 everything a module says about a name before any body is read: `fn` and
 `extern fn` signatures, `type` declarations and their struct fields or enum
 variants, the reserved names, the visibility a `use` buys, and the generic
-instantiation counter. The **body pass** (W6 B1–B3) reads a `fn` body and
+instantiation counter. The **body pass** (W6 B1–B3, C1–C4) reads a `fn` body and
 decides the scalar rules — literals with their widths, arithmetic, shifts,
 casts, comparisons, `let`/`letmut`/`set` — the control-flow rules: `if`,
 `while`, `match` with exhaustiveness and patterns, `ret`, `break`/`continue`,
@@ -196,28 +196,20 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   type variables. Python checks such a body once per instantiation; until the
   call site unifies, `gen2 check` cannot know which copy it is reading, so it
   reads none.
-- **Ref escapes behind forms C4 owns.** Every escape site this pass can reach
-  is decided, and reports E0305 with Python's path and message: returning a
-  ref, storing one in a struct field, a `set-field`, a vector element, a
-  fixed-array element, an enum payload, carrying one in an optional or result
-  slot (the wrapper is typed, so both the slot's fit and the payload's type are
-  known), allocating a block of one, passing one to a parameter that is not a
-  ref, and passing one to a function value. Two sites sit behind a form that is
-  not typed yet and are left untouched rather than guessed: a ref captured by a
-  closure, and the value arguments of `send` and `spawn` (C4). The channel
-  *element* rule is type-level and runs wherever a channel type is resolved —
-  a parameter, a `shared (chan …)` wrapper, or a `let` annotation in a body
-  (`f/2/1`) — so it is decided there, at the type, in both implementations; a
-  `chan` **value** form in a body expression is C4's and is untouched.
-- **Closures, threads and raw pointers.** `fn`, `spawn`/`join`,
-  `mutex`/`lock`/`unlock`, `chan`/`send`/`recv`, `atomic*`,
-  `ptr`/`deref`/`set-deref`/`ptr-add` still answer the unknown type, and every
-  atom inside one is marked read so E0107 cannot blame a binding the deferred
-  form used. Results and optionals are no longer in this list: they are typed
-  (see the section above), and E0600–E0602 are decided. A `spawn` whose callee
-  returns a result is therefore still accepted where Python says E0100 (a
-  thread's function must return `:void`); that is C4's `spawn`, not a result
-  rule.
+- **Ref escapes.** Every escape site the pass can reach is decided, and reports E0305 with
+  Python's path and message: returning a ref, storing one in a struct field, a `set-field`, a
+  vector element, a fixed-array element, an enum payload, carrying one in an optional or result
+  slot (the wrapper is typed, so both the slot's fit and the payload's type are known),
+  allocating a block of one, passing one to a parameter that is not a ref, passing one to a
+  function value, capturing one in a closure, handing one to `spawn`, and sending one on a
+  channel. The channel *element* rule is type-level and runs wherever a channel type is
+  resolved — a parameter, a `shared (chan …)` wrapper, or a `let` annotation in a body
+  (`f/2/1`) — and the `(chan T n)` value form reaches the same rule, so
+  `ref-escape-send`'s `(chan (ref (vec :i64)) 2)` is E0305 at the `chan` it builds.
+- **Closures, threads, mutexes, channels and atomics.** All typed (C4, see the section
+  below). The pointer forms — `ptr`/`deref`/`set-deref`/`ptr-add` — still answer the unknown
+  type, and every atom inside one is marked read so E0107 cannot blame a binding the deferred
+  form used.
 - **Function values and variant values in value position.** A visible
   function's name and an enum variant's name are read as values by Python; this
   pass answers the unknown type for both instead of deciding their type, so
@@ -429,6 +421,19 @@ Python's node:
 | `try` needs a result and a function returning the same error | E0601 |
 | an enum, result or optional match must name every variant | E0600 |
 | a result must be handled: matched, tried, returned, passed, or copied | E0602 |
+| a closure's shape: return type, parameter list, duplicate and `:void` parameters | E0002 / E0003 / E0100 |
+| a capture that cannot be copied: moved, a ref, a vector, an owner | E0300 / E0305 / E0402 / E0100 |
+| a capturing closure that would outlive its frame (argument, `ret`, field, element, payload, `spawn`, `send`) | E0502 |
+| a result captured by a closure and never handled in its body | E0602 |
+| a `spawn` target: not a module function, `main`, imported, generic, not `:void` | E0103 / E0501 / E0100 |
+| a `spawn` argument: a ref, a capturing closure, an owner, unmarked shared state, a type mismatch | E0305 / E0502 / E0402 / E0700 / E0100 |
+| `spawn`'s argument count / `join` needs a `:thread` | E0102 / E0100 |
+| `lock`/`unlock` need a `(shared :mutex)`; a bare handle is E0700 | E0100 / E0700 |
+| an atomic's element type and stored value | E0100 |
+| a bare channel or atomic operand | E0700 / E0100 |
+| a channel element: a ref, `:void`, an owner, a vector, a result, a closure, empty, unmarked shared state | E0305 / E0100 / E0002 / E0502 / E0700 |
+| a channel's capacity | E0100 |
+| `send`'s value: a ref, a capturing closure, an owner, the wrong element type | E0305 / E0502 / E0402 / E0100 |
 
 The literal's width is the expected type when that type is a matching
 primitive, and `:i64`/`:f64` otherwise; arithmetic, shifts, comparisons, a
@@ -560,6 +565,93 @@ a ref-carrying enum payload, `(some (some v))` into an `(opt (opt (ptr …)))`
 (the inner `some` fits its declared element, so E0100), and `(some (some 1))`
 into an `(opt (opt (ref …)))` (also E0100, not the old E0107).
 
+### Closures, threads, channels, mutexes and atomics (W6 C4)
+
+`(fn :R ((p :T)…) body…)` is a value of `(fn (T…) R)`, or `(fn* …)` once it
+captures. `body-closure` reads the return type and the parameters with the same
+readers a declaration uses (`check-type`, `check-param`), so the shape
+diagnostics are a definition's: E0002 at the closure for a missing return type
+or parameter list, E0002 at a malformed parameter, E0003 at the second of two
+equal names, E0100 `parameter 'x' cannot be :void` at the parameter. The body
+is then checked in an environment of its own: the closure's return type and
+the `closure` label, parameters bound as `bm == 2`, loop depth 0 (a closure
+made inside a loop starts outside it, as Python's fresh scope does), and one
+block depth deeper than the enclosing statements, so a parameter may shadow an
+outer name and a duplicate is still caught.
+
+Captures are found first, by `body-closure-sites`, a scan scoped the way the
+language is: a closure's parameters, a `let`/`letmut` from its initialiser on,
+and a match arm's payload inside that arm are its own names, and the first read
+that still reaches an enclosing binding is a capture. Python's `_lookup` order
+decides each one:
+
+- a moved binding is E0300 `use after move of 'x'` at the form that read it;
+- a ref is E0305 `a ref cannot escape the call: a closure captures 'x'`;
+- anything holding a vector is E0402, and an `(own T)` (or a value holding one)
+  E0100, both `cannot capture 'x' of type T in a closure: its environment
+  holds copies` — an environment is a copy and there is no rule for a second
+  owner;
+- a result's obligation moves into the closure. The capture discharges the
+  outer binding and the closure's copy is pending, so a body that reads `r`
+  without matching, trying, returning, passing or copying it is E0602 at `r`'s
+  declaration — `(fn :void () (if b r r))` reports `the result of 'r' is never
+  handled` even though the outer `let` was captured, which is the shape C3's
+  syntactic discharge could not see. A body that copies `r` into `z` reports
+  `z` instead, at its own declaration, exactly as Python's scope-closing check
+  does.
+
+A captured binding is a copy, so it is immutable inside the body: `set` on one
+is E0104, `vec-push`/`vec-free` are E0104, and a move out of one is impossible
+because an owning capture is refused. The closure's body is checked inside a
+pair of `body-snapshot`/`body-restore`, so a move made there is local: the
+outer binding's `moved` flag comes back unchanged, and the slots the body
+declared are tombstoned (`bt` unknown, `bu` read) so no later scope-closing
+check in the enclosing function can blame them.
+
+`body-fits` ignores the capture flag when both sides are function types
+(Python's `_fits`), so `(let g :(fn () :void) (fn …))` keeps its annotation;
+a *call argument* does not: E0502 `a closure that captures cannot leave its
+function` is raised at the argument before the fit. The same sentence is raised
+at every place a closure can be kept past its frame: `ret`, `spawn`, `send`, a
+struct field (`make` and `set-field`), an array element (`make` and
+`arr-set`), a vector push and element write, an enum payload and an
+`opt`/`res` slot. What is left is a closure called where it was made, which is
+what a capture is for.
+
+`(spawn f a…)` needs the name of a module function this build lowers: a
+non-atom child, an unknown name, an imported name, a test-local helper and
+`main` itself are E0103 with Python's sentence (`main is the entry point…`,
+`… is not part of this build`). A generic target is E0501, a signature that
+does not return `:void` E0100 `a thread's function must return :void, found
+…`, and the argument count E0102. Each argument is typed at its parameter and
+then refused in Python's order: a ref is E0305 `passing it to a thread as
+argument N`, a capturing closure E0502, an owning value E0402 `a thread
+argument is copied into the new thread; a value that owns memory cannot be
+copied across`, an unmarked pointer or handle E0700, a mismatch E0100
+`argument N of 'f' expects …`; a result parameter discharges the caller's
+obligation. The form is a `:thread`. `(join t)` needs one (E0100) and is
+`:void`.
+
+`(mutex)` is a `(shared :mutex)`; `(lock m)` and `(unlock m)` need exactly
+that handle, a mismatched value is E0100 `lock needs a (shared :mutex), found …`
+and a bare handle is E0700. `(atomic T v)` needs `:i64` or `:u64` (E0100) and
+a value of that type, and answers `(shared (atomic T))`; `atomic-add`,
+`atomic-load` and `atomic-store` read through the marker (a bare atomic is
+E0700, a value of the wrong type E0100), with `add` answering `T`, `load` `T`
+and `store` `:void`.
+
+`(chan T n)` sends its element through the same `check-channel-element` the
+type-level spelling uses — a ref E0305, `:void` E0100, an owner, a vector or a
+result E0002, a capturing closure E0502 — refuses an element with no bytes
+(E0002 `a channel of an empty type is not supported`), refuses an unmarked
+pointer at the element type (E0700) and needs an integer capacity (E0100); the
+value is a `(shared (chan T))`. `(send c v)` needs one (a bare channel is
+E0700, another type E0100), types `v` at `T`, and then refuses it in Python's
+order: a ref E0305 `sending it`, a capturing closure E0502, an owning value
+E0402 `a channel copies its element; a value that owns memory cannot be sent`,
+a mismatch E0100 `this channel carries T, found U`. A moved binding is E0300
+from the read, before any of those. `(recv c)` answers `T`.
+
 ### What it deliberately does not decide
 
 Every form outside the table answers `body-unknown` (`-2`). `body-fits` treats
@@ -571,16 +663,20 @@ are:
 - a bare atom that names a visible function or an enum variant is a value in
   Python; here it is unknown, so its type is not decided. An atom that names
   nothing at all is E0005 (see below);
-- `fn`, `ptr`, `deref`, `set-deref`, `ptr-add`, `spawn`, `join`, `mutex`,
-  `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*` — C4's closure and
-  concurrency forms, and the pointer forms. Their operands are not typed, but
-  every atom anywhere inside one is marked read, so E0107 cannot blame a
-  binding the deferred form used. Two of them still discharge: a `fn` form
-  marks the results it captures handled, and a `spawn` argument whose
-  parameter is a result is marked handled, as Python does before the thread is
-  built — the form answers unknown either way. `some`/`none`/`ok`/`err`/`try`
-  are no longer here: they are typed by `body-result-form` (see the section
-  above);
+- `ptr`, `deref`, `set-deref`, `ptr-add` — the pointer forms. Their operands
+  are not typed, but every atom anywhere inside one is marked read, so E0107
+  cannot blame a binding the deferred form used. A consequence at a C4 site:
+  `(spawn w (ptr o))` is accepted here where Python refuses the unmarked raw
+  pointer with E0700, because the argument's type comes from the deferred
+  `ptr` form. `some`/`none`/`ok`/`err`/`try` are typed by `body-result-form`,
+  and the closure and concurrency forms by the C4 section above;
+- **A capturing closure stored into a binding declared outside the loop it was
+  made in.** Python's `_origin_loop` compares the loop depth where the value
+  was produced with the binding's `decl_loop` and reports E0502 at the `set`
+  or `let`. The port keeps `decl_loop` in `bd` but has no per-binding origin,
+  so `(letmut g (fn …))` outside a `while` and `(set g (fn …))` inside it is
+  accepted. One probe shape, no corpus source; a closure made and stored in
+  the same loop is unaffected.
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
   call's — is read as "some closed set I cannot see": its arms' shapes are
   checked (the spine is a spine whatever the type) but no variant is resolved,
@@ -681,22 +777,22 @@ it names the shapes the corpus shows, and the witnesses follow:
 2. `(deref p)` where the pointee is move-only — an `(own T)` behind
    `(ptr …)`, or a vector — Python **E0402**, `an owner cannot be read out of a
    place yet`. Today that is `owner-place-read`.
-3. a `(fn …)` closure that reads a binding it cannot copy — Python **E0305**
-   for a ref (`a ref cannot escape the call: a closure captures 'v'`), and the
-   same `_lookup` refuses an owner or vector capture with **E0402**/**E0100**.
-   Today that is `ref-escapes-capture`.
+3. ~~a `(fn …)` closure capture~~ — C4 types the closure, so the capture rule
+   runs for real: a ref capture is E0305, a vector E0402 and an owner E0100,
+   all before any E0107 (`ref-escapes-capture`).
 
-A deferred form Python types `:void` (`set-deref`, `send`, `join`, `lock`,
-`unlock`, `atomic-store`) is left silent too: the same `let` is **E0100**,
-`cannot bind 'x' to a :void value`, so E0107 would be the wrong code. Nothing
-else is suppressed: `(ptr q)`, `(ptr-add (ptr q) 1)`, `(some 1)` and
-`(deref q)` where `q` is `(own :i64)` all report E0107 at the `let`, as Python
-does. A `deref` whose operand is not an atom stays silent because the pointee's
-type would need the operand typed first (the deferred `ptr`/`deref` forms, C4);
-that is an under-report, not a wrong code.
+A deferred form Python types `:void` (`set-deref`) is left silent too: the same
+`let` is **E0100**, `cannot bind 'x' to a :void value`, so E0107 would be the
+wrong code. Nothing else is suppressed: `(ptr q)`, `(ptr-add (ptr q) 1)`,
+`(some 1)` and `(deref q)` where `q` is `(own :i64)` all report E0107 at the
+`let`, as Python does. A `deref` whose operand is not an atom stays silent
+because the pointee's type would need the operand typed first (the deferred
+`ptr`/`deref` forms); that is an under-report, not a wrong code. `send`,
+`join`, `lock`, `unlock` and `atomic-store` are typed by C4 now, so a `let`
+of one is the E0100 Python reports rather than an E0107.
 
-The result forms and `spawn` are keyed on the head *and* on what that head
-names, so an ordinary binding with one of these heads keeps its E0107:
+The result forms are keyed on the head *and* on what that head names, so an
+ordinary binding with one of these heads keeps its E0107:
 
 4. `(ok v)`/`(err e)` used to be deferred here while the name was the builtin
    and no binding shadowed it; W6 C3 types the forms instead, and the rule
@@ -708,14 +804,12 @@ names, so an ordinary binding with one of these heads keeps its E0107:
    `(let c (ok 1))` and `(let c :i64 (ok 1))` are E0100, and none is E0107. A
    binding that shadows the name makes `(ok …)` an ordinary call, and
    `(let ok (fn :i64 () (ret 1))) (let x (ok))` keeps its E0107 at the `let`.
-5. `(spawn f a …)` when Python's check of the spawn form fires before the
-   binding exists: a missing argument or a first child that is not an atom is
-   **E0103** (`spawn needs the name of a module function`), an unknown, extern
-   or imported name is **E0103**, a wrong argument count is **E0102** and a
-   function that does not return `:void` is **E0100**. A well-formed spawn of a
-   `:void` function of this module — the shape Python types as a handle —
-   keeps E0107, so `(let t (spawn work))` still reports the unread `t`
-   (`body-spawn-handle?`).
+5. `(spawn f a …)` is typed by C4, so the deferral is gone: a malformed or
+   unknown target, `main`, an import and a test-local helper are **E0103**, a
+   generic target **E0501**, a non-`:void` signature **E0100** and a wrong
+   argument count **E0102**, each before the binding exists. A well-formed
+   spawn answers a `:thread`, so `(let t (spawn work))` unused still reports
+   **E0107** — a handle is a value, not a void form.
 
 ### Moves, frees and E0005 (C1)
 
@@ -811,28 +905,28 @@ not reported as unused. `(some 1)`, `(none)` and `(opt :i64) (some 1)` keep
 reporting `unused binding` exactly as before, and so does a nested
 `(opt (opt :i64)) (some (some 1))`.
 
-Two sites remain deliberately untouched because the form around them is not
-typed by this pass: a ref captured by a closure (`(fn …)`, C4) and the value
-arguments of `(send c v)` and `(spawn f v)` (C4). Each is named as an
-under-report with the code Python gives rather than guessed at here. In the
-corpus `ref-escapes-capture` is Python's E0305 from the closure's `_lookup` and
-the port stays silent (the E0107 deferral guard keeps it from reporting a wrong
-code); `ref-escape-spawn` is E0305 at the spawn argument and `ref-escape-send`
-is E0305 where its `(chan (ref (vec :i64)) 2)` value is built, a C4 form (see
-below). A ref returned from a closure is
-refused by Python at the capture that reads it, not at the `ret`, so it is the
-same C4 site.
+The last three sites C2 could not reach were the ones behind C4's forms, and
+C4 now decides them: a ref captured by a closure is E0305 from the capture
+(`a closure captures 'v'`, at the form that read it), the value argument of
+`(spawn f v)` is E0305 `passing it to a thread as argument N` at the spawn,
+and `(send c v)` is E0305 `sending it`. In the corpus `ref-escapes-capture`,
+`ref-escape-spawn`, `ref-escape-send` and `ref-to-function-value` are all
+decided at Python's line. `ref-to-function-value` is the indirect-call shape:
+once `(fn …)` is typed, `(letmut g (fn …))` has a function type, `(g w)` is an
+indirect call, and a ref argument to one is the E0305 the body-argument rule
+had no type to reach before. A ref returned from a closure is refused by Python
+at the capture that reads it, not at the `ret`, so it is the same site.
 
 The channel **element** rule is type-level: `check-channel-element` runs
 wherever a channel type is resolved, so a parameter type, a `shared (chan …)`
 wrapper, or a `let` annotation inside a body all decide it — a body declaration
 writing `(chan (ref (vec :i64)))` as its type is E0305 at that annotation
 (`f/2/1`) in both implementations, and `ref-channel-element` pins the
-parameter spelling at `f/1/0/0`. What this pass leaves to C4 is the `chan`
-**value** form: `(chan (ref (vec :i64)) 2)` used as an expression is not typed
-here, so the element rule is not reached through that spelling. That is why
-`ref-escape-send` is Python's E0305 at the `chan` value (`f/2/1`) and the port
-is silent: `send`'s own site and the value form's element are both C4's.
+parameter spelling at `f/1/0/0`. The `chan` **value** form now reaches the same
+rule: `(chan (ref (vec :i64)) 2)` used as an expression is E0305 at the `chan`
+it builds (`ref-escape-send/f/2/1`), and `(chan :void 1)`, an owning, vector,
+result or capturing-closure element and the empty-type rule are all decided at
+the value form too (`chan-void`).
 
 ## The arena of checked modules
 
@@ -976,7 +1070,7 @@ tests/type/vec-arg-temp.logos           E0402
 tests/regress/vec-place-copy.logos      E0402
 tests/regress/main-call.logos           E0108
 tests/regress/alloc-enum.logos          E0002
-tests/regress/alloc-enum-in-struct.logos E0002
+tests/regress/alloc-enum-in-struct.logosE0002
 tests/regress/alloc-fn.logos            E0002
 tests/type/alloc-fn.logos               E0002
 tests/type/alloc-result.logos           E0002
@@ -1009,6 +1103,9 @@ tests/type/ref-escape-some.logos        E0305
 tests/type/ref-escape-some-bare.logos   E0305
 tests/type/ref-escape-ok.logos          E0305
 tests/type/ref-arg-alias.logos          E0304
+tests/type/ref-escape-some-nested.logos E0305
+tests/type/ref-escape-ok-nested.logos   E0305
+tests/type/ref-escape-some-nested-vector.logosE0305
 tests/type/unhandled-result.logos       E0602
 tests/type/try-mismatch.logos           E0601
 tests/type/some-fit.logos               E0100
@@ -1022,11 +1119,36 @@ tests/type/opt-match-miss-none.logos    E0600
 tests/type/try-nonresult-fn.logos       E0601
 tests/type/try-nonresult.logos          E0601
 tests/type/result-unhandled-param.logos E0602
-tests/type/result-carried-optional.logos E0602
+tests/type/result-carried-optional.logosE0602
 tests/type/set-result-unhandled.logos   E0602
 tests/type/ref-escape-some-if.logos     E0305
 tests/type/ref-escape-some-match.logos  E0305
 tests/type/ref-escape-err-enum.logos    E0305
+tests/type/result-set-after-move.logos  E0300
+tests/type/result-copy-after-move.logos E0402
+tests/type/result-closure-escape.logos  E0502
+tests/type/result-generic-argument.logosE0602
+tests/regress/closure-escape.logos      E0502
+tests/regress/ref-escape-send.logos     E0305
+tests/regress/ref-escape-spawn.logos    E0305
+tests/regress/ref-to-function-value.logosE0305
+tests/type/ref-escapes-capture.logos    E0305
+tests/type/spawn-own.logos              E0402
+tests/type/spawn-return.logos           E0100
+tests/type/spawn-arg-type.logos         E0100
+tests/type/spawn-generic.logos          E0501
+tests/type/spawn-arity.logos            E0102
+tests/type/send-element.logos           E0100
+tests/type/send-moved.logos             E0300
+tests/type/lock-bare.logos              E0700
+tests/type/lock-type.logos              E0100
+tests/type/atomic-type.logos            E0100
+tests/type/atomic-bare.logos            E0700
+tests/type/join-type.logos              E0100
+tests/type/closure-ret-capture.logos    E0502
+tests/type/closure-result-body.logos    E0602
+tests/type/closure-field.logos          E0502
+tests/type/chan-void.logos              E0100
 ```
 
 The last eighteen are C3's: a typed result or optional at the wrong element or
@@ -1082,16 +1204,26 @@ with the pass, because no fixture named E0305 (or the alias E0304) at those
 sites. Each was checked to fail for its own rule: removing that one
 `body-refuse-ref` call makes only that fixture's line differ.
 
+The last twenty-one are C4's. Five were ref escapes that hid behind its forms:
+a ref captured by a closure, `send`'s channel element, `spawn`'s argument, a
+ref passed to a function value built from a closure, and the whole capturing
+closure (`closure-escape`). The other sixteen are body shapes: `spawn`'s owner
+argument, result-returning signature, argument type, generic target and arity;
+`send`'s wrong element and a moved binding; `lock`'s bare and mismatched
+handle; an atomic's wrong element type and a bare atomic; `join`'s non-thread;
+a returned capturing closure; a closure whose body reads a captured result
+without handling it; a capturing closure in a struct field; and a channel of
+`:void`. Every `.check` is written by `tools/check_parity.py`.
+
 The gate compares the whole line `gen2 check` prints — path, code and message —
 with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 87: a pruned list fails rather than passing over
-fewer fixtures. `owner-place-read` (a `deref` read)
-and `generic-vector` need the deferred `deref` form or a generic call site;
-`ref-escapes-capture`, `ref-escape-spawn` and `ref-to-function-value` are ref
-escapes behind C4 forms; `limit` and `unbound` need a generic call site; the
+matching code. Its floor is 108: a pruned list fails rather than passing over
+fewer fixtures. `owner-place-read`, `sibling-set` (both `deref`) and
+`generic-vector` need the deferred `deref` form or a generic call site;
+`limit` and `unbound` need a generic call site; the
 visibility fixtures under `src/logosc/fixtures/check` are unit cases, not corpus
 cases. `try-mismatch` and `unhandled-result` are now decided and named by the
 list, as are the sixteen C3 fixtures for the typed containers, E0600–E0602 and
@@ -1107,7 +1239,7 @@ out of the under-reported set with them.
 
 ## Tests
 
-`src/logosc/body_test.logos` has 292 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 341 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -1186,14 +1318,14 @@ out of the under-reported set with them.
   unread unknown-typed temporary, and E0105 winning over E0107 when the
   function also falls off its end; the narrowed deferral guard is pinned from
   both sides — `(deref q)` on an `(own :i64)`, `(ptr q)`,
-  `(ptr-add (ptr q) 1)` and `(some 1)` report E0107, while the three witness
-  shapes (`(deref p)` of a move-only place, a closure capturing a ref, and
-  `(deref p)` of a moved binding) stay silent; the `ok`/`err` and `spawn`
-  families are pinned the same way — a pending `(res …)` binding, an
-  uninferable `(ok 1)`, an annotated `(let c :i64 (ok 1))`, `(spawn (h))` and
-  a spawn of the wrong arity stay silent, while a well-formed `(spawn h)` and
-  an `(ok)` that a shadowing binding turns into an ordinary call report
-  E0107 — and an extern used as a value is E0103 at the `let`;
+  `(ptr-add (ptr q) 1)` and `(some 1)` report E0107, while the two pointer
+  witness shapes (`(deref p)` of a move-only place and `(deref p)` of a moved
+  binding) stay silent; the `ok`/`err` family is pinned the same way — a
+  pending `(res …)` binding, an uninferable `(ok 1)`, an annotated
+  `(let c :i64 (ok 1))`, while `(ok)` that a shadowing binding turns into an
+  ordinary call reports E0107 — a well-formed `(spawn h)` reports E0107 (a
+  `:thread` handle is a value), and an extern used as a value is E0103 at the
+  `let`;
 - ownership (C1): a double free, a read after `free`, a move out of a plain
   `let` (E0302, as a local `let` and as a call argument), the accepted
   `letmut` and vector aliases, a release inside a loop (E0303), a binding
@@ -1219,6 +1351,20 @@ out of the under-reported set with them.
   (accepted); a `spawn` handoff (accepted); a closure capturing a result
   (accepted); a capturing closure passed to a callee (E0502 at `f/3/0`); and
   the generic call blaming `z` at `f/3`.
+
+- the concurrency surface (C4): an accepted spawn/join, a spawn of a result
+  argument and of a non-capturing closure argument; the owner, result-returning,
+  ref, generic, arity and argument-type spawn refusals; a channel of `:i64`
+  with `send`/`recv` and a struct element; the channel element refusals
+  (`:void`, an owner, a vector, an empty type, a bare pointer), capacity and
+  arity; a mutex and an atomic counter; bare and mismatched locks; an atomic's
+  type, value and bare handle; `join` of a non-thread; accepted closures (a
+  capture called locally, a non-capturing closure passed to a callee, a
+  captured result handled) and refused ones (a ref capture, an `(own T)`
+  capture, a `set` on a capture, a returned capture, an argument capture, a
+  captured result never handled in the body and one copied into a local, a
+  capture stored in a struct field); and the closure shape errors (a missing
+  `ret`, a `:void` parameter, a duplicate parameter).
 
 `src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -1255,8 +1401,8 @@ are reached by path.
 
 ## Parity
 
-The sixty-two coverage fixtures match Python's code **and node path**, not
-just the code, and the whole line, message included, is what
+The 108 coverage fixtures match Python's code **and node path**, not just the
+code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
 `shift-float/f/2/0`, `literal-range/f/2`, `compare-bool/f/2/0`,
@@ -1285,42 +1431,36 @@ its unannotated spelling in `ref-escape-some-bare/f/2/1`, a result slot in
 `ref-escape-ok/f/2/2`, and E0304's immutable alias in `ref-arg-alias/f/3`.
 
 The differential probe behind the body pass compares `gen2 check` with Python's
-`check_module` over the tree. A sweep of all 234 tracked sources finds:
+`check_module` over the tree. A sweep of all 254 tracked and new sources finds:
 
-- **0 false positives over that 234-source corpus** — no tracked source Python
-  accepts is refused by `gen2 check`. The scope is the corpus, not the
-  language: before C3's fix round this port refused four shapes Python accepts,
-  and each is a corpus-shaped program the sweep would have caught only if the
-  tree had held it. They were `(try r)` on a move-only result (`(res (own :i64)
-  e)` — the `try` marked `r` handled and then moved it, overwriting the bit),
-  a move-only result *handled and then moved* by a call or `ret` (the same
-  overwrite, in the other order), a `spawn` handoff of a result (the port never
-  discharged the argument, unlike `check.py:3730-3733`) and a closure capture
-  of a result (`check.py:1375-1380` discharges the outer binding). `grep '(res
-  (own'` finds none of them in the tree, which is exactly why the sweep was
-  clean while the language was not;
+- **0 false positives over that 254-source corpus** — no source Python accepts
+  is refused by `gen2 check`. The scope is the corpus, not the language:
+  before C3's fix round this port refused four shapes Python accepts, and each
+  is a corpus-shaped program the sweep would have caught only if the tree had
+  held it;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 124 are refused by both: 123 with the
+- 93 sources are accepted by both, and 148 are refused by both: 147 with the
   same line and one with the same code and a different path spelling;
-- 17 sources are under-reported, every one of them inside the deferred set:
+- 13 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
-  bodies), 4 are a ref escape behind a form that is not typed yet (E0305:
-  capture, send-value, spawn, function value through a closure), 1 is the
-  owner read behind `(deref p)` (E0402, deferred with the deref form), 1 is
-  the `sibling-set` read after a join through `deref` (E0300 behind the same
-  deferred form) and 3 are E0500/E0501 or the `generic-vector` argument that
-  needs a real call site. The result under-reports of C2 — E0601/E0602 — and
-  C3's own E0502 closure escape are gone: `try-mismatch`, `unhandled-result`
-  and `closure-escape` are decided;
-- against this round's base (`ceddc69`, built in a throwaway worktree), exactly
-  one existing source is newly refused — `tests/regress/closure-escape.logos`,
-  E0502 at `f/2/0/0`, the capturing closure passed as an argument — with
-  nothing newly accepted and no other source's line changed. The four new
-  fixtures are refused with Python's own line;
+  bodies), 1 is the owner read behind `(deref p)` (E0402, deferred with the
+  deref form), 1 is the `sibling-set` read after a join through `deref` (E0300
+  behind the same deferred form) and 3 are E0500/E0501 or the
+  `generic-vector` argument that needs a real call site. The five C4
+  under-reports the C3 sweep listed — the closure capture, `send`'s channel
+  element, `spawn`'s argument, a function value built from a closure and the
+  closure escape — are decided and gone;
+- against the C3 binary (`9f1411e`, built in a throwaway worktree), exactly
+  15 sources are newly refused — the four existing ref-escape fixtures
+  (`ref-escape-send`, `ref-escape-spawn`, `ref-to-function-value`,
+  `ref-escapes-capture`) and eleven new C4 fixtures — **0 newly accepted**,
+  and three new fixtures move from a wrong E0107 line to Python's code
+  (`atomic-type`, `chan-void`, `closure-field`). No other source's line
+  changed;
 - the one source outside those buckets answers the same E0002 with a different
   path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
   for a file with no `(mod …)` and gen2 names the file. It is the W6 A
-  declaration edge, untouched by C3.
+  declaration edge, untouched by C4.
 
 ## Building it
 
