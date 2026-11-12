@@ -1,0 +1,491 @@
+(mod ir)
+
+(type ir-error (struct (failed :bool) (code :i64) (text :str)))
+
+(fn ir-ok ir-error ()
+  (ret (make ir-error false 0 "")))
+
+(fn ir-fail ir-error ((code :i64) (text :str))
+  (ret (make ir-error true code text)))
+
+(fn ir-good :bool ((e ir-error))
+  (ret (not (get e failed))))
+
+(fn ir-nothing :void ()
+  (ret))
+
+(fn ir-op-none :i64 ()
+  (ret 0))
+
+(fn ir-op-alloca :i64 ()
+  (ret 1))
+
+(fn ir-op-store :i64 ()
+  (ret 2))
+
+(fn ir-op-load :i64 ()
+  (ret 3))
+
+(fn ir-op-gaddr :i64 ()
+  (ret 4))
+
+(fn ir-op-add :i64 ()
+  (ret 5))
+
+(fn ir-op-sub :i64 ()
+  (ret 6))
+
+(fn ir-op-mul :i64 ()
+  (ret 7))
+
+(fn ir-op-sdiv :i64 ()
+  (ret 8))
+
+(fn ir-op-srem :i64 ()
+  (ret 9))
+
+(fn ir-op-udiv :i64 ()
+  (ret 10))
+
+(fn ir-op-urem :i64 ()
+  (ret 11))
+
+(fn ir-op-and :i64 ()
+  (ret 12))
+
+(fn ir-op-shl :i64 ()
+  (ret 13))
+
+(fn ir-op-lshr :i64 ()
+  (ret 14))
+
+(fn ir-op-ashr :i64 ()
+  (ret 15))
+
+(fn ir-op-fadd :i64 ()
+  (ret 16))
+
+(fn ir-op-fsub :i64 ()
+  (ret 17))
+
+(fn ir-op-fmul :i64 ()
+  (ret 18))
+
+(fn ir-op-fdiv :i64 ()
+  (ret 19))
+
+(fn ir-op-icmp :i64 ()
+  (ret 20))
+
+(fn ir-op-fcmp :i64 ()
+  (ret 21))
+
+(fn ir-op-phi :i64 ()
+  (ret 22))
+
+(fn ir-op-insertvalue :i64 ()
+  (ret 23))
+
+(fn ir-op-extractvalue :i64 ()
+  (ret 24))
+
+(fn ir-op-gep :i64 ()
+  (ret 25))
+
+(fn ir-op-trunc :i64 ()
+  (ret 26))
+
+(fn ir-op-sext :i64 ()
+  (ret 27))
+
+(fn ir-op-zext :i64 ()
+  (ret 28))
+
+(fn ir-op-sitofp :i64 ()
+  (ret 29))
+
+(fn ir-op-uitofp :i64 ()
+  (ret 30))
+
+(fn ir-op-fptosi :i64 ()
+  (ret 31))
+
+(fn ir-op-fptoui :i64 ()
+  (ret 32))
+
+(fn ir-op-fpext :i64 ()
+  (ret 33))
+
+(fn ir-op-fptrunc :i64 ()
+  (ret 34))
+
+(fn ir-op-bitcast :i64 ()
+  (ret 35))
+
+(fn ir-op-call :i64 ()
+  (ret 36))
+
+(fn ir-op-allocarec :i64 ()
+  (ret 37))
+
+(fn ir-op-geprec :i64 ()
+  (ret 38))
+
+(fn ir-op-bitcastrec :i64 ()
+  (ret 39))
+
+(fn ir-op-bitcastout :i64 ()
+  (ret 40))
+
+(fn ir-op-faddr :i64 ()
+  (ret 41))
+
+(fn ir-op-fnptr :i64 ()
+  (ret 42))
+
+(fn ir-op-icall :i64 ()
+  (ret 43))
+
+(fn ir-term-ret :i64 ()
+  (ret 1))
+
+(fn ir-term-br :i64 ()
+  (ret 2))
+
+(fn ir-term-cbr :i64 ()
+  (ret 3))
+
+(fn ir-term-unreachable :i64 ()
+  (ret 4))
+
+(fn ir-op-text :str ((op :i64))
+  (ret (match op (1 "alloca") (2 "store") (3 "load") (4 "gaddr") (5 "add") (6 "sub") (7 "mul") (8 "sdiv") (9 "srem") (10 "udiv") (11 "urem") (12 "and") (13 "shl") (14 "lshr") (15 "ashr") (16 "fadd") (17 "fsub") (18 "fmul") (19 "fdiv") (20 "icmp") (21 "fcmp") (22 "phi") (23 "insertvalue") (24 "extractvalue") (25 "gep") (26 "trunc") (27 "sext") (28 "zext") (29 "sitofp") (30 "uitofp") (31 "fptosi") (32 "fptoui") (33 "fpext") (34 "fptrunc") (35 "bitcast") (36 "call") (37 "allocarec") (38 "geprec") (39 "bitcastrec") (40 "bitcastout") (41 "faddr") (42 "fnptr") (43 "icall") (_ ""))))
+
+(fn ir-term-text :str ((op :i64))
+  (ret (match op (1 "ret") (2 "br") (3 "cbr") (4 "unreachable") (_ ""))))
+
+(fn ir-is-binary :bool ((op :i64))
+  (ret (and (>= op (ir-op-add))
+         (<= op (ir-op-fdiv)))))
+
+(fn ir-is-convert :bool ((op :i64))
+  (ret (and (>= op (ir-op-trunc))
+         (<= op (ir-op-fptrunc)))))
+
+(fn ir-module :void ((mtriple (ref (vec :str))) (mqual (ref (vec :i64))) (triple :str) (qual :bool))
+  (vec-push mtriple triple)
+  (vec-push mqual (if qual 1 0))
+  (ret))
+
+(fn ir-struct :i64 ((snames (ref (vec :str))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (name :str) (base :i64) (count :i64))
+  (vec-push snames name)
+  (vec-push sbase base)
+  (vec-push scount count)
+  (ret (- (vec-len snames) 1)))
+
+(fn ir-enum :i64 ((enames (ref (vec :str))) (ewords (ref (vec :i64))) (name :str) (words :i64))
+  (vec-push enames name)
+  (vec-push ewords words)
+  (ret (- (vec-len enames) 1)))
+
+(fn ir-global :i64 ((gnames (ref (vec :str))) (gdata (ref (vec :str))) (name :str) (data :str))
+  (vec-push gnames name)
+  (vec-push gdata data)
+  (ret (- (vec-len gnames) 1)))
+
+(fn ir-sig-start :i64 ((sigtys (ref (vec :i64))))
+  (ret (vec-len sigtys)))
+
+(fn ir-sig-param :void ((sigtys (ref (vec :i64))) (ty :i64))
+  (vec-push sigtys ty)
+  (ret))
+
+(fn ir-declare :i64 ((dnames (ref (vec :str))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (name :str) (start :i64) (count :i64) (ret :i64))
+  (vec-push dnames name)
+  (vec-push dsig start)
+  (vec-push dcnt count)
+  (vec-push dret ret)
+  (ret (- (vec-len dnames) 1)))
+
+(fn ir-fn :i64 ((fnames (ref (vec :str))) (fsyms (ref (vec :str))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (blabels (ref (vec :str))) (pnames (ref (vec :str))) (name :str) (symbol :str) (internal :bool) (ret :i64))
+  (vec-push fnames name)
+  (vec-push fsyms symbol)
+  (vec-push fint (if internal 1 0))
+  (vec-push fret ret)
+  (vec-push fbase (vec-len blabels))
+  (vec-push fcnt -1)
+  (vec-push fparam (vec-len pnames))
+  (vec-push fpc -1)
+  (ret (- (vec-len fnames) 1)))
+
+(fn ir-param :void ((pnames (ref (vec :str))) (ptys (ref (vec :i64))) (name :str) (ty :i64))
+  (vec-push pnames name)
+  (vec-push ptys ty)
+  (ret))
+
+(fn ir-fn-end :void ((fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (blabels (ref (vec :str))) (pnames (ref (vec :str))) (fid :i64))
+  (vec-set fcnt fid (- (vec-len blabels)
+                      (vec-get fbase fid)))
+  (vec-set fpc fid (- (vec-len pnames)
+                     (vec-get fparam fid)))
+  (ret))
+
+(fn ir-block :void ((blabels (ref (vec :str))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ops (ref (vec :i64))) (label :str))
+  (vec-push blabels label)
+  (vec-push bbase (vec-len ops))
+  (vec-push bcnt -1)
+  (vec-push bterm 0)
+  (vec-push bty -1)
+  (vec-push bhas 0)
+  (vec-push bv1 "")
+  (vec-push bv2 "")
+  (vec-push bv3 "")
+  (ret))
+
+(fn ir-block-first :i64 ((bbase (ref (vec :i64))) (b :i64))
+  (ret (vec-get bbase b)))
+
+(fn ir-block-past :i64 ((bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (b :i64))
+  (ret (+ (vec-get bbase b)
+         (vec-get bcnt b))))
+
+(fn ir-fn-first :i64 ((fbase (ref (vec :i64))) (f :i64))
+  (ret (vec-get fbase f)))
+
+(fn ir-fn-past :i64 ((fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (f :i64))
+  (ret (+ (vec-get fbase f)
+         (vec-get fcnt f))))
+
+(fn ir-instr-count :i64 ((ops (ref (vec :i64))))
+  (ret (vec-len ops)))
+
+(fn ir-row :i64 ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (op :i64) (dest :str))
+  (vec-push ops op)
+  (vec-push dests dest)
+  (vec-push a "")
+  (vec-push b "")
+  (vec-push c "")
+  (vec-push d "")
+  (vec-push t1 -1)
+  (vec-push t2 -1)
+  (vec-push t3 -1)
+  (vec-push n1 0)
+  (vec-push sst (vec-len svals))
+  (vec-push scn 0)
+  (vec-push tst (vec-len tvals))
+  (vec-push tcn 0)
+  (ret (- (vec-len ops) 1)))
+
+(fn ir-last :i64 ((ops (ref (vec :i64))))
+  (ret (- (vec-len ops) 1)))
+
+(fn ir-alloca :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (ty :i64))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-alloca) dest))
+  (vec-set t1 i ty)
+  (ret))
+
+(fn ir-store :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (ty :i64) (value :str) (slot :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-store) ""))
+  (vec-set t1 i ty)
+  (vec-set a i value)
+  (vec-set b i slot)
+  (ret))
+
+(fn ir-load :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (ty :i64) (slot :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-load) dest))
+  (vec-set t1 i ty)
+  (vec-set a i slot)
+  (ret))
+
+(fn ir-gaddr :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (name :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-gaddr) dest))
+  (vec-set a i name)
+  (ret))
+
+(fn ir-binary :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (op :i64) (dest :str) (ty :i64) (left :str) (right :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (if (ir-is-binary op) op
+                                                                                  (ir-op-none)) dest))
+  (vec-set t1 i ty)
+  (vec-set a i left)
+  (vec-set b i right)
+  (ret))
+
+(fn ir-icmp :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (pred :str) (ty :i64) (left :str) (right :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-icmp) dest))
+  (vec-set t1 i ty)
+  (vec-set a i pred)
+  (vec-set b i left)
+  (vec-set c i right)
+  (ret))
+
+(fn ir-fcmp :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (pred :str) (ty :i64) (left :str) (right :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-fcmp) dest))
+  (vec-set t1 i ty)
+  (vec-set a i pred)
+  (vec-set b i left)
+  (vec-set c i right)
+  (ret))
+
+(fn ir-phi :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (ty :i64))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-phi) dest))
+  (vec-set t1 i ty)
+  (ret))
+
+(fn ir-phi-in :void ((ops (ref (vec :i64))) (scn (ref (vec :i64))) (svals (ref (vec :str))) (value :str) (label :str))
+  (let i :i64 (ir-last ops))
+  (vec-push svals value)
+  (vec-push svals label)
+  (vec-set scn i (+ (vec-get scn i) 1))
+  (ret))
+
+(fn ir-insertvalue :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (agg :i64) (from :str) (elem :i64) (value :str) (index :i64))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-insertvalue) dest))
+  (vec-set t1 i agg)
+  (vec-set t2 i elem)
+  (vec-set a i from)
+  (vec-set b i value)
+  (vec-set n1 i index)
+  (ret))
+
+(fn ir-extractvalue :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (agg :i64) (from :str) (elem :i64) (index :i64))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-extractvalue) dest))
+  (vec-set t1 i agg)
+  (vec-set t2 i elem)
+  (vec-set a i from)
+  (vec-set n1 i index)
+  (ret))
+
+(fn ir-gep :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (base :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-gep) dest))
+  (vec-set t1 i base)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-gep-index :void ((ops (ref (vec :i64))) (scn (ref (vec :i64))) (svals (ref (vec :str))) (ty :str) (index :str))
+  (let i :i64 (ir-last ops))
+  (vec-push svals ty)
+  (vec-push svals index)
+  (vec-set scn i (+ (vec-get scn i) 1))
+  (ret))
+
+(fn ir-convert :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (op :i64) (dest :str) (from :i64) (to :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (if (ir-is-convert op) op
+                                                                                  (ir-op-none)) dest))
+  (vec-set t1 i from)
+  (vec-set t2 i to)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-bitcast :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (from :i64) (to :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-bitcast) dest))
+  (vec-set t1 i from)
+  (vec-set t2 i to)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-call :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (callee :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-call) dest))
+  (vec-set a i callee)
+  (ret))
+
+(fn ir-call-arg :void ((ops (ref (vec :i64))) (scn (ref (vec :i64))) (svals (ref (vec :str))) (arg :str))
+  (let i :i64 (ir-last ops))
+  (vec-push svals arg)
+  (vec-set scn i (+ (vec-get scn i) 1))
+  (ret))
+
+(fn ir-allocarec :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-allocarec) dest))
+  (vec-set n1 i 0)
+  (ret))
+
+(fn ir-rec-field :void ((ops (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (ty :i64))
+  (let i :i64 (ir-last ops))
+  (vec-push tvals ty)
+  (vec-set tcn i (+ (vec-get tcn i) 1))
+  (ret))
+
+(fn ir-geprec :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (base :str) (index :i64))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-geprec) dest))
+  (vec-set a i base)
+  (vec-set n1 i index)
+  (ret))
+
+(fn ir-bitcastrec :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (from :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-bitcastrec) dest))
+  (vec-set t1 i from)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-bitcastout :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (to :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-bitcastout) dest))
+  (vec-set t1 i to)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-faddr :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (symbol :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-faddr) dest))
+  (vec-set a i symbol)
+  (ret))
+
+(fn ir-fnptr :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (ret :i64) (value :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-fnptr) dest))
+  (vec-set t1 i ret)
+  (vec-set a i value)
+  (ret))
+
+(fn ir-fnptr-param :void ((ops (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (ty :i64))
+  (let i :i64 (ir-last ops))
+  (vec-push tvals ty)
+  (vec-set tcn i (+ (vec-get tcn i) 1))
+  (ret))
+
+(fn ir-icall :void ((ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (dest :str) (ret :i64) (callee :str))
+  (let i :i64 (ir-row ops dests a b c d t1 t2 t3 n1 sst scn tst tcn svals tvals (ir-op-icall) dest))
+  (vec-set t1 i ret)
+  (vec-set a i callee)
+  (ret))
+
+(fn ir-icall-param :void ((ops (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (ty :i64))
+  (let i :i64 (ir-last ops))
+  (vec-push tvals ty)
+  (vec-set tcn i (+ (vec-get tcn i) 1))
+  (ret))
+
+(fn ir-icall-arg :void ((ops (ref (vec :i64))) (scn (ref (vec :i64))) (svals (ref (vec :str))) (arg :str))
+  (let i :i64 (ir-last ops))
+  (vec-push svals arg)
+  (vec-set scn i (+ (vec-get scn i) 1))
+  (ret))
+
+(fn ir-term-close :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (term :i64) (ty :i64) (has :i64) (v1 :str) (v2 :str) (v3 :str))
+  (let b :i64 (- (vec-len bterm) 1))
+  (vec-set bcnt b (- (vec-len ops)
+                    (vec-get bbase b)))
+  (vec-set bterm b term)
+  (vec-set bty b ty)
+  (vec-set bhas b has)
+  (vec-set bv1 b v1)
+  (vec-set bv2 b v2)
+  (vec-set bv3 b v3)
+  (ret))
+
+(fn ir-ret :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ty :i64) (value :str))
+  (ir-term-close ops bbase bcnt bterm bty bhas bv1 bv2 bv3 (ir-term-ret) ty 1 value "" "")
+  (ret))
+
+(fn ir-ret-void :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ty :i64))
+  (ir-term-close ops bbase bcnt bterm bty bhas bv1 bv2 bv3 (ir-term-ret) ty 0 "" "" "")
+  (ret))
+
+(fn ir-br :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (label :str))
+  (ir-term-close ops bbase bcnt bterm bty bhas bv1 bv2 bv3 (ir-term-br) -1 0 label "" "")
+  (ret))
+
+(fn ir-cbr :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (cond :str) (then :str) (other :str))
+  (ir-term-close ops bbase bcnt bterm bty bhas bv1 bv2 bv3 (ir-term-cbr) -1 0 cond then other)
+  (ret))
+
+(fn ir-unreachable :void ((ops (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))))
+  (ir-term-close ops bbase bcnt bterm bty bhas bv1 bv2 bv3 (ir-term-unreachable) -1 0 "" "" "")
+  (ret))

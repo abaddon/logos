@@ -25,6 +25,8 @@ examples/wc.logos
 src/logosc/body_test.logos
 src/logosc/check.logos
 src/logosc/check_test.logos
+src/logosc/emit.logos
+src/logosc/emit_test.logos
 src/logosc/fixtures/check/main-a.logos
 src/logosc/fixtures/check/main-b.logos
 src/logosc/fixtures/check/mid.logos
@@ -60,6 +62,7 @@ src/logosc/fixtures/wrong/root.logos
 src/logosc/fixtures/wrong/wrong.logos
 src/logosc/fmt.logos
 src/logosc/fmt_test.logos
+src/logosc/ir.logos
 src/logosc/lex.logos
 src/logosc/lex_test.logos
 src/logosc/main.logos
