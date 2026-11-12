@@ -1851,3 +1851,51 @@
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void ((b :bool)) (let r (g)) (if b (match r ((ok v) (println v)) ((err _) (println 0))) (println 1)) (println 2))"))
+
+(test result-try-move-only
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn f :(res :i64 e) () (let r (g)) (let v (try r)) (free v) (ret (ok 1)))"))
+
+(test result-set-after-match-moved
+  (expect (out "E0300\nm/f/4\nset of moved binding 'r'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn f :void () (letmut r (g)) (match r ((ok p) (free p)) ((err _) (println 0))) (set r (g)))"))
+
+(test result-copy-after-move-own
+  (expect (out "E0402\nm/f/4\na value containing an owner is not copyable; 'r' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn h :void ((p (res (own :i64) e))) (match p ((ok q) (free q)) ((err _) (println 0)))) (fn f :void () (let r (g)) (let r2 r) (h r))"))
+
+(test result-handled-then-passed
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn h :void ((p (res (own :i64) e))) (match p ((ok q) (free q)) ((err _) (println 0)))) (fn f :void () (let r (g)) (h r))"))
+
+(test result-spawn-handoff
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn take :void ((r (res :i64 e))) (match r ((ok v) (println v)) ((err _) (println 0)))) (fn f :void () (let r (g)) (spawn take r) (println 1))"))
+
+(test result-closure-capture
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (let c (fn :void () (match r ((ok v) (println v)) ((err _) (println 0))))) (c))"))
+
+(test result-closure-capture-escapes
+  (expect (out "E0502\nm/f/3/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn h :void ((c (fn () :void))) (c)) (fn f :void () (let r (g)) (h (fn :void () (match r ((ok v) (println v)) ((err _) (println 0))))))"))
+
+(test result-generic-argument
+  (expect (out "E0602\nm/f/3\nthe result of 'z' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn same :T ((x :T)) :T (ret x)) (fn f :void () (let r (g)) (let z (same r)))"))

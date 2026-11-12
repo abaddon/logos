@@ -81,3 +81,7 @@ tests/type/set-result-unhandled.logos
 tests/type/ref-escape-some-if.logos
 tests/type/ref-escape-some-match.logos
 tests/type/ref-escape-err-enum.logos
+tests/type/result-set-after-move.logos
+tests/type/result-copy-after-move.logos
+tests/type/result-closure-escape.logos
+tests/type/result-generic-argument.logos

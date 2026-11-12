@@ -185,7 +185,13 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   read) and answers the unknown type. `tests/generics/limit.logos` and
   `tests/generics/unbound.logos` therefore carry `.expect` files and `gen2
   check` accepts both. The declaration-side counter (`check-instantiate`) is
-  ported and pinned, but a call site does not reach it yet.
+  ported and pinned, but a call site does not reach it yet. One identity case
+  is decided, because a result obligation cannot wait for a full unifier: when
+  the return type is a bare type variable and every parameter of that variable
+  is given the same name, the call answers that name's type and discharges it
+  if it is a result (see "Calls, containers and E0107"). A variable nested in a
+  parameter or the return, mismatched arguments, and temporaries still answer
+  unknown — `tests/regress/generic-vector.logos` is one such under-report.
 - **Generic bodies.** A body is read only for a `fn` whose signature has no
   type variables. Python checks such a body once per instantiation; until the
   call site unifies, `gen2 check` cannot know which copy it is reading, so it
@@ -503,18 +509,47 @@ form with Python's path and sentence. The C2 syntactic walk was only ever a
 stand-in for this typing and is no longer the path a typed wrapper takes.
 
 A result is an obligation. Each binding of a `(res T E)` carries a handled
-flag in the top bit of `bv` (2 = handled; moved is 1, and a result is never
-move-only because a result of a vector is refused at its declaration). The flag
-is marked by `body-handle` at every Python discharge site: a `match` over the
-scrutinee, `try`, `ret`, a call argument (direct or indirect), and a copy into
-a new binding. `set` checks the old value's flag before overwriting (E0602
-`cannot overwrite 'r': its result was never handled`) and clears it, so the
-new value is pending again. The flag survives a branch restore, because
-Python's `handled` is not part of the ownership snapshot: handling a result in
-one arm of an `if` is enough. At the end of every block — the function block,
-an `if` branch (through `body-arm-run`) and a `while` body — `body-pending`
-runs before `body-unused`, as Python's `_pending` runs before `_unused`. A
-result expression in statement position is E0602 at the expression.
+flag in `bv`, and `bv` holds two independent bits: bit 0 is moved and bit 1 is
+handled, so a binding reads 0 (live), 1 (moved), 2 (handled) or 3 (both). The
+two are separate because a **result can be move-only**: `(res (own T) E)` holds
+an owner, so `body-move-only?` is true for it, and for such a value `(try r)`, a
+`match` over `r`, `(ret r)` and a call that takes `r` by value each mark it
+handled **and** move it out in the same step — a write that stores one bit must
+not store over the other. An earlier round gave the flag the value 2 of that
+one byte while `moved` was 1, which is not a collision of values but of writes:
+`body-move-out` stored 1 over a 2, and `body-handle` stored 2 over a 1, so the
+bit that was not being written was lost. Every reader now tests its own bit
+(`body-moved?`, `body-handled?`) and every writer sets its own bit and leaves
+the other alone (`body-take-moved`, `body-take-handled`); only `set`, which
+replaces the value, clears both.
+
+The flag is marked by `body-handle` at every Python discharge site: a `match`
+over the scrutinee, `try`, `ret`, a call argument (direct, indirect, a generic
+call whose parameter is the result, and a `spawn` argument), a copy into a new
+binding, and a **closure capture** — Python's `_Env.lookup` gives the closure a
+copy carrying the obligation and discharges the outer binding, so a closure that
+matches `r` is enough for the declaration. `set` checks the old value's flag
+before overwriting (E0602 `cannot overwrite 'r': its result was never handled`)
+and the moved bit before re-arming a value that owns memory (E0300 `set of
+moved binding 'r'`), then clears both. The handled bit survives a branch
+restore, because Python's `handled` is not part of the ownership snapshot:
+handling a result in one arm of an `if` is enough. At the end of every block —
+the function block, an `if` branch (through `body-arm-run`) and a `while` body —
+`body-pending` runs before `body-unused`, as Python's `_pending` runs before
+`_unused`. A result expression in statement position is E0602 at the expression.
+
+A closure that captures may not cross a call boundary at all. Python raises
+E0502 (`a closure that captures cannot leave its function`) at the argument,
+before the argument is compared with the parameter, and `body-plain-arg` now
+does the same when the argument is a `(fn …)` form whose body names a binding
+the enclosing body still holds. The walk is syntactic, because the closure's own
+body is not typed here, and it is scoped rather than a bag of names: the
+closure's parameters, a `let`/`letmut` from its initialiser on, and a `match`
+arm's payload inside that arm are its own bindings, and only a name that still
+reaches `body-find` past them is a capture. `body-scope-close` tombstones the
+entries a scope added, since Logos has no `vec-truncate`.
+`tests/regress/closure-escape.logos` was an under-report under C3 and is decided
+here.
 
 E0600 is `body-exhaust`: once the scrutinee is typed, a `match` on an enum, a
 result or an optional must name every variant (or use `_`), and the message
@@ -540,8 +575,12 @@ are:
   `lock`, `unlock`, `chan`, `send`, `recv`, `atomic-*` — C4's closure and
   concurrency forms, and the pointer forms. Their operands are not typed, but
   every atom anywhere inside one is marked read, so E0107 cannot blame a
-  binding the deferred form used. `some`/`none`/`ok`/`err`/`try` are no longer
-  here: they are typed by `body-result-form` (see the section above);
+  binding the deferred form used. Two of them still discharge: a `fn` form
+  marks the results it captures handled, and a `spawn` argument whose
+  parameter is a result is marked handled, as Python does before the thread is
+  built — the form answers unknown either way. `some`/`none`/`ok`/`err`/`try`
+  are no longer here: they are typed by `body-result-form` (see the section
+  above);
 - a scrutinee whose type is unknown — a deferred form's result, or a generic
   call's — is read as "some closed set I cannot see": its arms' shapes are
   checked (the spine is a spine whatever the type) but no variant is resolved,
@@ -573,7 +612,15 @@ extern's entry is a `fn` too, so a call across the C boundary obeys the same
 argument rules with no separate path. Two refusals happen before the arguments:
 a call to a definition owned by another module is E0103 (this build emits no
 body for it), and a call to a generic answers unknown after marking its
-arguments read (see "What it deliberately does not decide"). A function's *name
+arguments read, with one exception that C3's fix round needed: when the
+generic's **return type is a bare type variable**, and every parameter of that
+same variable is given the *same name*, the call answers that name's type and
+— if it is a result — discharges it, which is what `(same r)` must do for
+`(let z (same r))` to blame `z` where Python blames it. That is the identity
+case of call-site unification, not unification: a variable nested inside a
+parameter or the return, a temporary argument whose type the port would have to
+compute, or arguments that disagree still answer unknown (see "What it
+deliberately does not decide"). A function's *name
 in value position* is Python's `_token` rule, not the call rule: only a
 definition this build lowers is a value, so a bare extern (`(let x abs)`) and an
 imported function are E0103 at the atom's path —
@@ -1040,8 +1087,8 @@ with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 83: a pruned list fails rather than passing over
-fewer fixtures. `closure-escape` needs C4; `owner-place-read` (a `deref` read)
+matching code. Its floor is 87: a pruned list fails rather than passing over
+fewer fixtures. `owner-place-read` (a `deref` read)
 and `generic-vector` need the deferred `deref` form or a generic call site;
 `ref-escapes-capture`, `ref-escape-spawn` and `ref-to-function-value` are ref
 escapes behind C4 forms; `limit` and `unbound` need a generic call site; the
@@ -1050,9 +1097,17 @@ cases. `try-mismatch` and `unhandled-result` are now decided and named by the
 list, as are the sixteen C3 fixtures for the typed containers, E0600–E0602 and
 the four ref escapes the C2 re-review found.
 
+The four fixtures C3's fix round added pin the shapes the handled bit used to
+get wrong: `result-set-after-move` (E0300 at `f/4`, a `set` after the `match`
+that emptied the binding), `result-copy-after-move` (E0402 at `f/4`, the second
+use of a result an earlier `let` had moved), `result-closure-escape` (E0502 at
+`f/3/0`, a capturing closure handed to a callee) and `result-generic-argument`
+(E0602 at `f/3`, naming `z` and not the argument `r`). `closure-escape` moved
+out of the under-reported set with them.
+
 ## Tests
 
-`src/logosc/body_test.logos` has 245 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 292 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -1152,12 +1207,18 @@ the four ref escapes the C2 re-review found.
   because Python does not move on `vec-free`), returning an owner, and the four
   E0005 shapes plus the function- and variant-value atoms that must not be
   E0005;
-- refs (C2): E0305 at every escape site this pass decides — a returned ref, a
-  struct field, `set-field`, `vec-push`, `vec-set`, a `make` array element,
+- refs (C2): E0305 at every escape site this pass decides — a returned ref,
+  a struct field, `set-field`, `vec-push`, `vec-set`, a `make` array element,
   `arr-set`, an enum payload, `alloc`, a non-ref argument and a function-value
   argument — each at Python's path and with Python's sentence, plus the
   accepted shapes: a ref read through `vec-len`, two ref parameters, a ref
   passed to another `(ref …)` parameter, and a `letmut` vector argument.
+- the two-bit flag (C3 fix round): `(try r)` on a `(res (own :i64) e)` accepted;
+  `set` after the `match` that emptied it (E0300 at `f/4`); the copy of an owned
+  result used again (E0402 at `f/4`); a result handled and then passed
+  (accepted); a `spawn` handoff (accepted); a closure capturing a result
+  (accepted); a capturing closure passed to a callee (E0502 at `f/3/0`); and
+  the generic call blaming `z` at `f/3`.
 
 `src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -1226,24 +1287,36 @@ its unannotated spelling in `ref-escape-some-bare/f/2/1`, a result slot in
 The differential probe behind the body pass compares `gen2 check` with Python's
 `check_module` over the tree. A sweep of all 234 tracked sources finds:
 
-- **0 false positives** — no program Python accepts is refused by `gen2 check`;
+- **0 false positives over that 234-source corpus** — no tracked source Python
+  accepts is refused by `gen2 check`. The scope is the corpus, not the
+  language: before C3's fix round this port refused four shapes Python accepts,
+  and each is a corpus-shaped program the sweep would have caught only if the
+  tree had held it. They were `(try r)` on a move-only result (`(res (own :i64)
+  e)` — the `try` marked `r` handled and then moved it, overwriting the bit),
+  a move-only result *handled and then moved* by a call or `ret` (the same
+  overwrite, in the other order), a `spawn` handoff of a result (the port never
+  discharged the argument, unlike `check.py:3730-3733`) and a closure capture
+  of a result (`check.py:1375-1380` discharges the outer binding). `grep '(res
+  (own'` finds none of them in the tree, which is exactly why the sweep was
+  clean while the language was not;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 123 are refused by both: 122 with the
+- 93 sources are accepted by both, and 124 are refused by both: 123 with the
   same line and one with the same code and a different path spelling;
-- 18 sources are under-reported, every one of them inside the deferred set:
+- 17 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
   bodies), 4 are a ref escape behind a form that is not typed yet (E0305:
   capture, send-value, spawn, function value through a closure), 1 is the
   owner read behind `(deref p)` (E0402, deferred with the deref form), 1 is
   the `sibling-set` read after a join through `deref` (E0300 behind the same
-  deferred form), 3 are E0500/E0501 or a generic call site, and 1 is a
-  closure escape (E0502). The two result under-reports of C2 — E0601/E0602 —
-  are gone: `try-mismatch` and `unhandled-result` are decided;
-- against the C2 binary (`2c7538e`, built in a throwaway worktree), exactly
-  two existing sources are newly refused and both are those fixtures —
-  `try-mismatch/caller/3/1` E0601 and `unhandled-result/caller/2` E0602 —
-  with nothing newly accepted and no other source's line changed. The sixteen
-  new C3 fixtures are refused with Python's own line;
+  deferred form) and 3 are E0500/E0501 or the `generic-vector` argument that
+  needs a real call site. The result under-reports of C2 — E0601/E0602 — and
+  C3's own E0502 closure escape are gone: `try-mismatch`, `unhandled-result`
+  and `closure-escape` are decided;
+- against this round's base (`ceddc69`, built in a throwaway worktree), exactly
+  one existing source is newly refused — `tests/regress/closure-escape.logos`,
+  E0502 at `f/2/0/0`, the capturing closure passed as an argument — with
+  nothing newly accepted and no other source's line changed. The four new
+  fixtures are refused with Python's own line;
 - the one source outside those buckets answers the same E0002 with a different
   path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
   for a file with no `(mod …)` and gen2 names the file. It is the W6 A

@@ -66,10 +66,13 @@ RESOLVE_FLOOR=14
 # rule that walks a ref through `some`/`ok`/`err` however deeply it is carried),
 # and the results and optionals of W6 C3 (a typed `some`/`none`/`ok`/`err`,
 # `try` with E0601, result obligations with E0602, matches that must name every
-# variant with E0600, and the four ref escapes the C2 re-review found).
-# Eighty-three today; a pruned list is a failure, not a smaller pass.
+# variant with E0600, and the four ref escapes the C2 re-review found), and the
+# four C3 fix-round shapes that need the handled bit to survive a move or a
+# capture (a `set` of a moved result, a copy of an owned result, a capturing
+# closure handed to a callee, and a generic call whose result is never handled).
+# Eighty-seven today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=83
+CHECK_FLOOR=87
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

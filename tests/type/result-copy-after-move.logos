@@ -1,0 +1,15 @@
+(mod result-copy-after-move)
+
+(type e (enum (bad :i64)))
+
+(fn g :
+  (res (own :i64) e) ()
+  (ret (ok (alloc :i64 4))))
+
+(fn h :void ((p (res (own :i64) e)))
+  (match p ((ok q) (free q)) ((err _) (println 0))))
+
+(fn f :void ()
+  (let r (g))
+  (let r2 r)
+  (h r))

@@ -66,8 +66,12 @@ PASS type/ref-escapes-return -
 PASS type/ref-not-a-vector -
 PASS type/ref-not-mutable -
 PASS type/result-carried-optional -
+PASS type/result-closure-escape -
+PASS type/result-copy-after-move -
 PASS type/result-err-payload -
+PASS type/result-generic-argument -
 PASS type/result-match-miss-err -
+PASS type/result-set-after-move -
 PASS type/result-unhandled-param -
 PASS type/set-result-unhandled -
 PASS type/shift-float -
