@@ -1,0 +1,10 @@
+(mod closure-annotated-let-field)
+
+(type holder (struct (g (fn () :void))))
+
+(fn f :void ((x :i64))
+  (let g :
+    (fn () :void)
+    (fn :void ()
+      (println x)))
+  (letmut s holder (make holder g)))

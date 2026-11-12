@@ -1,0 +1,12 @@
+(mod result-set-after-move)
+
+(type e (enum (bad :i64)))
+
+(fn g :
+  (res (own :i64) e) ()
+  (ret (ok (alloc :i64 4))))
+
+(fn f :void ()
+  (letmut r (g))
+  (match r ((ok p) (free p)) ((err _) (println 0)))
+  (set r (g)))

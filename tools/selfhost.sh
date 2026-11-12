@@ -57,11 +57,31 @@ FLOOR=100
 # imported file must fail to lex.
 RESOLVE_FLOOR=14
 # The checker's list names exactly the corpus cases the checker decides: the
-# declaration cases, the scalar and control-flow body cases, and the calls,
-# containers, strings and memory forms the W6 B3 pass reads. Thirty-three
-# today; a pruned list is a failure, not a smaller pass.
+# declaration cases, the scalar and control-flow body cases, the calls,
+# containers, strings and memory forms the W6 B3 pass reads, the ownership
+# rules of W6 C1 (moves, frees, E0302/E0303, E0402, E0005) and the narrowed
+# E0107 deferral, the ref rules of W6 C2 (E0304 at the argument shape and
+# E0305 at every escape site, plus the ref payloads of `some`/`ok`, the E0107
+# deferral keyed on that payload, E0304's mutability rule, and the nested payload
+# rule that walks a ref through `some`/`ok`/`err` however deeply it is carried),
+# and the results and optionals of W6 C3 (a typed `some`/`none`/`ok`/`err`,
+# `try` with E0601, result obligations with E0602, matches that must name every
+# variant with E0600, and the four ref escapes the C2 re-review found), and the
+# four C3 fix-round shapes that need the handled bit to survive a move or a
+# capture (a `set` of a moved result, a copy of an owned result, a capturing
+# closure handed to a callee, and a generic call whose result is never handled),
+# and the C4 concurrency surface: threads with their argument, return and
+# generic-target rules, channels with their element, capacity and `shared`
+# marker rules, mutexes and atomics, closures with their captures and their
+# result obligations, and the five ref escapes those forms used to hide (a
+# capture, `send`, `spawn` and a function value built from a closure), and the
+# C4 fix round's annotated-`let`/`set` capture flag, its payload constructors
+# and the closure `let`-shadowing order, and the two fixtures the PR C whole-branch
+# review found unlisted: `sibling-set` (E0300 behind a deferred `deref`) and
+# `ref-not-mutable` (E0304 at a ref argument).
+# One hundred and twenty-two today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=33
+CHECK_FLOOR=122
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

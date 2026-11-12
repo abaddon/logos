@@ -1,0 +1,7 @@
+(mod opt-nested-ptr)
+
+(fn f :void ((v :i64))
+  (letmut o
+    (opt (opt (ptr :i64)))
+    (some (some v)))
+  (ret))

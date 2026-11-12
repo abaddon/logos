@@ -391,15 +391,20 @@
   (letmut snap
     (vec :i64)
     (make (vec :i64)))
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "x" -1 1 0 0 -1)
+  (letmut bctl
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push bctl 0)
+  (vec-push bctl 0)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "x" -1 1 0 0 -1)
   (body-snapshot bv bk bvl snap)
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "x" -1 2 0 1 -1)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "x" -1 2 0 1 -1)
   (println (str-concat "shadow " (str-from-i64 (body-find bk bvl bsl "x"))))
   (vec-set bv 0 1)
   (body-restore bv bvl snap)
   (println (if (= (body-find bk bvl bsl "x") 0) "outer" "wrong"))
   (println (if (= (vec-get bv 0) 0) "restored" "leaked"))
-  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl "y" -1 3 0 1 -1)
+  (body-bind nodes ntexts bn bt bm bv bu bd bk bvl bsl bctl "y" -1 3 0 1 -1)
   (println (if (> (body-find bk bvl bsl "y") 0) "new" "absent"))
   (body-restore bv bvl snap)
   (println (if (= (body-find bk bvl bsl "y") -1) "absent" "leaked"))
@@ -416,7 +421,8 @@
   (vec-free bk)
   (vec-free bvl)
   (vec-free bsl)
-  (vec-free snap))
+  (vec-free snap)
+  (vec-free bctl))
 
 (test if-accepted
   (expect (out "OK\n")
@@ -1179,3 +1185,1107 @@
     (code 0)
     (leaks 0))
   (dump-src "(type e (enum (a :i64))) (fn f :i64 ((x e)) (match x ((a n) (ret 0))))"))
+
+(test move-double-free
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 2)) (free p) (free p))"))
+
+(test move-read-after-free
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 1)) (free p) (ret p))"))
+
+(test move-immutable
+  (expect (out "E0302\nm/f/3\ncannot move out of immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (let q p))"))
+
+(test move-immutable-call
+  (expect (out "E0302\nm/f/3\ncannot move out of immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :void ((p (own :i64))) (free p)) (fn f :void () (let p (alloc :i64 1)) (g p))"))
+
+(test move-letmut-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut p (alloc :i64 1)) (letmut q p) (free q) (ret 0))"))
+
+(test move-vec-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut v (make (vec :i64))) (letmut w v) (let n (vec-len w)) (vec-free w) (ret n))"))
+
+(test move-loop-free
+  (expect (out "E0303\nm/f/3/1\na binding declared outside a loop cannot be released or moved inside it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 2)) (while false (free p)) (free p) (ret 0))"))
+
+(test move-loop-own-body
+  (expect (out "E0300\nm/f/2/3\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (while c (letmut p (alloc :i64 1)) (free p) (free p)))"))
+
+(test move-match-arm
+  (expect (out "E0300\nm/f/3/1/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b))) (fn f :void ((x e)) (letmut p (alloc :i64 1)) (match x ((a) (free p) (free p)) ((b) 0)))"))
+
+(test move-join-if
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (let p (alloc :i64 1)) (if c (free p) (free p)) (free p))"))
+
+(test move-join-set
+  (expect (out "E0300\nm/f/4\nset of moved binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut p (alloc :i64 1)) (free p) (set p (alloc :i64 1)))"))
+
+(test move-vec-twice
+  (expect (out "E0402\nm/f/4\na value containing a vector is not copyable; 'v' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((v (vec :i64))) (ret (vec-len v))) (fn f :i64 () (letmut v (make (vec :i64))) (g v) (g v) (ret 0))"))
+
+(test move-owner-twice
+  (expect (out "E0402\nm/f/4\na value containing an owner is not copyable; 'p' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 ((p (own :i64))) (free p) (ret 0)) (fn f :i64 () (letmut p (alloc :i64 1)) (g p) (g p) (ret 0))"))
+
+(test move-if-owner
+  (expect (out "E0402\nm/f/4/1\nan owning value cannot be selected by if or match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((c :bool)) (let a (alloc :i64 1)) (let b (alloc :i64 1)) (let p (if c a b)) (free p) (ret true))"))
+
+(test move-if-vec
+  (expect (out "E0402\nm/f/4/1\na vector cannot be selected by if or match\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :bool ((c :bool)) (letmut a (make (vec :i64))) (letmut b (make (vec :i64))) (let v (if c a b)) (vec-free v) (ret true))"))
+
+(test move-if-temp-owner
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (if c (free (alloc :i64 1)) (free (alloc :i64 1))))"))
+
+(test move-vec-push-twice
+  (expect (out "E0300\nm/f/5\nuse after move of 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut w (make (vec (vec :i64)))) (letmut v (make (vec :i64))) (vec-push w v) (vec-push w v) (ret 0))"))
+
+(test move-vec-free-twice
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (letmut v (make (vec :i64))) (vec-free v) (vec-free v) (let n (vec-len v)) (ret n))"))
+
+(test move-unused-vec-temp
+  (expect (out "E0107\nm/f/2\nunused binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let v (vec :i64) (make (vec :i64))) (ret 0))"))
+
+(test move-unused-args
+  (expect (out "E0107\nm/f/2\nunused binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let v (args)) (ret 0))"))
+
+(test move-ret-owner
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :(own :i64) () (letmut p (alloc :i64 1)) (ret p))"))
+
+(test move-unknown-ret
+  (expect (out "E0005\nm/f/2\nunknown name 'zzz'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret zzz))"))
+
+(test move-unknown-let
+  (expect (out "E0005\nm/f/2\nunknown name 'zzz'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x zzz) (ret x))"))
+
+(test move-unknown-fn-binding
+  (expect (out "E0005\nm/f/2\nunknown name 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 () (let y 1) (ret y)) (fn f :i64 () (ret y))"))
+
+(test move-unknown-first-diag
+  (expect (out "E0005\nm/f/2/1/2\nunknown name 'r'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (while false (let y 1) (set r y)) (ret y)) (ret r))"))
+
+(test move-fn-value-not-unknown
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 () (ret 1)) (fn f :i64 () (let x g) (ret 0))"))
+
+(test move-variant-value-not-unknown
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a) (b :i64))) (fn f :i64 () (let x a) (ret 0))"))
+
+(test move-loop-arm-decl
+  (expect (out "E0303\nm/f/2/1/2/1\na binding declared outside a loop cannot be released or moved inside it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a))) (fn f :void ((x e) (c :bool)) (match x ((a) (let p (alloc :i64 1)) (while c (free p)))))"))
+
+(test move-loop-local
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (while c (let p (alloc :i64 1)) (free p)))"))
+
+(test move-loop-arm-local
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (a))) (fn f :void ((x e) (c :bool)) (match x ((a) (while c (let p (alloc :i64 1)) (free p)))))"))
+
+(test defer-deref-own-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (deref q)))"))
+
+(test defer-ptr-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (ptr q)))"))
+
+(test defer-ptr-add-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((q (own :i64))) (let p (ptr-add (ptr q) 1)))"))
+
+(test defer-some-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let x (some 1)))"))
+
+(test defer-deref-place-silent
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (ptr (own :i64)))) (let q (deref p)))"))
+
+(test closure-capture-ref-e0305
+  (expect (out "E0305\nm/peek/2/1/2\na ref cannot escape the call: a closure captures 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn peek :i64 ((v (ref (vec :i64)))) (let g (fn :i64 () (vec-len v))) (ret 0))"))
+
+(test defer-deref-moved-e0300
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c :bool)) (letmut p (alloc :i64 2)) (if c (free p) (set p (alloc :i64 1))) (let x :i64 (deref p)))"))
+
+(test extern-value-not-in-build
+  (expect (out "E0103\nm/f/2\ncannot use 'abs' as a function value: 'abs' is not part of this build\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn abs :i64 ((x :i64))) (fn f :i64 () (let x abs) (ret 0))"))
+
+(test result-ok-pending-e0602
+  (expect (out "E0602\nm/f/2\nthe result of 'c' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (ok 1)) (ret 0))"))
+
+(test result-err-pending-e0602
+  (expect (out "E0602\nm/f/2\nthe result of 'c' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :i64 () (let c (res :i64 e) (err (bad))) (ret 0))"))
+
+(test result-ok-infer-e0100
+  (expect (out "E0100\nm/f/2/1\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c (ok 1)) (ret 0))"))
+
+(test result-err-infer-e0100
+  (expect (out "E0100\nm/f/2/1\ncannot infer the result type of 'err': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c (err 1)) (ret 0))"))
+
+(test result-ok-annotated-e0100
+  (expect (out "E0100\nm/f/2/2\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let c :i64 (ok 1)) (ret 0))"))
+
+(test spawn-target-e0103
+  (expect (out "E0103\nm/f/2/1/0\nspawn needs the name of a module function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void () (ret)) (fn f :i64 () (let t (spawn (h))) (ret 0))"))
+
+(test spawn-arity-e0102
+  (expect (out "E0102\nm/f/2/1\n'w' takes 1 argument, got 0\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((a :i64)) (ret)) (fn f :i64 () (let t (spawn w)) (ret 0))"))
+
+(test defer-spawn-name-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 't'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void () (ret)) (fn f :i64 () (let t (spawn h)) (ret 0))"))
+
+(test defer-spawn-arg-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 't'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((a :i64)) (ret)) (fn f :i64 () (let t (spawn w 1)) (ret 0))"))
+
+(test defer-ok-shadowed-e0107
+  (expect (out "E0107\nm/f/3\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let ok (fn :i64 () (ret 1))) (let x (ok)) (ret 0))"))
+
+(test ref-escape-return
+  (expect (out "E0305\nm/same/2\na ref cannot escape the call: returning it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn same (ref (vec :i64)) ((v (ref (vec :i64)))) (ret v))"))
+
+(test ref-escape-field
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: storing it in a field\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type box (struct (v (ref (vec :i64))))) (fn f :void ((v (ref (vec :i64)))) (letmut b box (make box v)))"))
+
+(test ref-escape-set-field
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in a field\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type box (struct (n :i64) (v (ref (vec :i64))))) (fn f :void ((p box) (w (ref (vec :i64)))) (letmut b box p) (set-field b v w))"))
+
+(test ref-escape-push
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: pushing it into a vector\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (ref (vec :i64))) (make (vec (ref (vec :i64))))) (vec-push xs v) (vec-free xs))"))
+
+(test ref-escape-vec-set
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in a vector element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (ref (vec :i64))) (make (vec (ref (vec :i64))))) (vec-set xs 0 v) (vec-free xs))"))
+
+(test ref-escape-array
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: storing it in an array element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut a (arr (ref (vec :i64)) 2) (make (arr (ref (vec :i64)) 2) v v)))"))
+
+(test ref-escape-arr-set
+  (expect (out "E0305\nm/f/3\na ref cannot escape the call: storing it in an array element\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (arr (ref (vec :i64)) 2)) (v (ref (vec :i64)))) (letmut a (arr (ref (vec :i64)) 2) p) (arr-set a 0 v))"))
+
+(test ref-escape-payload
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in enum 'e'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad (ref (vec :i64))))) (fn f :void ((v (ref (vec :i64)))) (letmut e e (bad v)))"))
+
+(test ref-escape-alloc
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: allocating a block of it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut p (own (ref (vec :i64))) (alloc (ref (vec :i64)) 1)) (free p))"))
+
+(test ref-escape-argument
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: passing it to argument 1 of 'take'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((v (vec :i64))) (vec-free v)) (fn f :void ((w (ref (vec :i64)))) (take w))"))
+
+(test ref-escape-function-value
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: passing it to a function value, which may outlive the call\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((g (fn ((ref (vec :i64))) :void)) (w (ref (vec :i64)))) (g w))"))
+
+(test ref-read-through
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn peek :i64 ((v (ref (vec :i64)))) (ret (vec-len v)))"))
+
+(test ref-two-params
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn both :i64 ((a (ref (vec :i64))) (b (ref (vec :i64)))) (ret (+ (vec-len a) (vec-len b))))"))
+
+(test ref-pass-through
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn inner :void ((v (ref (vec :i64)))) (vec-push v 1)) (fn outer :void ((w (ref (vec :i64)))) (inner w))"))
+
+(test ref-letmut-argument
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((v (ref (vec :i64)))) (vec-push v 1)) (fn f :void () (letmut v (vec :i64) (make (vec :i64))) (grow v) (vec-free v))"))
+
+(test ref-escape-optional
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((v (ref (vec :i64)))) (letmut o (opt (ref (vec :i64))) (some v)) (ret o))"))
+
+(test ref-escape-optional-bare
+  (expect (out "E0305\nm/f/2/1\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (some v)) (ret))"))
+
+(test ref-escape-optional-return
+  (expect (out "E0305\nm/f/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((v (ref (vec :i64)))) (ret (some v)))"))
+
+(test ref-escape-result
+  (expect (out "E0305\nm/f/2/2\na ref cannot escape the call: carrying it in a result\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type failure (enum (bad))) (fn f (res (ref (vec :i64)) failure) ((v (ref (vec :i64)))) (letmut o (res (ref (vec :i64)) failure) (ok v)) (ret o))"))
+
+(test ref-optional-int-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt :i64) (some 1)) (ret))"))
+
+(test ref-none-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (ref (vec :i64))) (none)) (ret))"))
+
+(test ref-arg-immutable-alias
+  (expect (out "E0304\nm/f/3\na ref argument must be a mutable binding, and 'r' is not\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((v (ref (vec :i64)))) (let r v) (grow r) (ret))"))
+
+(test ref-arg-immutable-param
+  (expect (out "E0304\nm/f/2\na ref argument must be a mutable binding, and 'n' is not\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((n :i64)) (grow n) (ret))"))
+
+(test ref-letmut-alias
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn grow :void ((x (ref (vec :i64)))) (vec-push x 1)) (fn f :void ((v (ref (vec :i64)))) (letmut r v) (grow r) (ret))"))
+
+(test ref-escape-optional-nested
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-deep
+  (expect (out "E0305\nm/f/2/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (opt (ref (vec :i64))))) (some (some (some v)))) (ret))"))
+
+(test ref-escape-optional-nested-return
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (ret (some (some v))))"))
+
+(test ref-escape-result-nested
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad))) (fn f :void ((v (ref (vec :i64)))) (letmut r (res (opt (ref (vec :i64))) e) (ok (some v))) (ret))"))
+
+(test ref-escape-optional-nested-bare
+  (expect (out "E0305\nm/f/2/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-vector
+  (expect (out "E0305\nm/f/3/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut xs (vec (opt (ref (vec :i64)))) (make (vec (opt (ref (vec :i64)))))) (vec-push xs (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-set
+  (expect (out "E0305\nm/f/3/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (none)) (set o (some (some v))) (ret))"))
+
+(test ref-escape-optional-nested-branch
+  (expect (out "E0305\nm/f/2/2/1/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((b :bool) (v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (if b (some (some v)) (none))) (ret))"))
+
+(test ref-optional-nested-empty
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (none)) (ret o))"))
+
+(test ref-optional-nested-none
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (opt (ref (vec :i64)))) ((v (ref (vec :i64)))) (letmut o (opt (opt (ref (vec :i64)))) (some (none))) (ret o))"))
+
+(test ref-optional-int-nested-e0107
+  (expect (out "E0107\nm/f/2\nunused binding 'o'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (opt :i64)) (some (some 1))) (ret))"))
+
+(test result-some-if-escape
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((b :bool) (v (ref (vec :i64)))) (ret (some (if b v v))))"))
+
+(test result-some-match-escape
+  (expect (out "E0305\nm/f/2/0/0\na ref cannot escape the call: carrying it in an optional\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f (opt (ref (vec :i64))) ((n :i64) (v (ref (vec :i64)))) (ret (some (match n (0 v) (_ v)))))"))
+
+(test result-err-enum-escape
+  (expect (out "E0305\nm/f/2/2/0\na ref cannot escape the call: carrying it in enum 'e'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad (ref (vec :i64))) (plain))) (fn f :void ((v (ref (vec :i64)))) (letmut r (res :i64 e) (err (bad v))) (ret))"))
+
+(test result-err-payload-fit
+  (expect (out "E0100\nm/f/2/2/0\nvariant 'bad' holds :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn f :void () (letmut r (res :i64 e) (err (bad \"s\"))) (ret))"))
+
+(test result-opt-nested-ptr
+  (expect (out "E0100\nm/f/2/2/0\n'some' expects (ptr :i64), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v :i64)) (letmut o (opt (opt (ptr :i64))) (some (some v))) (ret))"))
+
+(test result-opt-nested-ref
+  (expect (out "E0100\nm/f/2/2/0\n'some' expects (ref (vec :i64)), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut o (opt (opt (ref (vec :i64)))) (some (some 1))) (ret))"))
+
+(test result-some-fit
+  (expect (out "E0100\nm/f/2/3\n'some' expects :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let o :(opt :i64) (some \"x\")) (println 1))"))
+
+(test result-none-infer
+  (expect (out "E0100\nm/f/2/1\ncannot infer the element type of 'none': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let o (none)) (println 1))"))
+
+(test result-ok-infer
+  (expect (out "E0100\nm/f/2/0\ncannot infer the result type of 'ok': annotate the binding or the return type\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (ok 1)))"))
+
+(test result-try-ok
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let v (try (g))) (ret (ok v)))"))
+
+(test result-try-nonresult-fn
+  (expect (out "E0601\nm/f/2/0\nfunction 'f' returns :i64, so it cannot propagate (res :i64 e)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :i64 () (ret (try (g))))"))
+
+(test result-try-diff-err
+  (expect (out "E0601\nm/f/3/1\ncannot 'try' a result whose error is e: function 'f' returns (res :i64 other)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (type other (enum (nope))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 other) () (let v (try (g))) (ret (ok v)))"))
+
+(test result-try-nonresult
+  (expect (out "E0601\nm/f/2/0\n'try' needs a result, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (try 1)))"))
+
+(test result-try-arity
+  (expect (out "E0102\nm/f/3/1\n'try' takes one result\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let v (try (g) (g))) (ret (ok v)))"))
+
+(test result-match-miss-err
+  (expect (out "E0600\nm/f/2/0\nthis match on (res :i64 e) does not handle 'err'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :i64 () (ret (match (g) ((ok v) v))))"))
+
+(test result-opt-match-miss-none
+  (expect (out "E0600\nm/f/2/0\nthis match on (opt :i64) does not handle 'none'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (ret (match (some 1) ((some v) v))))"))
+
+(test result-unhandled-stmt
+  (expect (out "E0602\nm/f/2\nthis (res :i64 e) is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (g))"))
+
+(test result-unhandled-let
+  (expect (out "E0602\nm/f/2\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (println 1))"))
+
+(test result-unhandled-param
+  (expect (out "E0602\nm/take/1/0\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn take :void ((r (res :i64 e))) (println 1))"))
+
+(test result-carried-optional
+  (expect (out "E0602\nm/f/2/1/0\nthis result cannot be carried in an optional: handle it first\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let o (some (g))) (println 1))"))
+
+(test result-set-unhandled
+  (expect (out "E0602\nm/f/3\ncannot overwrite 'r': its result was never handled\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (letmut r (g)) (set r (g)))"))
+
+(test result-bound-handled
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (match r ((ok v) (println v)) ((err _) (println 0))))"))
+
+(test result-returned
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :(res :i64 e) () (let r (g)) (ret r))"))
+
+(test result-passed
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn take :void ((r (res :i64 e))) (match r ((ok v) (println v)) ((err _) (println 0)))) (fn f :void () (let r (g)) (take r))"))
+
+(test result-some-vector
+  (expect (out "E0402\nm/f/3/1\na vector cannot be carried in an optional yet\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut v (vec :i64) (make (vec :i64))) (let o (some v)) (ret))"))
+
+(test result-some-own
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut p (alloc :i64 1)) (let o (some p)) (match o ((some q) (free q)) (none (println 0))))"))
+
+(test result-set-in-branch
+  (expect (out "E0602\nm/f/2\nthe result of 'r' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void ((b :bool)) (letmut r (g)) (match r ((ok v) (println v)) ((err _) (println 0))) (if b (set r (g)) (println 1)) (println 2))"))
+
+(test result-handle-one-branch
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64) (plain))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void ((b :bool)) (let r (g)) (if b (match r ((ok v) (println v)) ((err _) (println 0))) (println 1)) (println 2))"))
+
+(test result-try-move-only
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn f :(res :i64 e) () (let r (g)) (let v (try r)) (free v) (ret (ok 1)))"))
+
+(test result-set-after-match-moved
+  (expect (out "E0300\nm/f/4\nset of moved binding 'r'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn f :void () (letmut r (g)) (match r ((ok p) (free p)) ((err _) (println 0))) (set r (g)))"))
+
+(test result-copy-after-move-own
+  (expect (out "E0402\nm/f/4\na value containing an owner is not copyable; 'r' moved\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn h :void ((p (res (own :i64) e))) (match p ((ok q) (free q)) ((err _) (println 0)))) (fn f :void () (let r (g)) (let r2 r) (h r))"))
+
+(test result-handled-then-passed
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res (own :i64) e) () (ret (ok (alloc :i64 1)))) (fn h :void ((p (res (own :i64) e))) (match p ((ok q) (free q)) ((err _) (println 0)))) (fn f :void () (let r (g)) (h r))"))
+
+(test result-spawn-handoff
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn take :void ((r (res :i64 e))) (match r ((ok v) (println v)) ((err _) (println 0)))) (fn f :void () (let r (g)) (spawn take r) (println 1))"))
+
+(test result-closure-capture
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (let c (fn :void () (match r ((ok v) (println v)) ((err _) (println 0))))) (c))"))
+
+(test result-closure-capture-escapes
+  (expect (out "E0502\nm/f/3/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn h :void ((c (fn () :void))) (c)) (fn f :void () (let r (g)) (h (fn :void () (match r ((ok v) (println v)) ((err _) (println 0))))))"))
+
+(test result-generic-argument
+  (expect (out "E0602\nm/f/3\nthe result of 'z' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn same :T ((x :T)) :T (ret x)) (fn f :void () (let r (g)) (let z (same r)))"))
+
+(test c4-spawn-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void () (ret)) (fn f :void () (let t (spawn w)) (join t))"))
+
+(test c4-spawn-result-arg-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn take :void ((r (res :i64 e))) (match r ((ok v) (println v)) ((err _) (println 0)))) (fn f :void () (let r (g)) (spawn take r) (println 1))"))
+
+(test c4-spawn-nocapture-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((g (fn () :void))) (g)) (fn f :void () (spawn w (fn :void () (println 1))))"))
+
+(test c4-spawn-own
+  (expect (out "E0402\nm/f/3\na thread argument is copied into the new thread; a value that owns memory cannot be copied across\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((p (own :i64))) (free p)) (fn f :void () (let p (alloc :i64 1)) (spawn w p))"))
+
+(test c4-spawn-ret
+  (expect (out "E0100\nm/f/2/1\na thread's function must return :void, found (res :i64 e)\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn w :(res :i64 e) () (ret (ok 1))) (fn f :void () (let t (spawn w)) (join t))"))
+
+(test c4-spawn-ref
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: passing it to a thread as argument 1\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((r (ref (vec :i64)))) (ret)) (fn f :void ((v (ref (vec :i64)))) (spawn w v))"))
+
+(test c4-spawn-capture
+  (expect (out "E0502\nm/f/2/1\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((g (fn () :void))) (g)) (fn f :void ((x :i64)) (spawn w (fn :void () (println x))))"))
+
+(test c4-spawn-arity
+  (expect (out "E0102\nm/f/2\n'w' takes 1 argument, got 0\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((n :i64)) (println n)) (fn f :void () (spawn w))"))
+
+(test c4-spawn-generic
+  (expect (out "E0501\nm/f/2/1\nw is generic: a thread needs a signature with no type variables\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((x :T)) (ret)) (fn f :void ((n :i64)) (let t (spawn w n)) (join t))"))
+
+(test c4-spawn-arg-type
+  (expect (out "E0100\nm/f/2\nargument 1 of 'w' expects :i64, found :bool\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((n :i64)) (println n)) (fn f :void () (spawn w true))"))
+
+(test c4-send-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan :i64 1)) (send c 7) (let n (recv c)) (println n))"))
+
+(test c4-send-ref
+  (expect (out "E0305\nm/f/2\na ref cannot escape the call: sending it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c (shared (chan :i64))) (v (ref (vec :i64)))) (send c v))"))
+
+(test c4-send-element
+  (expect (out "E0100\nm/f/3\nthis channel carries :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan :i64 1)) (send c \"x\"))"))
+
+(test c4-send-moved
+  (expect (out "E0300\nm/f/3\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((c (shared (chan :i64))) (p (own :i64))) (free p) (send c p))"))
+
+(test c4-chan-void
+  (expect (out "E0100\nm/f/2/1\na channel cannot carry :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan :void 1)))"))
+
+(test c4-chan-owner
+  (expect (out "E0002\nm/f/2/1\na channel cannot carry a value that owns memory\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan (own :i64) 1)))"))
+
+(test c4-chan-vec
+  (expect (out "E0002\nm/f/2/1\na channel cannot carry a vector: its buffer has no copy\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan (vec :i64) 1)))"))
+
+(test c4-chan-empty
+  (expect (out "E0002\nm/f/2/1\na channel of an empty type is not supported\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan (arr :i64 0) 4)))"))
+
+(test c4-chan-ptr
+  (expect (out "E0700\nm/f/2/1/0\nshared state must be marked '(shared ...)'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan (ptr :i64) 1)))"))
+
+(test c4-chan-cap
+  (expect (out "E0100\nm/f/2/1\nchannel capacity must be an integer, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan :i64 \"four\")))"))
+
+(test c4-chan-arity
+  (expect (out "E0102\nm/f/2/1\nchan takes an element type and a capacity\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let c (chan :i64)))"))
+
+(test c4-chan-struct-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type cell (struct (v :i64))) (fn f :void () (let c (chan cell 1)) (send c (make cell 1)) (let got (recv c)) (println (get got v)))"))
+
+(test c4-mutex-atomic-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut m (mutex)) (letmut a (atomic :i64 0)) (lock m) (atomic-add a 1) (unlock m) (println (atomic-load a)))"))
+
+(test c4-lock-bare
+  (expect (out "E0700\nm/f/1/0\nshared state must be marked '(shared ...)'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((m :mutex)) (lock m))"))
+
+(test c4-lock-type
+  (expect (out "E0100\nm/f/2\nlock needs a (shared :mutex), found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((n :i64)) (lock n))"))
+
+(test c4-mutex-arity
+  (expect (out "E0102\nm/f/2/1\nmutex takes no arguments\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let m (mutex 1)))"))
+
+(test c4-atomic-type
+  (expect (out "E0100\nm/f/2/1\nan atomic needs :i64 or :u64, found :i32\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let a (atomic :i32 0)))"))
+
+(test c4-atomic-value
+  (expect (out "E0100\nm/f/2/1\nthis atomic holds :i64, found :str\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let a (atomic :i64 \"x\")))"))
+
+(test c4-atomic-bare
+  (expect (out "E0700\nm/f/1/0/1\nshared state must be marked '(shared ...)'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((a :(atomic :i64))) (atomic-load a))"))
+
+(test c4-join-type
+  (expect (out "E0100\nm/f/2\njoin needs a :thread, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((n :i64)) (join n))"))
+
+(test c4-closure-capture-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (let g (fn :void () (println x))) (g))"))
+
+(test c4-closure-arg-accepted
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void () (h (fn :void () (println 1))))"))
+
+(test c4-closure-capture-ref
+  (expect (out "E0305\nm/f/2/1/2/0\na ref cannot escape the call: a closure captures 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((v (ref (vec :i64)))) (let g (fn :i64 () (ret (vec-len v)))) (println (g)))"))
+
+(test c4-closure-capture-own
+  (expect (out "E0100\nm/f/2/1/2\ncannot capture 'p' of type (own :i64) in a closure: its environment holds copies\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((p (own :i64))) (let g (fn :void () (free p))) (g))"))
+
+(test c4-closure-set-capture
+  (expect (out "E0104\nm/f/3/1/2\ncannot set immutable binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (letmut x :i64 1) (let g (fn :void () (set x 2))) (g))"))
+
+(test c4-closure-ret-capture
+  (expect (out "E0502\nm/f/3/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((x :i64)) (ret (fn :void () (println x))))"))
+
+(test c4-closure-arg-capture
+  (expect (out "E0502\nm/f/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void ((x :i64)) (h (fn :void () (println x))))"))
+
+(test c4-closure-result-body
+  (expect (out "E0602\nm/f/4/1/2\nthis (res :i64 e) is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (letmut b :bool true) (let r (g)) (let c (fn :void () (if b r r))) (c))"))
+
+(test c4-closure-result-let
+  (expect (out "E0602\nm/f/3/1/2\nthe result of 'z' is never handled: match it or 'try' it\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn g :(res :i64 e) () (ret (ok 1))) (fn f :void () (let r (g)) (let c (fn :void () (let z r))) (c))"))
+
+(test c4-closure-field
+  (expect (out "E0502\nm/f/2/2/1\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type holder (struct (f (fn () :void)))) (fn f :void ((x :i64)) (letmut h holder (make holder (fn :void () (println x)))))"))
+
+(test c4-closure-missing-ret
+  (expect (out "E0105\nm/f/2/1\nclosure must return :i64 but a path falls off the end\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let g (fn :i64 () (println 1))) (ret (g)))"))
+
+(test c4-closure-param-void
+  (expect (out "E0100\nm/f/2/1/1/0\nparameter 'x' cannot be :void\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let g (fn :void ((x :void)) (println x))) (g 1))"))
+
+(test c4-closure-param-dup
+  (expect (out "E0003\nm/f/2/1/1/1\nduplicate definition 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let g (fn :void ((x :i64) (x :i64)) (println x))) (g 1 2))"))
+
+(test c4-name-arg-capture
+  (expect (out "E0502\nm/f/3\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void ((x :i64)) (let c (fn :void () (println x))) (h c))"))
+
+(test c4-name-arg-nocapture
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void () (let c (fn :void () (println 1))) (h c))"))
+
+(test c4-name-ret-capture
+  (expect (out "E0502\nm/f/4\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((x :i64)) (let c (fn :void () (println x))) (ret c))"))
+
+(test c4-name-spawn-capture
+  (expect (out "E0502\nm/f/3\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn w :void ((g (fn () :void))) (ret)) (fn f :void ((x :i64)) (let c (fn :void () (println x))) (spawn w c))"))
+
+(test c4-name-field-capture
+  (expect (out "E0502\nm/f/3/2\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type holder (struct (g (fn () :void)))) (fn f :void ((x :i64)) (let c (fn :void () (println x))) (letmut s holder (make holder c)))"))
+
+(test c4-spawn-extern
+  (expect (out "E0103\nm/f/2\ncannot start 'ext' as a thread: 'ext' is a test-local helper with no lowered definition\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(extern fn ext :void ((i :i64))) (fn f :void () (spawn ext 1))"))
+
+(test c4-annotated-let-ret
+  (expect (out "E0502\nm/f/5\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) () (let x :i64 1) (let g :(fn () :void) (fn :void () (println x))) (ret g))"))
+
+(test c4-annotated-let-arg
+  (expect (out "E0502\nm/f/3\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn h :void ((c (fn () :void))) (c)) (fn f :void ((x :i64)) (let g :(fn () :void) (fn :void () (println x))) (h g))"))
+
+(test c4-annotated-let-vec
+  (expect (out "E0502\nm/f/4\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (letmut v (vec (fn () :void)) (make (vec (fn () :void)))) (let g :(fn () :void) (fn :void () (println x))) (vec-push v g))"))
+
+(test c4-annotated-let-field
+  (expect (out "E0502\nm/f/3/2\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type holder (struct (g (fn () :void)))) (fn f :void ((x :i64)) (let g :(fn () :void) (fn :void () (println x))) (letmut s holder (make holder g)))"))
+
+(test c4-annotated-set-ret
+  (expect (out "E0502\nm/f/5\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((x :i64)) (letmut c :(fn () :void) (fn :void () (println 1))) (set c (fn :void () (println x))) (ret c))"))
+
+(test c4-annotated-set-loop
+  (expect (out "E0502\nm/f/5/1\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :(fn () :void) ((n :i64) (x :i64)) (letmut c :(fn () :void) (fn :void () (println 1))) (letmut i :i64 0) (while (< i n) (set c (fn :void () (println x))) (break)) (ret c))"))
+
+(test c4-some-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((o (opt (fn () :void)))) (ret)) (fn f :void () (let x :i64 1) (let o (opt (fn () :void)) (some (fn :void () (println x)))) (take o))"))
+
+(test c4-ok-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (bad :i64))) (fn take :void ((o (res (fn () :void) e))) (match o ((ok f) (f)) ((err _) (ret)))) (fn f :void () (let x :i64 1) (let o (res (fn () :void) e) (ok (fn :void () (println x)))) (take o))"))
+
+(test c4-opt-capture-nested
+  (expect (out "E0502\nm/f/3/2/0/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn take :void ((o (opt (opt (fn () :void))))) (ret)) (fn f :void () (let x :i64 1) (let o (opt (opt (fn () :void))) (some (some (fn :void () (println x))))) (take o))"))
+
+(test c4-enum-capture
+  (expect (out "E0502\nm/f/3/2/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (one (fn () :void)))) (fn take :void ((o e)) (ret)) (fn f :void () (let x :i64 1) (let o e (one (fn :void () (println x)))) (take o))"))
+
+(test c4-enum-capture-field
+  (expect (out "E0502\nm/f/2/2/1/0\na closure that captures cannot leave its function\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type e (enum (one (fn () :void)))) (type holder (struct (o e))) (fn f :void ((x :i64)) (letmut h holder (make holder (one (fn :void () (println x))))))"))
+
+(test c4-closure-let-shadow
+  (expect (out "E0003\nm/f/2/1/2\nduplicate definition 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void ((x :i64)) (let g (fn :void () (let x :i64 (+ x 1)) (println x))) (g))"))
+
+(test c4-uaf-deref
+  (expect (out "E0300\nm/f/5/0\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 1)) (set-deref p 7) (free p) (ret (deref p)))"))
+
+(test c4-uaf-ptr
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (let q (ptr :i64) (ptr p)))"))
+
+(test c4-uaf-set-deref
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (set-deref p 7))"))
+
+(test c4-uaf-ptr-add
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (let q (ptr :i64) (ptr-add p 8)))"))

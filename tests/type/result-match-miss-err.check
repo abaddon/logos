@@ -1,0 +1,1 @@
+result-match-miss-err/f/2/0: E0600: this match on (res :i64 e) does not handle 'err'

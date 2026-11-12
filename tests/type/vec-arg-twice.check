@@ -1,0 +1,1 @@
+vec-arg-twice/f/4: E0402: a value containing a vector is not copyable; 'v' moved

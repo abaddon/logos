@@ -1,0 +1,5 @@
+(mod none-infer)
+
+(fn f :void ()
+  (let o (none))
+  (println 1))

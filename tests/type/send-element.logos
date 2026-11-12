@@ -1,0 +1,5 @@
+(mod send-element)
+
+(fn f :void ()
+  (let c (chan :i64 1))
+  (send c "x"))

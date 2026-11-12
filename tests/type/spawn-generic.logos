@@ -1,0 +1,8 @@
+(mod spawn-generic)
+
+(fn work :void ((x :T))
+  (ret))
+
+(fn f :void ((n :i64))
+  (let t (spawn work n))
+  (join t))

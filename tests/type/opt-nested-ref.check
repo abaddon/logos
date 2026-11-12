@@ -1,0 +1,1 @@
+opt-nested-ref/f/2/2/0: E0100: 'some' expects (ref (vec :i64)), found :i64

@@ -1,0 +1,12 @@
+(mod closure-some-capture)
+
+(fn take :void ((o (opt (fn () :void))))
+  (ret))
+
+(fn f :void ()
+  (let x :i64 1)
+  (let o
+    (opt (fn () :void))
+    (some (fn :void ()
+            (println x))))
+  (take o))

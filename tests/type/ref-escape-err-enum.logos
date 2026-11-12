@@ -1,0 +1,9 @@
+(mod ref-escape-err-enum)
+
+(type e (enum (bad (ref (vec :i64))) (plain)))
+
+(fn f :void ((v (ref (vec :i64))))
+  (letmut r
+    (res :i64 e)
+    (err (bad v)))
+  (ret))

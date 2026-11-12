@@ -1,0 +1,7 @@
+(mod closure-field)
+
+(type holder (struct (f (fn () :void))))
+
+(fn f :void ((x :i64))
+  (letmut h holder (make holder (fn :void ()
+                                  (println x)))))

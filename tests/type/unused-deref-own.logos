@@ -1,0 +1,4 @@
+(mod unused-deref-own)
+
+(fn f :void ((q (own :i64)))
+  (let p (deref q)))

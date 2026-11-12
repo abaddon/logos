@@ -863,3 +863,33 @@
     (code 0)
     (leaks 0))
   (dump-src-at "src/logosc/check_test.logos" "(mod ord)\n(fn f :void () (let x :u8 256) (ret))\n(fn g :void ((a :i64) (a :i64)))"))
+
+(test unknown-name-other-binding
+  (expect (out "E0005\nm/f/2\nunknown name 'y'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn g :i64 () (let y 1) (ret y)) (fn f :i64 () (ret y))"))
+
+(test unknown-name-first-diagnostic
+  (expect (out "E0005\nm/f/2/1/2\nunknown name 'r'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 ((c :bool)) (if c (while false (let y 1) (set r y)) (ret y)) (ret r))"))
+
+(test unused-move-only-temp
+  (expect (out "E0107\nm/f/2\nunused binding 'v'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let v (vec :i64) (make (vec :i64))) (ret 0))"))
+
+(test unused-unknown-typed-temp
+  (expect (out "E0107\nm/f/2\nunused binding 'x'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let x (args)) (ret 0))"))
+
+(test move-alias-e0302
+  (expect (out "E0302\nm/f/3\ncannot move out of immutable binding 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (let q p))"))

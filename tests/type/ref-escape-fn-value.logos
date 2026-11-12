@@ -1,0 +1,5 @@
+(mod ref-escape-fn-value)
+
+(fn f :void ((g (fn ((ref (vec :i64))) :void)) (w (ref (vec :i64))))
+  (g w)
+  (ret))

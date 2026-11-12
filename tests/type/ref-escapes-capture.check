@@ -1,0 +1,1 @@
+ref-escapes-capture/peek/2/1/2: E0305: a ref cannot escape the call: a closure captures 'v'

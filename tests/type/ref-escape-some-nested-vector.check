@@ -1,0 +1,1 @@
+ref-escape-some-nested-vector/f/3/1/0: E0305: a ref cannot escape the call: carrying it in an optional

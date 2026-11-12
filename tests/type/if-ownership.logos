@@ -1,0 +1,8 @@
+(mod if-ownership)
+
+(fn f :bool ((c :bool))
+  (let a (alloc :i64 1))
+  (let b (alloc :i64 1))
+  (let p (if c a b))
+  (free p)
+  (ret true))

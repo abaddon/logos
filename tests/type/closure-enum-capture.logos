@@ -1,0 +1,12 @@
+(mod closure-enum-capture)
+
+(type e (enum (one (fn () :void))))
+
+(fn take :void ((o e))
+  (ret))
+
+(fn f :void ()
+  (let x :i64 1)
+  (let o e (one (fn :void ()
+                  (println x))))
+  (take o))

@@ -1,0 +1,1 @@
+ref-escape-arr-set/f/3: E0305: a ref cannot escape the call: storing it in an array element

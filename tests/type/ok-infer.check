@@ -1,0 +1,1 @@
+ok-infer/f/2/0: E0100: cannot infer the result type of 'ok': annotate the binding or the return type

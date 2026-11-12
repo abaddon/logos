@@ -1,0 +1,1 @@
+spawn-own/f/3: E0402: a thread argument is copied into the new thread; a value that owns memory cannot be copied across

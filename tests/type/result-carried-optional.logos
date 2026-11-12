@@ -1,0 +1,11 @@
+(mod result-carried-optional)
+
+(type e (enum (bad :i64) (plain)))
+
+(fn g :
+  (res :i64 e) ()
+  (ret (ok 1)))
+
+(fn f :void ()
+  (let o (some (g)))
+  (println 1))

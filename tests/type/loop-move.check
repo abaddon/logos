@@ -1,0 +1,1 @@
+loop-move/f/5/2: E0303: a binding declared outside a loop cannot be released or moved inside it

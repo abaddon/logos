@@ -1,0 +1,6 @@
+(mod move-set)
+
+(fn f :void ()
+  (letmut p (alloc :i64 1))
+  (free p)
+  (set p (alloc :i64 1)))

@@ -1,0 +1,1 @@
+ref-escapes-return/same/2: E0305: a ref cannot escape the call: returning it

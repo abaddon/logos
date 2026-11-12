@@ -1,0 +1,15 @@
+(mod result-closure-escape)
+
+(type e (enum (bad :i64)))
+
+(fn g :
+  (res :i64 e) ()
+  (ret (ok 1)))
+
+(fn h :void ((c (fn () :void)))
+  (c))
+
+(fn f :void ()
+  (let r (g))
+  (h (fn :void ()
+       (match r ((ok v) (println v)) ((err _) (println 0))))))

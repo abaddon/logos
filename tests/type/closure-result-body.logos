@@ -1,0 +1,14 @@
+(mod closure-result-body)
+
+(type e (enum (bad)))
+
+(fn g :
+  (res :i64 e) ()
+  (ret (ok 1)))
+
+(fn f :void ()
+  (letmut b :bool true)
+  (let r (g))
+  (let c (fn :void ()
+           (if b r r)))
+  (c))

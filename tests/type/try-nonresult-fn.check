@@ -1,0 +1,1 @@
+try-nonresult-fn/f/2/0: E0601: function 'f' returns :i64, so it cannot propagate (res :i64 e)

@@ -1,0 +1,11 @@
+(mod spawn-return)
+
+(type e (enum (bad)))
+
+(fn work :
+  (res :i64 e) ()
+  (ret (ok 1)))
+
+(fn f :void ()
+  (let t (spawn work))
+  (join t))

@@ -1,0 +1,11 @@
+(mod closure-annotated-let-arg)
+
+(fn h :void ((c (fn () :void)))
+  (c))
+
+(fn f :void ((x :i64))
+  (let g :
+    (fn () :void)
+    (fn :void ()
+      (println x)))
+  (h g))

@@ -1,0 +1,8 @@
+(mod ref-escape-set-field)
+
+(type box (struct (n :i64) (v (ref (vec :i64)))))
+
+(fn f :void ((p box) (w (ref (vec :i64))))
+  (letmut b box p)
+  (set-field b v w)
+  (ret))

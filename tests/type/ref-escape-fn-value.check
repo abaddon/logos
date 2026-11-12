@@ -1,0 +1,1 @@
+ref-escape-fn-value/f/2: E0305: a ref cannot escape the call: passing it to a function value, which may outlive the call

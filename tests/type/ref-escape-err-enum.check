@@ -1,0 +1,1 @@
+ref-escape-err-enum/f/2/2/0: E0305: a ref cannot escape the call: carrying it in enum 'e'

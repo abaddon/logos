@@ -362,6 +362,27 @@ The fixtures live under `src/logosc/fixtures/`, which is outside the
 and therefore appear in `tools/selfhost-manifest.txt` and are formatted by the
 gate like every other source.
 
+## Cost
+
+Every top-level form's node path is computed once, in `resolve-build`'s own
+sibling walk: it keeps the module prefix and a running slot counter and calls
+`tree-segment` and `tree-join`, exactly what `tree-path` would have returned for
+that form. That is O(1) per definition instead of a second walk. `tree-path`
+re-walks every earlier sibling's subtree to find a target, so calling it once per
+definition made the resolver quadratic in top-level definitions: 500 → 57 MB,
+1,000 → 222 MB, 2,000 → 880 MB, 4,000 → 3,510 MB of peak RSS, and 6,300 wanted
+8.7 GB and was killed. With the path passed down the walk the series is
+500 → 2.4 MB, 1,000 → 3.4 MB, 2,000 → 4.7 MB, 4,000 → 7.7 MB, 8,000 → 14.2 MB
+(×1.35 to ×1.86 per doubling, tending to 2.0 at 16,000 and 32,000 — linear,
+not ×4), and 6,300 → 11.6 MB. The generated-source
+case `build/c1b/gen.py` plus `build/c1b/rss.sh` reproduces both series without a
+tracked `*.logos` file, so the fmt gate and the manifest do not see it.
+`tree-path` stays for the module header, once per file, and for the checker,
+which calls it once per reported error (`check-node-path`, `check.logos:42`) and
+inside one `check-fail` (`check-return-path`). Each of those calls still walks
+the earlier top-level siblings, so the cost is small only because errors are
+rare; a per-node caller would be quadratic again.
+
 ## What it does not do
 
 - **No type checking.** `(fn f :nope () …)` resolves; the checker refuses the
@@ -376,7 +397,7 @@ gate like every other source.
 
 ## Tests
 
-`src/logosc/resolve_test.logos` has 32 cases, each run at `-O0` and `-O2` with
+`src/logosc/resolve_test.logos` has 34 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 1. `module-alone` — `(mod a)` resolves with no output.
@@ -414,6 +435,11 @@ gate like every other source.
     with both file origins.
 32. `stdlib-module` — a fixture in `fixtures/stdlib/` imports `map`, which is
     not beside it, so the loader answers from `src/std/map.logos`.
+33. `late-path-after-unnamed` — a nameless `fn` after two definitions is
+    `E0002` at `m/2`: the slot counter skips the `mod` and numbers the rest.
+34. `late-unknown-node-slot` — an unknown form after a `fn`, a `type` and a
+    `test` is `E0002` at `m/3`, so `test` takes one slot and adds no prefix
+    when it is not itself the target.
 
 The suite is `python3 -m logos test src/logosc/resolve_test.logos --opt -O0
 --opt -O2`, run from the repository root (the fixture paths are relative to

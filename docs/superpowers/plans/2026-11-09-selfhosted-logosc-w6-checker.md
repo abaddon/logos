@@ -80,11 +80,31 @@ as Python reports.
 
 ## PR C — ownership, containers, results, threads
 
-- [ ] C1 moves and frees: E0300–E0303, the leak-balance rule, `free` of a
-      non-owning pointer, a move out of a loop.
-- [ ] C2 `(ref T)`: E0304/E0305 at every escape site.
-- [ ] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602.
-- [ ] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.
+- [x] C1 moves and frees: E0300–E0303, the leak-balance rule, `free` of a
+      non-owning pointer, a move out of a loop; plus E0005 unknown name (which
+      B3's two E0107 suppressions wait on) and narrowing the move-only E0107
+      suppression to the shape Python's E0302 actually decides.
+- [x] C1b the resolver's memory: `resolve` grew quadratically in top-level
+      definitions because `tree-path` was called once per definition and
+      re-walked every earlier sibling's whole subtree. `resolve-build` now
+      computes each top-level form's path once, in its own sibling walk, and
+      passes it down, so peak RSS is linear: 500 → 2.4 MB, 1,000 → 3.4 MB,
+      2,000 → 4.7 MB, 4,000 → 7.7 MB, 8,000 → 14.2 MB (×1.35–1.86 per
+      doubling; before: 57 / 222 / 880 / 3,510 MB, with 6,300 killed at the
+      4 GB cap). Pinned by the generated case `build/c1b/gen.py` +
+      `build/c1b/rss.sh`, two `resolve_test` cases, and the table in
+      `check.md`.
+- [x] C2 `(ref T)`: E0304/E0305 at every escape site.
+- [x] C3 results and optionals: `res`/`opt`, `try`, E0600–E0602. **Type the containers.**
+      `some`/`ok`/`err`/`none` currently yield an unknown type, so no fit gate fires and four
+      accepted ref escapes survive (found by the C2 re-review, all pre-existing):
+      `(some (if b v v))` returned (Python E0305 at `f/2/2/0`; the carries-a-ref walk recurses
+      only into `some`/`ok`/`err`, not `if`/`match`), `(err (bad v))` with a ref-carrying enum
+      payload (Python E0305 `carrying it in enum 'e'`), `(some (some v))` into
+      `(opt (opt (ptr …)))` (Python E0100), and the `E0107` line that shadows the escape when the
+      binding is unused. C3 is not done until the walk covers `if`/`match` and the containers have
+      real types; an accepted ref escape outranks the task boundary, as C2 established.
+- [x] C4 closures, threads, mutexes, atomics, channels: E0502, E0700.
 - [ ] C5 the rest of the negative corpus, and the wave's PR with all fixtures in
       the parity list.
 

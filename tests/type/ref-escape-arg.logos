@@ -1,0 +1,8 @@
+(mod ref-escape-arg)
+
+(fn take :void ((v (vec :i64)))
+  (vec-free v))
+
+(fn f :void ((w (ref (vec :i64))))
+  (take w)
+  (ret))

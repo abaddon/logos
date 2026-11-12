@@ -1,0 +1,6 @@
+(mod closure-ret-capture)
+
+(fn f :
+  (fn () :void) ((x :i64))
+  (ret (fn :void ()
+         (println x))))

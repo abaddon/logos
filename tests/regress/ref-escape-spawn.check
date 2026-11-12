@@ -1,0 +1,1 @@
+ref-escape-spawn/mid/2/2: E0305: a ref cannot escape the call: passing it to a thread as argument 1

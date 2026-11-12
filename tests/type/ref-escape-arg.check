@@ -1,0 +1,1 @@
+ref-escape-arg/f/2: E0305: a ref cannot escape the call: passing it to argument 1 of 'take'
