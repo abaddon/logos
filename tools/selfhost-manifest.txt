@@ -211,8 +211,12 @@ tests/type/ref-escapes-return.logos
 tests/type/ref-not-a-vector.logos
 tests/type/ref-not-mutable.logos
 tests/type/result-carried-optional.logos
+tests/type/result-closure-escape.logos
+tests/type/result-copy-after-move.logos
 tests/type/result-err-payload.logos
+tests/type/result-generic-argument.logos
 tests/type/result-match-miss-err.logos
+tests/type/result-set-after-move.logos
 tests/type/result-unhandled-param.logos
 tests/type/set-result-unhandled.logos
 tests/type/shift-float.logos
