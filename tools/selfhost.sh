@@ -15,7 +15,14 @@
 # stale manifest or a failed build must fail loudly rather than pass over zero
 # files.
 #
-# A second phase judges the resolver-owned negative corpus. Every
+# A second phase compares the lowering. tools/selfhost-ir.txt lists the files
+# whose LLVM IR the port already reproduces: each is lowered by `gen2 build`
+# and by Python's `logos build`, and the two `.ll` files must be equal byte for
+# byte. The list is a subset of the positive corpus — the forms B2 does not
+# lower yet are excluded by name in its header — and IR_FLOOR is the same kind
+# of floor: a pruned list fails rather than passing over fewer files.
+#
+# A third phase judges the resolver-owned negative corpus. Every
 # tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
 # with that exact code; the fixtures are the repository's statement of the
 # resolver's negative behaviour, and this gate is what keeps the Logos port
@@ -25,7 +32,7 @@
 # RESOLVE_FLOOR is the same kind of floor: pruning fixtures
 # below it fails rather than passing over a smaller set.
 #
-# A third phase judges the checker-owned negative corpus. tools/selfhost-check.txt
+# A fourth phase judges the checker-owned negative corpus. tools/selfhost-check.txt
 # lists one fixture per line — only the cases the checker can decide: the
 # declaration rules and the scalar body rules — and
 # each fixture's .check names the whole line `gen2 check` must print, path, code and
@@ -35,11 +42,12 @@
 # is the same kind of floor: a pruned list fails rather than passing over fewer
 # fixtures.
 #
-# Output: one line per fmt, resolve or check failure, then
-# `selfhost: N files, M differences`, `resolve: N fixtures, M differences` and
-# `check: N fixtures, M differences`. Exit 0 when every phase is clean, 1 when
-# any file or fixture differs, 2 when the gate could not run at all (missing
-# manifest or list, count mismatch, no binary).
+# Output: one line per fmt, ir, resolve or check failure, then
+# `selfhost: N files, M differences`, `ir: N files, M differences`,
+# `resolve: N fixtures, M differences` and `check: N fixtures, M differences`.
+# Exit 0 when every phase is clean, 1 when any file or fixture differs, 2 when
+# the gate could not run at all (missing manifest or list, count mismatch, no
+# binary).
 
 set -u -o pipefail
 
@@ -82,6 +90,13 @@ RESOLVE_FLOOR=14
 # One hundred and twenty-two today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
+
+# The lowering parity list: the fixtures whose IR the port already reproduces.
+# Seven today — the seven the spine lowers byte for byte; `string` and `match`
+# are named as known-different in the list's header and are B2's. A pruned list
+# is a failure, not a smaller pass.
+IR_LIST="$ROOT/tools/selfhost-ir.txt"
+IR_FLOOR=7
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"
@@ -149,7 +164,57 @@ done
 
 printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 
-# Phase two: every resolver-owned negative fixture must make `gen2 resolve`
+# Phase two: every listed file's IR from `gen2 build` must equal Python's.
+# Python's oracle is a real `logos build`; its `.ll` lands at build/<stem>.ll,
+# so the previous run's file is removed first and its absence after the build
+# is a difference rather than a stale match. gen2's own output goes under
+# build/selfhost/ir/.
+if [[ ! -f "$IR_LIST" ]]; then
+    printf 'ir: missing list: %s\n' "${IR_LIST#"$ROOT"/}" >&2
+    exit 2
+fi
+mapfile -t IR_FILES < <(grep -v '^[[:space:]]*#' "$IR_LIST" | grep -v '^[[:space:]]*$')
+IR_COUNT=${#IR_FILES[@]}
+if (( IR_COUNT < IR_FLOOR )); then
+    printf 'ir: list names %d files, below the floor of %d\n' "$IR_COUNT" "$IR_FLOOR" >&2
+    exit 2
+fi
+mkdir -p "$OUT/ir"
+
+IDIFFS=0
+for path in "${IR_FILES[@]}"; do
+    stem="$(basename "$path" .logos)"
+    mine="$OUT/ir/$stem.ll"
+    if [[ ! -f "$path" ]]; then
+        printf 'ir: %s: missing file\n' "$path"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    if ! "$BIN" build "$path" -o "$mine" > "$STDOUT" 2> "$STDERR"; then
+        printf 'ir: %s: gen2 build failed: %s\n' "$path" "$(head -n 1 "$STDERR")"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    rm -f "build/$stem.ll"
+    if ! python3 -m logos build "$path" -o "$OUT/ir/$stem.bin" > "$OUT/ir/$stem.log" 2>&1; then
+        printf 'ir: %s: python build failed (log: %s)\n' "$path" "${OUT#"$ROOT"/}/ir/$stem.log"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    if [[ ! -f "build/$stem.ll" ]]; then
+        printf 'ir: %s: python wrote no build/%s.ll\n' "$path" "$stem"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    if ! cmp -s "$mine" "build/$stem.ll"; then
+        printf 'ir: %s: output differs\n' "$path"
+        IDIFFS=$((IDIFFS + 1))
+    fi
+done
+
+printf 'ir: %d files, %d differences\n' "$IR_COUNT" "$IDIFFS"
+
+# Phase three: every resolver-owned negative fixture must make `gen2 resolve`
 # print the code its sidecar demands. A fixture that resolves cleanly, prints
 # no code, or prints another code is one difference.
 #
@@ -217,7 +282,7 @@ done
 
 printf 'resolve: %d fixtures, %d differences\n' "$RESOLVE_COUNT" "$RDIFTS"
 
-# Phase three: every checker-owned fixture must make `gen2 check` print exactly
+# Phase four: every checker-owned fixture must make `gen2 check` print exactly
 # the line its sidecar demands. A fixture the pass accepts, one with another
 # line, and one without a sidecar are each one difference.
 if [[ ! -f "$CHECK_LIST" ]]; then
@@ -259,7 +324,7 @@ for fixture in "${CHECKED[@]}"; do
 done
 
 printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
-if (( DIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 )); then
+if (( DIFFS > 0 || IDIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 )); then
     exit 1
 fi
 exit 0

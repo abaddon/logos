@@ -1,14 +1,16 @@
-# `src/logosc/main.logos` — the `fmt`, `resolve` and `check` verbs and the process contract
+# `src/logosc/main.logos` — the `fmt`, `resolve`, `check` and `build` verbs and the process contract
 
 The entry point of the self-hosted compiler, `gen2`: `logos/cli.py`'s `fmt`
 verb ported to Logos, plus `resolve`, which runs the W5 resolver without a
-checker, and `check`, which runs the W6 declaration pass over the resolved
-module set. The modules before it return values; this one is a program. It owns
-the process boundary — the command line, the exit status and the two output
+checker, `check`, which runs the W6 declaration pass over the resolved module
+set, and `build`, which lowers that module and writes the LLVM IR `emit`
+prints. The modules before it return values; this one is a program. It owns the
+process boundary — the command line, the exit status and the two output
 streams — and nothing else.
 
-Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md` and `check.md` first. This file adds no
-language surface: it calls the modules in the order the Python compiler does.
+Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md`, `check.md`, `lower.md` and
+`emit.md` first. This file adds no language surface: it calls the modules in the
+order the Python compiler does.
 
 ## The command line
 
@@ -16,6 +18,7 @@ language surface: it calls the modules in the order the Python compiler does.
 gen2 fmt <file>
 gen2 resolve <file>
 gen2 check <file>
+gen2 build <file> -o <out>
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -24,15 +27,19 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 | index | holds |
 |---|---|
 | `0` | the program, `gen2` |
-| `1` | the verb, `fmt`, `resolve` or `check` |
-| `2` | the file to format or resolve |
+| `1` | the verb, `fmt`, `resolve`, `check` or `build` |
+| `2` | the file to format, resolve, check or build |
+| `3` | `-o`, for `build` only |
+| `4` | the path `build` writes the IR to |
 
-`main` accepts exactly these three elements. **No arguments, an unknown verb, a
-missing file argument, or any extra argument** prints one line to stderr and
-exits 2:
+`main` accepts exactly three elements for `fmt`, `resolve` and `check`, and
+exactly five for `build`. **No arguments, an unknown verb, a missing file, a
+`build` without its `-o <out>`, or any extra argument** prints the usage to
+stderr and exits 2:
 
 ```
 usage: gen2 <fmt|resolve|check> <file>
+       gen2 build <file> -o <out>
 ```
 
 The usage line is fixed, not derived from `argv[0]`: the gate runs
@@ -118,6 +125,36 @@ checker failure is `E0002`, `E0003`, `E0100`, `E0101`, `E0500`, `E0501`,
 file with an expression error checks and exits 0 — see `check.md` for the
 exact boundary.
 
+`gen2 build` runs the same four steps and then lowers and prints: `lex`,
+`tree-parse`, `resolve-set` and `check-file` exactly as `check` does, then
+`lower-build` over the parsed tree, then `emit` over the arena the lowering
+filled. It writes the emitted IR — the whole text `out[0]` — to the `-o` path,
+prints nothing to either stream, and exits 0. Nothing else is produced: no
+object file, no binary, no `.ll` in a directory of `gen2`'s choosing. `-o`
+names the file, and the parity phase in `tools/selfhost.sh` names it so the
+text can be compared with Python's `build/<stem>.ll`.
+
+The pipeline stops at the first failure and each failure has one shape:
+
+| failure | code | location |
+|---|---|---|
+| the lexer | `E0006` | the token's `file:line:col` |
+| the tree | `E0001` | the offending paren's `file:line:col` |
+| the resolver | `E0002`–`E0005` | the node path, or a `file:line:col` (`main-at`) |
+| the checker | its own code | the node path the checker named |
+| the lowering | `E0002`, `E0102`, `E0103`, … | the node path of the form it refused |
+| `emit` | `E0002` | the module's node path |
+
+A lowering refusal is `lower-error`'s: `lo-fail-at` recorded the form's node
+path, and `lower-code` renders the number (`2` → `E0002`). An `emit` refusal is
+`ir-error`'s, and it carries no path at all — the IR rows name no source node —
+so the diagnostic names the module (`tree-path` of the root, e.g. `m`) and uses
+`E0002` for "this arena cannot be printed". `main-ir-diag` is the one place
+that decides this; the port-only code is documented because Python's compiler
+raises instead of printing. **Neither is a panic**: a failed emit is a line on
+stderr and exit 2, and a bad `-o` path is `gen2 build: cannot write <path>`,
+also exit 2.
+
 ## Functions
 
 | function | returns | meaning |
@@ -134,13 +171,25 @@ exact boundary.
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
+| `main-build file out` | `:i64` | create the arena, run the pipeline, free it, return the status |
+| `main-built file path …` | `:i64` | read, lex, parse, resolve, check, lower, emit, then write the IR |
+| `main-lower-diag file e` | `:i64` | print one lowering diagnostic and return 2 |
+| `main-ir-diag file nodes ntexts e` | `:i64` | print one emitter refusal at the module and return 2 |
+| `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a diagnostic |
+| `main-spit-bad path` | `:i64` | print the output-file failure line and return 2 |
 | `main-diag path code line col msg` | `:i64` | print one lexer/parser diagnostic and return 2 |
-| `main-usage` | `:i64` | print the usage line and return 2 |
+| `main-nothing` | `:void` | the empty `else` branch of an early `ret` |
+| `main-usage` | `:i64` | print the usage lines and return 2 |
 | `main-write s` | `:void` | one `rt_write` to file descriptor 2 |
 
 `main-write` is the only way this module reaches the output streams beyond
 `print`: Logos has no stderr builtin, so the module declares the runtime's
-`rt_write` as an `extern` and writes to descriptor 2. `main` returns the status
+`rt_write` as an `extern` and writes to descriptor 2. `main-spit` reuses the
+same runtime form for the build's output file: `rt_create` opens the path and
+returns a descriptor (`< 0` on failure), `rt_write` writes the whole string,
+and `close` releases it. A `:str` is a pointer and a length, so the two-argument
+`rt_write` declaration is the runtime's three-argument C function — the same
+ABI coincidence `src/std/io.logos` relies on. `main` returns the status
 and the emitted `main` hands it to the C entry point, so the process exits with
 0 or 2; nothing calls `exit`.
 
@@ -153,6 +202,10 @@ and the emitted `main` hands it to the C entry point, so the process exits with
   every path — success, `E0006` and `E0001`;
 - `check`'s two resolver tables (`all` and `mods`), with `vec-free`, on every
   path, before `check-file`'s diagnostic is printed;
+- `build`'s full arena — seventy parallel vectors — with `vec-free`, on every
+  path, including the ones that stop at a lexer, tree, resolver or checker
+  diagnostic. `main-build` is the one function that allocates it, and its
+  `main-built` callee is the one that returns through every early exit;
 - nothing else. `read-file` returns a buffer the runtime owns for the process's
   life, and `fmt` allocates nothing, so no other `free` is owed.
 
@@ -175,8 +228,9 @@ Only those two stdlib files, not the whole `src/std` directory: the stdlib's
 module defines `main`; the `*_test.logos` modules in the set are compiled but
 their `(test …)` bodies are not entry points, so they add no second entry. `use`
 resolves against the build set, which is why `fmt <file>` needs no search path.
-`tools/selfhost.sh` is the caller: it builds this binary and runs it over every
-tracked `.logos` file.
+`tools/selfhost.sh` is the caller: it builds this binary, runs `fmt` over every
+tracked `.logos` file, and then runs `build` over the files in
+`tools/selfhost-ir.txt`, comparing each `.ll` with Python's byte for byte.
 
 ## What it does not do
 
@@ -189,5 +243,14 @@ tracked `.logos` file.
   redirects it.
 - **No stdin.** The Python verb accepts `-`; `gen2 fmt` takes a path. The gate
   always has paths.
+- **No clang, no binary.** `gen2 build` stops at the IR. PR B's contract is the
+  text; invoking the linker driver is `gen2`'s next wave, and until then
+  `tools/selfhost.sh` compares the text with Python's.
+- **One file, one module.** `build` parses the file it is given and lowers the
+  root's children: a `use` is resolved for the checker's benefit but the
+  imported module is not lowered into the same unit, and `mqual` is always
+  false. Every fixture in the parity list is a single module with no `use`;
+  the corpus and the compiler's own source need the import closure, which is
+  PR C's.
 - **No diagnostic for an unreadable file.** That is `read-file`'s `R0007`, with
   its own line, not a fourth code here.

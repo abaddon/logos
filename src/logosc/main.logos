@@ -10,7 +10,17 @@
 
 (use check)
 
+(use lower)
+
+(use ir)
+
+(use emit)
+
 (extern fn rt_write :i64 ((fd :i64) (text :str)))
+
+(extern fn rt_create :i64 ((path :str)))
+
+(extern fn close :i32 ((fd :i64)))
 
 (fn main-write :void ((s :str))
   (let _ :i64 (rt_write 2 s))
@@ -18,6 +28,7 @@
 
 (fn main-usage :i64 ()
   (main-write "usage: gen2 <fmt|resolve|check> <file>\n")
+  (main-write "       gen2 build <file> -o <out>\n")
   (ret 2))
 
 (fn main-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
@@ -91,6 +102,357 @@
   (vec-free mods)
   (ret status))
 
+(fn main-nothing :void ()
+  (ret))
+
+(fn main-lower-diag :i64 ((file :str) (e lower-error))
+  (let at :str (get e path))
+  (main-write (if (str-eq at "") file at))
+  (main-write ": ")
+  (main-write (lower-code (get e code)))
+  (main-write ": ")
+  (main-write (get e message))
+  (main-write "\n")
+  (ret 2))
+
+(fn main-ir-diag :i64 ((file :str) (nod (ref (vec node))) (ntx (ref (vec :str))) (e ir-error))
+  (let at :str (tree-path nod ntx 0 0))
+  (main-write (if (str-eq at "") file at))
+  (main-write ": E0002: ")
+  (main-write (get e text))
+  (main-write "\n")
+  (ret 2))
+
+(fn main-spit-bad :i64 ((path :str))
+  (main-write "gen2 build: cannot write ")
+  (main-write path)
+  (main-write "\n")
+  (ret 2))
+
+(fn main-spit :i64 ((path :str) (text :str))
+  (let fd :i64 (rt_create path))
+  (if (< fd 0)
+    (ret (main-spit-bad path))
+    (main-nothing))
+  (let w :i64 (rt_write fd text))
+  (let _ :i32 (close fd))
+  (ret (if (= w (str-len text)) 0
+         (main-spit-bad path))))
+
+(fn main-built :i64 ((file :str) (path :str) (mqual (ref (vec :i64))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (ewords (ref (vec :i64))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (ptys (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (ops (ref (vec :i64))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (mtriple (ref (vec :str))) (snames (ref (vec :str))) (enames (ref (vec :str))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (pnames (ref (vec :str))) (blabels (ref (vec :str))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (svals (ref (vec :str))) (tnames (ref (vec :str))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (out (ref (vec :str))) (defs (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))))
+  (let src :str (read-file file))
+  (let le lex-error (lex src kinds texts lines cols))
+  (if (lex-ok le)
+    (main-nothing)
+    (ret (main-diag file "E0006"
+           (get le line)
+           (get le col)
+           (get le msg))))
+  (let te tree-error (tree-parse kinds texts lines cols nod ntx))
+  (if (tree-ok te)
+    (main-nothing)
+    (ret (main-diag file "E0001"
+           (get te line)
+           (get te col)
+           (get te msg))))
+  (let re resolve-error (resolve-set nod ntx file defs mods))
+  (if (resolve-ok re)
+    (main-nothing)
+    (ret (main-resolve-diag file re)))
+  (let ce check-error (check-file mods nod ntx))
+  (if (check-ok ce)
+    (main-nothing)
+    (ret (main-check-diag file ce)))
+  (let lw lower-error (lower-build mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx))
+  (if (lower-ok lw)
+    (main-nothing)
+    (ret (main-lower-diag file lw)))
+  (let em ir-error (emit mtriple mqual tags tnames elem extra powner snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals out))
+  (if (ir-good em)
+    (main-nothing)
+    (ret (main-ir-diag file nod ntx em)))
+  (ret (main-spit path (vec-get out 0))))
+
+(fn main-build :i64 ((file :str) (path :str))
+  (letmut mqual
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut sbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut scount
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut sftys
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut ewords
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut dsig
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut dcnt
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut dret
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut sigtys
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fint
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fret
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fcnt
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fparam
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut fpc
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut ptys
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bcnt
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bterm
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bty
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut bhas
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut ops
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut t1
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut t2
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut t3
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut n1
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut sst
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut scn
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tst
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tcn
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tvals
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tags
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut elem
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut extra
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pbase
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut tptypes
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut pchild
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut mtriple
+    (vec :str)
+    (make (vec :str)))
+  (letmut snames
+    (vec :str)
+    (make (vec :str)))
+  (letmut enames
+    (vec :str)
+    (make (vec :str)))
+  (letmut gnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut gdata
+    (vec :str)
+    (make (vec :str)))
+  (letmut dnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut fnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut fsyms
+    (vec :str)
+    (make (vec :str)))
+  (letmut pnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut blabels
+    (vec :str)
+    (make (vec :str)))
+  (letmut bv1
+    (vec :str)
+    (make (vec :str)))
+  (letmut bv2
+    (vec :str)
+    (make (vec :str)))
+  (letmut bv3
+    (vec :str)
+    (make (vec :str)))
+  (letmut dests
+    (vec :str)
+    (make (vec :str)))
+  (letmut sa
+    (vec :str)
+    (make (vec :str)))
+  (letmut sb
+    (vec :str)
+    (make (vec :str)))
+  (letmut sc
+    (vec :str)
+    (make (vec :str)))
+  (letmut sd
+    (vec :str)
+    (make (vec :str)))
+  (letmut svals
+    (vec :str)
+    (make (vec :str)))
+  (letmut tnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut powner
+    (vec :str)
+    (make (vec :str)))
+  (letmut tpnames
+    (vec :str)
+    (make (vec :str)))
+  (letmut pvname
+    (vec :str)
+    (make (vec :str)))
+  (letmut nod
+    (vec node)
+    (make (vec node)))
+  (letmut ntx
+    (vec :str)
+    (make (vec :str)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut defs
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut status :i64 (main-built file path mqual sbase scount sftys ewords dsig dcnt dret sigtys fint fret fbase fcnt fparam fpc ptys bbase bcnt bterm bty bhas ops t1 t2 t3 n1 sst scn tst tcn tvals tags elem extra pbase tptypes pchild mtriple snames enames gnames gdata dnames fnames fsyms pnames blabels bv1 bv2 bv3 dests sa sb sc sd svals tnames powner tpnames pvname nod ntx out defs mods kinds texts lines cols))
+  (vec-free mqual)
+  (vec-free sbase)
+  (vec-free scount)
+  (vec-free sftys)
+  (vec-free ewords)
+  (vec-free dsig)
+  (vec-free dcnt)
+  (vec-free dret)
+  (vec-free sigtys)
+  (vec-free fint)
+  (vec-free fret)
+  (vec-free fbase)
+  (vec-free fcnt)
+  (vec-free fparam)
+  (vec-free fpc)
+  (vec-free ptys)
+  (vec-free bbase)
+  (vec-free bcnt)
+  (vec-free bterm)
+  (vec-free bty)
+  (vec-free bhas)
+  (vec-free ops)
+  (vec-free t1)
+  (vec-free t2)
+  (vec-free t3)
+  (vec-free n1)
+  (vec-free sst)
+  (vec-free scn)
+  (vec-free tst)
+  (vec-free tcn)
+  (vec-free tvals)
+  (vec-free tags)
+  (vec-free elem)
+  (vec-free extra)
+  (vec-free pbase)
+  (vec-free tptypes)
+  (vec-free pchild)
+  (vec-free mtriple)
+  (vec-free snames)
+  (vec-free enames)
+  (vec-free gnames)
+  (vec-free gdata)
+  (vec-free dnames)
+  (vec-free fnames)
+  (vec-free fsyms)
+  (vec-free pnames)
+  (vec-free blabels)
+  (vec-free bv1)
+  (vec-free bv2)
+  (vec-free bv3)
+  (vec-free dests)
+  (vec-free sa)
+  (vec-free sb)
+  (vec-free sc)
+  (vec-free sd)
+  (vec-free svals)
+  (vec-free tnames)
+  (vec-free powner)
+  (vec-free tpnames)
+  (vec-free pvname)
+  (vec-free nod)
+  (vec-free ntx)
+  (vec-free out)
+  (vec-free defs)
+  (vec-free mods)
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (ret status))
+
 (fn main-tree :i64 ((verb :str) (path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (ret (if (tree-ok t)
@@ -150,7 +512,13 @@
            (main-run (vec-get a 1)
              (vec-get a 2))
            (main-usage))
-         (main-usage))))
+         (if (= (vec-len a) 5)
+           (if (and (str-eq (vec-get a 1) "build")
+                 (str-eq (vec-get a 3) "-o"))
+             (main-build (vec-get a 2)
+               (vec-get a 4))
+             (main-usage))
+           (main-usage)))))
 
 (fn main :i64 ()
   (letmut a (args))

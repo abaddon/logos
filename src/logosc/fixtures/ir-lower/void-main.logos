@@ -1,0 +1,4 @@
+(mod void-main)
+
+(fn main :void ()
+  (ret))

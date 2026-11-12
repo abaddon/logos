@@ -40,6 +40,15 @@ src/logosc/fixtures/diamond/base.logos
 src/logosc/fixtures/diamond/left.logos
 src/logosc/fixtures/diamond/right.logos
 src/logosc/fixtures/diamond/root.logos
+src/logosc/fixtures/ir-lower/arith.logos
+src/logosc/fixtures/ir-lower/array.logos
+src/logosc/fixtures/ir-lower/control.logos
+src/logosc/fixtures/ir-lower/extern.logos
+src/logosc/fixtures/ir-lower/float.logos
+src/logosc/fixtures/ir-lower/match.logos
+src/logosc/fixtures/ir-lower/string.logos
+src/logosc/fixtures/ir-lower/struct.logos
+src/logosc/fixtures/ir-lower/void-main.logos
 src/logosc/fixtures/merge/cross-other.logos
 src/logosc/fixtures/merge/cross.logos
 src/logosc/fixtures/merge/imported.logos
@@ -65,6 +74,7 @@ src/logosc/fmt_test.logos
 src/logosc/ir.logos
 src/logosc/lex.logos
 src/logosc/lex_test.logos
+src/logosc/lower.logos
 src/logosc/main.logos
 src/logosc/resolve.logos
 src/logosc/resolve_test.logos

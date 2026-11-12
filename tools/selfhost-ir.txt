@@ -1,0 +1,29 @@
+# The lowering parity corpus: files whose LLVM IR `gen2 build` must reproduce
+# from Python's `logos build`, byte for byte. One repository-relative path per
+# line; blank lines and `#` comments are ignored.
+#
+# One file, one `.ll`: Python leaves its IR at build/<stem>.ll, so two fixtures
+# may not share a stem. Adding a file here is adding a byte-equality claim; a
+# file that only partly agrees makes the gate red.
+#
+# Known-different and deliberately excluded until B2 fixes the lowering:
+#   src/logosc/fixtures/ir-lower/string.logos
+#       `str-len` emits one `extractvalue` for the length; Python emits the
+#       pointer field first and the length second, so the two texts differ at
+#       the first instruction of the gap. Needs: extract field 0, discard it,
+#       then extract field 1.
+#   src/logosc/fixtures/ir-lower/match.logos
+#       `match` opens its first test block without branching into it from
+#       `entry`, so `emit` refuses the module ("block 'entry' has no
+#       terminator") and no `.ll` exists on the port's side. Needs: the `br`
+#       from the current block into the first arm test.
+#
+# The floor in tools/selfhost.sh is the number of lines below: a pruned list
+# fails the gate rather than passing over fewer files.
+src/logosc/fixtures/ir-lower/void-main.logos
+src/logosc/fixtures/ir-lower/arith.logos
+src/logosc/fixtures/ir-lower/struct.logos
+src/logosc/fixtures/ir-lower/array.logos
+src/logosc/fixtures/ir-lower/control.logos
+src/logosc/fixtures/ir-lower/extern.logos
+src/logosc/fixtures/ir-lower/float.logos

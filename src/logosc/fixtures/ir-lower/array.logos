@@ -1,0 +1,11 @@
+(mod arrays)
+
+(fn total :i64 ((a (arr :i64 3)))
+  (ret (+ (arr-get a 0)
+         (arr-get a 2))))
+
+(fn main :i64 ()
+  (let a
+    (arr :i64 3)
+    (make (arr :i64 3) 1 2 3))
+  (ret (total a)))
