@@ -72,6 +72,13 @@ functions`, at `where`. `check-instantiate` is the two together: it mangles the
 name, then memoises the target and answers its index, so PR B's call site needs
 one call, not two.
 
+E0500 fires only inside `check-instance-add`, and no program reaches it through
+`gen2 check` today: the 257th instantiation is only counted once a call site
+unifies its arguments, and the port treats every generic call site as unknown
+(see "What it deliberately does not decide"). `tests/generics/limit.logos`
+therefore carries a `.expect` and is accepted. `check_test.instance-limit` is
+the case that pins the rule by calling the counter directly.
+
 Two lookups are Python's `_owner` and `_in_build`:
 
 ```logos
@@ -83,6 +90,14 @@ The first answers the module that declared a visible name — `-1` matches a
 type, function or extern, `1`/`2` narrow it — which is how PR B decides that a
 call reaches a body this build lowers. The second answers whether that module
 is one of the set being lowered. A body outside the set is E0103, not here.
+
+The owner compare itself — the check that a call's declaring module is the
+module whose body is being read — is implemented and symmetric, but it is not
+exercised end to end by `gen2 check`. Every cross-module value crosses a call,
+and `body-call` refuses an imported callee earlier, with E0103
+`imported functions are not lowered yet`, before the owner compare can run. No
+corpus program reaches a two-module clash, so the unit case below pins the
+lookups rather than the clash.
 
 ## What it decides
 
@@ -192,6 +207,14 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   if it is a result (see "Calls, containers and E0107"). A variable nested in a
   parameter or the return, mismatched arguments, and temporaries still answer
   unknown — `tests/regress/generic-vector.logos` is one such under-report.
+  Because an argument is read without a declared type, the E0107 rule can
+  still win where Python reads the argument first: `(fn id :T ((x :T)) (ret x))`
+  called as `(let q (id p))` over a moved `p` reports E0107 `unused binding
+  'q'`, while Python reports E0302 at the argument (`a16/f/3/1`). The deferred
+  pointer forms do not have that problem any more — `body-touch` reads the
+  moved bit — so `(free p)` then `(ptr-add p 8)` is E0300 at the `ptr-add` in
+  both (`x03/f/4/2`); the generic call's first diagnostic needs the call site's
+  parameter types, which is W7's work.
 - **Generic bodies.** A body is read only for a `fn` whose signature has no
   type variables. Python checks such a body once per instantiation; until the
   call site unifies, `gen2 check` cannot know which copy it is reading, so it
@@ -209,7 +232,7 @@ where the tree keeps the form's head, and the diagnostic follows Python.
 - **Closures, threads, mutexes, channels and atomics.** All typed (C4, see the section
   below). The pointer forms — `ptr`/`deref`/`set-deref`/`ptr-add` — still answer the unknown
   type, and every atom inside one is marked read so E0107 cannot blame a binding the deferred
-  form used.
+  form used; that read also consults the moved bit, so an emptied binding is E0300 there.
 - **Function values and variant values in value position.** A visible
   function's name and an enum variant's name are read as values by Python; this
   pass answers the unknown type for both instead of deciding their type, so
@@ -328,6 +351,16 @@ the value moved, so the binding is empty and the `let`'s promise holds.
 `body-transfer` is the other half: a second use of an already-moved binding is
 E0402 when the value holds a vector or an owner, and the message names which.
 `body-read` stays E0300 for a plain read of an emptied binding.
+
+The four forms the pass defers — `ptr`, `deref`, `set-deref` and `ptr-add` —
+take a different route: `body-deferred?` sends them to `body-touch`, which walks
+the form's subtree and marks every binding it names as read. That walk reads the
+moved bit too, so an atom that names an emptied binding is E0300
+`use after move of '<name>'` at the enclosing form's path — the same node
+Python's `_token` reports, because Python passes the form's `where` down to the
+token. `(free p) (ret (deref p))` is therefore E0300 at the `deref`, not an
+accepted program, and so are `(ptr p)`, `(set-deref p v)` and `(ptr-add p n)`
+after the release.
 
 The `moved` join is observable now: `body-restore` and `body-union-moved` write
 `bv`, a move in one `if` branch or `match` arm is replayed onto the join, and
@@ -679,11 +712,16 @@ are:
   nothing at all is E0005 (see below);
 - `ptr`, `deref`, `set-deref`, `ptr-add` — the pointer forms. Their operands
   are not typed, but every atom anywhere inside one is marked read, so E0107
-  cannot blame a binding the deferred form used. A consequence at a C4 site:
-  `(spawn w (ptr o))` is accepted here where Python refuses the unmarked raw
-  pointer with E0700, because the argument's type comes from the deferred
-  `ptr` form. `some`/`none`/`ok`/`err`/`try` are typed by `body-result-form`,
-  and the closure and concurrency forms by the C4 section above;
+  cannot blame a binding the deferred form used, and the moved bit is
+  consulted so an emptied binding is E0300 (see the ownership section). A
+  consequence at a C4 site: `(spawn w (ptr o))` is accepted here whatever
+  Python's first diagnostic would be, because the argument's type comes from
+  the deferred `ptr` form: with an `(own T)` operand Python builds the raw
+  pointer and refuses the unmarked argument with E0700, and with a non-owning
+  operand the `ptr` itself is E0100 `ptr takes an owning pointer, found
+  (vec :i64)`. `some`/`none`/`ok`/`err`/`try` are typed by
+  `body-result-form`, and the closure and concurrency forms by the C4 section
+  above;
 - **A capturing closure whose loop origin reached a `set` through a name.** A
   `set` refuses a capturing closure made inside the loop when the target was
   declared outside it: `body-origin-loop` reads the value's origin (a closure
@@ -788,12 +826,12 @@ rule fires before the unused check but which this pass leaves untyped
 (`body-e0107-deferred?`). The second guard is not keyed on every deferred head;
 it names the shapes the corpus shows, and the witnesses follow:
 
-1. `(deref p)` where `p` is a binding already moved — Python **E0300** at the
-   `deref` (`use after move of 'p'`). Today that is `sibling-set`.
-2. `(deref p)` where the pointee is move-only — an `(own T)` behind
+1. `(deref p)` where the pointee is move-only — an `(own T)` behind
    `(ptr …)`, or a vector — Python **E0402**, `an owner cannot be read out of a
-   place yet`. Today that is `owner-place-read`.
-3. ~~a `(fn …)` closure capture~~ — C4 types the closure, so the capture rule
+   place yet`. Today that is `owner-place-read`. (A `deref` of an already-moved
+   binding is no longer a witness: `body-touch` reads the moved bit and reports
+   E0300, which is `sibling-set` and now a listed fixture.)
+2. ~~a `(fn …)` closure capture~~ — C4 types the closure, so the capture rule
    runs for real: a ref capture is E0305, a vector E0402 and an owner E0100,
    all before any E0107 (`ref-escapes-capture`).
 
@@ -1102,6 +1140,7 @@ tests/regress/loop-release.logos        E0303
 tests/regress/loop-condition.logos      E0303
 tests/regress/move-join.logos           E0300
 tests/regress/move-set.logos            E0300
+tests/type/sibling-set.logos            E0300
 tests/type/unused-deref-own.logos       E0107
 tests/type/ref-escapes-return.logos     E0305
 tests/regress/ref-channel-element.logos E0305
@@ -1119,6 +1158,7 @@ tests/type/ref-escape-some.logos        E0305
 tests/type/ref-escape-some-bare.logos   E0305
 tests/type/ref-escape-ok.logos          E0305
 tests/type/ref-arg-alias.logos          E0304
+tests/type/ref-not-mutable.logos        E0304
 tests/type/ref-escape-some-nested.logos E0305
 tests/type/ref-escape-ok-nested.logos   E0305
 tests/type/ref-escape-some-nested-vector.logosE0305
@@ -1247,10 +1287,10 @@ with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 120: a pruned list fails rather than passing over
-fewer fixtures. `owner-place-read`, `sibling-set` (both `deref`) and
-`generic-vector` need the deferred `deref` form or a generic call site;
-`limit` and `unbound` need a generic call site; the
+matching code. Its floor is 122: a pruned list fails rather than passing over
+fewer fixtures. `owner-place-read` needs the deferred `deref` form (E0402) and
+`generic-vector` a generic call site; `limit` and `unbound` need a generic
+call site; the
 visibility fixtures under `src/logosc/fixtures/check` are unit cases, not corpus
 cases. `try-mismatch` and `unhandled-result` are now decided and named by the
 list, as are the sixteen C3 fixtures for the typed containers, E0600–E0602 and
@@ -1264,9 +1304,19 @@ use of a result an earlier `let` had moved), `result-closure-escape` (E0502 at
 (E0602 at `f/3`, naming `z` and not the argument `r`). `closure-escape` moved
 out of the under-reported set with them.
 
+The PR C whole-branch review's fix round adds `sibling-set` (E0300 at
+`f/4/2`, the read through `deref` after a join that emptied `p`) and
+`ref-not-mutable` (E0304 at `main/3`, a ref argument bound to an immutable
+local) to the list — 120 → 122, floor 122. Both decide exactly as Python does
+and no other sidecar changed when `tools/check_parity.py` rewrote all 122. The
+four new `body_test` cases pin the four deferred pointer forms over an emptied
+binding (`c4-uaf-deref`, `c4-uaf-ptr`, `c4-uaf-set-deref`, `c4-uaf-ptr-add`),
+and `defer-deref-moved-e0300` — the case that used to assert the `sibling-set`
+shape was accepted — now expects the E0300 both implementations print.
+
 ## Tests
 
-`src/logosc/body_test.logos` has 353 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 357 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -1345,9 +1395,10 @@ out of the under-reported set with them.
   unread unknown-typed temporary, and E0105 winning over E0107 when the
   function also falls off its end; the narrowed deferral guard is pinned from
   both sides — `(deref q)` on an `(own :i64)`, `(ptr q)`,
-  `(ptr-add (ptr q) 1)` and `(some 1)` report E0107, while the two pointer
-  witness shapes (`(deref p)` of a move-only place and `(deref p)` of a moved
-  binding) stay silent; the `ok`/`err` family is pinned the same way — a
+  `(ptr-add (ptr q) 1)` and `(some 1)` report E0107, while `(deref p)` of a
+  move-only place stays silent; a `(deref p)` of a moved binding is no longer
+  silent — `body-touch` reports E0300, pinned by `defer-deref-moved-e0300`,
+  which is the `sibling-set` shape; the `ok`/`err` family is pinned the same way — a
   pending `(res …)` binding, an uninferable `(ok 1)`, an annotated
   `(let c :i64 (ok 1))`, while `(ok)` that a shadowing binding turns into an
   ordinary call reports E0107 — a well-formed `(spawn h)` reports E0107 (a
@@ -1420,7 +1471,9 @@ out of the under-reported set with them.
   variable argument, the 257th-distinct-target E0500, and a repeated target
   reusing its index without consuming budget;
 - `check-code 500` is `E0500`;
-- `check-visible-owner` and `check-in-build` over a two-module table.
+- `check-visible-owner` and `check-in-build` over a two-module table — the
+  lookups are pinned there; the owner compare they feed is not reachable end
+  to end, as "Two lookups" above says.
 
 The "extern needs a name" case is called on `check-extern-signature` directly
 with a raw tree: the resolver refuses a nameless `extern` before the checker
@@ -1435,7 +1488,7 @@ are reached by path.
 
 ## Parity
 
-The 120 coverage fixtures match Python's code **and node path**, not just the
+The 122 coverage fixtures match Python's code **and node path**, not just the
 code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,
@@ -1473,27 +1526,29 @@ The differential probe behind the body pass compares `gen2 check` with Python's
   is a corpus-shaped program the sweep would have caught only if the tree had
   held it;
 - **0 code disagreements** — where both refuse, the code is the same;
-- 93 sources are accepted by both, and 160 are refused by both: 159 with the
+- 93 sources are accepted by both, and 161 are refused by both: 160 with the
   same line and one with the same code and a different path spelling. The
-  twelve C4 fix-round fixtures all land in the same-line bucket; every shape
-  the review found under-reported was outside the corpus until they were
-  added;
-- 13 sources are under-reported, every one of them inside the deferred set:
+  twelve C4 fix-round fixtures all land in the same-line bucket, and so do
+  `sibling-set` and `ref-not-mutable`; every shape the review found
+  under-reported was outside the corpus until they were added;
+- 12 sources are under-reported, every one of them inside the deferred set:
   8 are an imported call inside a `test` body (the port reads only `fn`
   bodies), 1 is the owner read behind `(deref p)` (E0402, deferred with the
-  deref form), 1 is the `sibling-set` read after a join through `deref` (E0300
-  behind the same deferred form) and 3 are E0500/E0501 or the
-  `generic-vector` argument that needs a real call site. The five C4
+  deref form) and 3 are E0500/E0501 or the `generic-vector` argument that
+  needs a real call site. The `sibling-set` read after a join through `deref`
+  was the thirteenth; `body-touch` now reads the moved bit, so it carries
+  Python's E0300 line instead. The five C4
   under-reports the C3 sweep listed — the closure capture, `send`'s channel
   element, `spawn`'s argument, a function value built from a closure and the
   closure escape — are decided and gone;
-- against the C3 binary (`9f1411e`, built in a throwaway worktree), exactly
-  15 sources are newly refused — the four existing ref-escape fixtures
-  (`ref-escape-send`, `ref-escape-spawn`, `ref-to-function-value`,
-  `ref-escapes-capture`) and eleven new C4 fixtures — **0 newly accepted**,
-  and three new fixtures move from a wrong E0107 line to Python's code
-  (`atomic-type`, `chan-void`, `closure-field`). No other source's line
-  changed;
+- against the C3 binary (`9f1411e`, kept in `build/c3base`), 26 sources are
+  newly refused and **0 newly accepted**: the four existing ref-escape
+  fixtures (`ref-escape-send`, `ref-escape-spawn`, `ref-to-function-value`,
+  `ref-escapes-capture`), the twelve C4 fix-round `closure-*` fixtures, nine
+  C4 fixtures, and `sibling-set`, whose moved read behind `deref` this round
+  decides. Five fixtures move from a wrong E0107 line to Python's code
+  (`atomic-type`, `chan-void`, `closure-field`, `closure-annotated-let-field`,
+  `closure-enum-capture-field`). No other source's line changed;
 - the one source outside those buckets answers the same E0002 with a different
   path spelling: `tests/parse/no-mod.logos`, where Python names an empty path
   for a file with no `(mod …)` and gen2 names the file. It is the W6 A

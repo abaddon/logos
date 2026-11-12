@@ -76,10 +76,12 @@ RESOLVE_FLOOR=14
 # result obligations, and the five ref escapes those forms used to hide (a
 # capture, `send`, `spawn` and a function value built from a closure), and the
 # C4 fix round's annotated-`let`/`set` capture flag, its payload constructors
-# and the closure `let`-shadowing order.
-# One hundred and twenty today; a pruned list is a failure, not a smaller pass.
+# and the closure `let`-shadowing order, and the two fixtures the PR C whole-branch
+# review found unlisted: `sibling-set` (E0300 behind a deferred `deref`) and
+# `ref-not-mutable` (E0304 at a ref argument).
+# One hundred and twenty-two today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=120
+CHECK_FLOOR=122
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

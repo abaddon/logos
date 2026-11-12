@@ -1,6 +1,7 @@
 tests/type/extern-noncl.logos
 tests/type/unknown-type.logos
 tests/type/ref-not-a-vector.logos
+tests/type/ref-not-mutable.logos
 tests/regress/reserved-name.logos
 tests/regress/recursive-enum.logos
 tests/regress/rt-definition.logos
@@ -43,6 +44,7 @@ tests/regress/loop-release.logos
 tests/regress/loop-condition.logos
 tests/regress/move-join.logos
 tests/regress/move-set.logos
+tests/type/sibling-set.logos
 tests/type/unused-deref-own.logos
 tests/type/ref-escapes-return.logos
 tests/regress/ref-channel-element.logos

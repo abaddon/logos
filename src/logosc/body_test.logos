@@ -1402,8 +1402,8 @@
     (leaks 0))
   (dump-src "(fn peek :i64 ((v (ref (vec :i64)))) (let g (fn :i64 () (vec-len v))) (ret 0))"))
 
-(test defer-deref-moved-silent
-  (expect (out "OK\n")
+(test defer-deref-moved-e0300
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void ((c :bool)) (letmut p (alloc :i64 2)) (if c (free p) (set p (alloc :i64 1))) (let x :i64 (deref p)))"))
@@ -2265,3 +2265,27 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void ((x :i64)) (let g (fn :void () (let x :i64 (+ x 1)) (println x))) (g))"))
+
+(test c4-uaf-deref
+  (expect (out "E0300\nm/f/5/0\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :i64 () (let p (alloc :i64 1)) (set-deref p 7) (free p) (ret (deref p)))"))
+
+(test c4-uaf-ptr
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (let q (ptr :i64) (ptr p)))"))
+
+(test c4-uaf-set-deref
+  (expect (out "E0300\nm/f/4\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (set-deref p 7))"))
+
+(test c4-uaf-ptr-add
+  (expect (out "E0300\nm/f/4/2\nuse after move of 'p'\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (let q (ptr :i64) (ptr-add p 8)))"))
