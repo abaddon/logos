@@ -94,11 +94,10 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
 # The lowering parity list: the fixtures whose IR the port already reproduces.
-# Seven today — the seven the spine lowers byte for byte; `string` and `match`
-# are named as known-different in the list's header and are B2's. A pruned list
-# is a failure, not a smaller pass.
+# Twenty-four today — every fixture under src/logosc/fixtures/ir-lower, in the
+# order B2 proved them. A pruned list is a failure, not a smaller pass.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=7
+IR_FLOOR=24
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

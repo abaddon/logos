@@ -1,0 +1,6 @@
+(mod memory)
+
+(fn main :i64 ()
+  (let p (alloc :i64 2))
+  (free p)
+  (ret 0))

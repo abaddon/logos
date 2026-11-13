@@ -6,17 +6,18 @@
 # may not share a stem. Adding a file here is adding a byte-equality claim; a
 # file that only partly agrees makes the gate red.
 #
-# Known-different and deliberately excluded until B2 fixes the lowering:
-#   src/logosc/fixtures/ir-lower/string.logos
-#       `str-len` emits one `extractvalue` for the length; Python emits the
-#       pointer field first and the length second, so the two texts differ at
-#       the first instruction of the gap. Needs: extract field 0, discard it,
-#       then extract field 1.
-#   src/logosc/fixtures/ir-lower/match.logos
-#       `match` opens its first test block without branching into it from
-#       `entry`, so `emit` refuses the module ("block 'entry' has no
-#       terminator") and no `.ll` exists on the port's side. Needs: the `br`
-#       from the current block into the first arm test.
+# Every fixture under src/logosc/fixtures/ir-lower is listed. The list grew from
+# seven to twenty-four in W7 B2: the two known-different files (`string`,
+# `match`) now agree, the shifts and the two wildcard-arm shapes have fixtures
+# of their own, and the print, string, vector, array, memory, pointer and call
+# forms the corpus needs next each have one. `fieldset` and `heap` cover
+# `set-field`, `deref`, `set-deref` and `ptr-add`.
+#
+# Still not lowered, and so deliberately absent from this list (no fixture
+# claims them): `spawn`/`join`, channels, mutexes and atomics, closures,
+# results and optionals (`some`/`none`/`ok`/`err`/`try`), `run`,
+# `read-all`/`read-file`, `args`, `str-byte`/`str-from-i64`, and moving or
+# freeing a vector through a `(ref …)` binding. They are PR C's list.
 #
 # The floor in tools/selfhost.sh is the number of lines below: a pruned list
 # fails the gate rather than passing over fewer files.
@@ -27,3 +28,20 @@ src/logosc/fixtures/ir-lower/array.logos
 src/logosc/fixtures/ir-lower/control.logos
 src/logosc/fixtures/ir-lower/extern.logos
 src/logosc/fixtures/ir-lower/float.logos
+src/logosc/fixtures/ir-lower/string.logos
+src/logosc/fixtures/ir-lower/match.logos
+src/logosc/fixtures/ir-lower/wild-int.logos
+src/logosc/fixtures/ir-lower/wild-enum.logos
+src/logosc/fixtures/ir-lower/shift.logos
+src/logosc/fixtures/ir-lower/callret.logos
+src/logosc/fixtures/ir-lower/extern-str.logos
+src/logosc/fixtures/ir-lower/printer.logos
+src/logosc/fixtures/ir-lower/printnums.logos
+src/logosc/fixtures/ir-lower/strs.logos
+src/logosc/fixtures/ir-lower/vectors.logos
+src/logosc/fixtures/ir-lower/vecops.logos
+src/logosc/fixtures/ir-lower/vecpush.logos
+src/logosc/fixtures/ir-lower/arrset.logos
+src/logosc/fixtures/ir-lower/fieldset.logos
+src/logosc/fixtures/ir-lower/memory.logos
+src/logosc/fixtures/ir-lower/heap.logos

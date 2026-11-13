@@ -1,0 +1,12 @@
+(mod vecpush)
+
+(fn main :i64 ()
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push v 1)
+  (vec-push v 2)
+  (vec-push v 3)
+  (let n :i64 (vec-len v))
+  (vec-free v)
+  (ret n))

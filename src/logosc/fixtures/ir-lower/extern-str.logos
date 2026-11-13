@@ -1,0 +1,6 @@
+(mod externstr)
+
+(extern fn strlen :i64 ((s :str)))
+
+(fn main :i64 ()
+  (ret (strlen "hello")))

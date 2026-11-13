@@ -190,57 +190,136 @@ A float literal's type is `f64` unless the context asks for another width; the
 hex spelling means the text is the bit pattern the parser computed, so the
 port and Python agree on the last nibble instead of on a printed approximation.
 
-## The gaps
+## Order is the contract
 
-Two of these are the fixtures that do not reproduce Python's `.ll`; both are
-named as known-different in `tools/selfhost-ir.txt`. The third is refused
-before there is any text to compare. All three are B2's work:
+`tools/selfhost-ir.txt` compares text, so an instruction the port emits that
+Python does not — or the same instruction with its temps numbered differently —
+is a difference. Three consequences shape the code below and are worth knowing
+before changing any of it:
 
-1. **`str-len` extracts one field; Python extracts two.**
-   `str_parts` in `lower.py` pulls *both* the pointer and the length out of the
-   `{ i8*, i64 }` value, and `str-len` then discards the pointer — the dead
-   `extractvalue …, 0` stays in the text. `lo-strlen` extracts only field 1, so
-   the port's IR is one instruction shorter and every later temp is numbered
-   one lower.
-   *Needs:* extract field 0 into a throwaway temp first, then field 1, matching
-   `str_parts`' order.
+- **A throwaway temp still costs a number.** `str-len` pulls *both* fields of
+  the `{ i8*, i64 }` value, as `str_parts` does, and discards the pointer: the
+  dead `extractvalue …, 0` stays in the text and every temp after it shifts by
+  one if it is dropped. `lo-strlen` extracts field 0 into a temp it never reads,
+  then field 1.
+- **A literal is not lowered like a value.** `(println "hi")` emits a `gaddr`
+  and a call whose length is a constant; `(println s)` emits two
+  `extractvalue`s first. Building a `:str` value only to take it apart again
+  would be one instruction too many, so `lo-print-lit` and `lo-print-parts` are
+  two paths, not one.
+- **A block is opened where Python opens it.** `lo-w-block` seals the previous
+  block, so a branch missing before it leaves the previous block unterminated —
+  the failure `emit` reports as `block '…' has no terminator`.
 
-2. **`match` leaves `entry` unterminated.**
-   `lo-match` stores the scrutinee, plans the arm blocks and calls `lo-w-block`
-   for the first `matchN.test0` — but never branches from the block it is in
-   into that test. `emit` refuses the module (`block 'entry' has no
-   terminator`), so `gen2 build` has no `.ll` at all for this fixture; the
-   failure is a diagnostic with code `E0002` at the module's node path, not a
-   panic.
-   *Needs:* the `br` into the first test (or into the wildcard arm's body)
-   before the first `lo-w-block`, which is what Python's `match_expr` emits.
+## `match`
 
-3. **A wildcard arm is refused — B2's, not this PR's, and not in the list.**
-   `(match x (0 1) (_ 2))` where `x :i64` makes `gen2 build` fail with
-   `E0002: a match pattern is an integer literal or _` — printed at the file,
-   because the failure carries no node path — where Python lowers it and emits
-   no comparison for `_` at all. On an enum scrutinee the same arm fails
-   earlier, at `E0100: unknown variant in match`. Either way `_` is not taking
-   the wildcard path `lo-match` intends (`iswild`); it is treated as a pattern
-   that must be an integer literal or a variant name.
-   *Needs:* `_` recognised as a wildcard arm before the test is built, so the
-   arm's body is entered with no `icmp` and no `cbr`. No listed fixture uses a
-   wildcard arm, so the parity list never sees this one.
+Python's arms are `(pattern body…)`: the pattern is the arm's *first item*, not
+a wrapper around it. The tree stores an atom-headed arm's head in the node's
+`text` and everything from the body in `first`, so the pattern of `(red 1)` has
+no node id of its own while the pattern of `((circle r) body)` does. `lo-match`
+therefore reads the arm's head text (`lo-head`) and falls back to
+`lo-child … 0`:
+
+```
+(let armh (lo-head nod ntx c))          ; "red", "_", or "" when the head is a number
+(let p    (lo-child nod ntx c 0))       ; the number literal, or a (circle r) form
+(let pat  (if (> (str-len armh) 0) armh (lo-head nod ntx p)))
+(let iswild (if (> (str-len armh) 0) (str-eq armh "_")
+                                    (and (lo-atom? nod p) (str-eq (lo-atom nod ntx p) "_"))))
+```
+
+`iswild` must be decided from the pattern and nothing else: `(bad-digit _)` binds
+`_` as a payload and is *not* a wildcard arm, which is why the atom test alone
+(as the spine had it) was wrong in one direction and the head test alone would
+be wrong in the other. A wildcard arm's test block still exists — Python emits
+it — and holds only the `br` into the body, so the arm costs no `icmp` and no
+`cbr`.
+
+The branch into `matchN.test0` comes before the first `lo-w-block`, which is
+what terminated `entry`. Enum arms are compared by variant *index*: the arm's
+head names the variant, and `lo-enum-test` looks it up in the enum the
+scrutinee's type points at.
+
+## The shifts
+
+`lo-shift` lowers `shl`, `shr` (arithmetic, `ashr`) and `shr-u` (logical,
+`lshr`). The count is masked with `and count, width-1` first, because LLVM makes
+a shift by the width or more *poison*: at `-O0` it would be the hardware's
+masked count and at `-O2` anything at all. Masking makes the two agree and says
+what the language means — a count of 64 on an `:i64` is a count of 0.
+`lo-node-type` returns the operand's type for a shift, as it does for
+arithmetic, so `(let x (shl a 2))` gets `a`'s width.
+
+## `print` and `println`
+
+`lo-print` types its one argument and picks the runtime entry point that already
+knows how to spell it: `rt_print_str` for bytes and their length,
+`rt_print_i64`, `rt_print_u64`, `rt_print_f64`. Narrow integers are sign- or
+zero-extended according to their source type, `:f32` is extended to `:f64`, and
+a `:bool` branches on itself and prints `true` or `false` — never its 0/1
+representation, which is a fact about `i1` and not about the language. The
+width test compares widths, not type ids: every `lo-prim` call interns a fresh
+id, so two ids for `:i64` are not equal.
+
+## Strings
+
+`str-concat`, `str-eq` and `str-slice` are the three the corpus needs.
+`lo-strconcat` sums the two lengths, panics `R0003` if the sum went negative
+(signed, so a wrap is visible), then calls `rt_str_concat` with a slot for the
+length and rebuilds the `:str` from the pointer and that length
+(`lo-str-of`). `lo-streq` compares lengths first and only `memcmp`s when they
+agree, so it never reads past the shorter buffer, and joins the two paths on a
+`phi`. `lo-strslice` copies nothing: a `:str` is a fat pointer, so the slice is
+`gep` of the buffer and `end - start` bytes after three unsigned compares that
+also catch a negative bound.
+
+## Vectors
+
+A `(vec T)` is `{ T*, i64, i64 }` — buffer, length, capacity — and
+`lo-vec-part` reads one field. `lo-veclen`, `lo-vecget`, `lo-vecset` and
+`lo-vecfree` take the descriptor as a value; `lo-vecset` and `lo-vecfree` write
+through the binding's slot. A `(ref (vec T))` binding holds a pointer to the
+caller's descriptor, so `lo-ref-load` reads it once more before the fields.
+Bounds are `lo-vbounds` (an unsigned compare, panic `R0003`).
+
+`lo-vecpush` is the one long form: it grows the buffer by *allocate, copy,
+release* rather than `realloc`, because the leak tracker owns every block's
+record and a block handed to `realloc` would leave the tracker describing an
+address it no longer controls. The capacity goes to twice itself plus four, the
+sum is checked against the old capacity, and the new size is guarded before it
+reaches `rt_alloc`. The two paths — grew, or had room — join on two `phi`s
+(the buffer and the capacity) before the append, which is what makes the
+element write one `store` instead of two copies of the tail.
+
+## Arrays, fields and memory
+
+`arr-set` and `arr-get` share `lo-place` (the binding's alloca, or a fresh slot
+for a value without storage), `lo-index64` (widened to `i64`) and the bounds
+check. `set-field` goes through `gep` with two `i32` indices and stores the
+field's own type. `alloc` multiplies the element count by the element's size
+after an unsigned compare against `(2^63-1)/size`, calls `rt_alloc` with the
+alignment `lo-align` computes and the node path as a C string (the leak report
+prints that path back), and bitcasts the `void *` to `(own T)`. `free` bitcasts
+back and calls `rt_free`; `deref`, `set-deref` and `ptr-add` are one `load`, one
+`store` and one `gep`.
+
+`lo-align` mirrors `align_of`: a primitive's alignment is its size capped at
+16 (`:str` is 8 — the largest field's, not the aggregate's), a pointer, `own`,
+`vec`, `ref`, `fn`, `chan`, `atomic` and `enum` are 8, an array and a `shared`
+follow their element, an optional is its element's, a result is the larger of
+its two sides, and a struct is the largest of its fields.
 
 ## What it does not lower
 
-`lo-value` dispatches `+`, `-`, `*`, `/` and `%` at whatever integer width or
-float type the checker resolved, the comparisons, `and`/`or`/`not`, `cast`,
-`if`, `while`, `match`, `make`/`get`/`arr-get`, `str-len`, `f64-bits`, direct
-and `extern` calls, variant constructors and literals. The bit shifts are not
-lowered: `shl`, `shr` and `shr-u` reach `lo-not-yet` like any unhandled head, so
-`(shr a 2)` is `E0002: 'shr' is not lowered by this backend yet` at the form's
-node path. (`frem` and `fneg` are not forms at all — both front ends reject
-them as an unknown function, `E0103` — so they are missing from the language,
-not from this pass.) Any other head reaches `lo-not-yet` the same way, failing
-at the form's node path with `E0002`: `print`/`println`, `vec-*`, `arr-*`
-(other than `arr-get`), `alloc`/`free`, `spawn`/`join`, channels, mutexes,
-closures, results and optionals, `str-concat`/`str-eq`/`str-slice`, `run`,
-`read-file`, `args`, and the ownership rules around them. That is PR C's list,
-and the check phase keeps the boundary honest by listing only what the checker
-already decides.
+Still refused, each at the form's node path with `E0002: '<head>' is not
+lowered by this backend yet`: `spawn`/`join`, channels (`chan`, `send`,
+`recv`), mutexes (`mutex`, `lock`, `unlock`) and atomics, closures, the result
+and optional forms (`ok`, `err`, `some`, `none`, `try`), `run`,
+`read-all`/`read-file`, `args`, `str-byte` and `str-from-i64`, and the
+ownership rules that go with them. That is PR C's list; the check phase keeps
+the boundary honest by listing only what the checker already decides.
+
+Every fixture under `src/logosc/fixtures/ir-lower` is in
+`tools/selfhost-ir.txt` — twenty-four files, all byte-identical to Python's
+`.ll`. `tools/selfhost.sh` holds `IR_FLOOR=24` so a pruned list fails rather
+than passing over fewer files.
