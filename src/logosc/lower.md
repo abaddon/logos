@@ -31,7 +31,7 @@ and a caller (today `main.logos`'s `main-built`) allocates all of it once.
 
 1. pushes a passing `lower-error` into the one-element `berr` vector, so every
    later lookup can read the verdict in one index;
-2. zeroes the twelve `st` counters, so counters start at `%t0`/`%v.0`;
+2. zeroes the sixteen `st` slots, so counters start at `%t0`/`%v.0`;
 3. opens the module (`ir-module`) with the triple and `mqual = false`;
 4. scans the root's children twice — types (`lo-scan-types1`,
    `lo-scan-types2`), then signatures (`lo-scan-sigs`) — and only then lowers
@@ -153,7 +153,12 @@ record of counters shared across sixty call sites):
 | 9 | `esc` depth at function entry |
 | 10 | loop depth |
 | 11 | `esc` depth at the current loop's exit block |
-| 12 | `lo-gensym`'s counter, for a name no source can spell (`$N`); nothing calls it yet |
+| 12 | `lo-gensym`'s counter, shared by every name no source can spell (`$spawn$N` today, `$lambda`/`$fnvalue` when closures land); unit-wide, never reset per function |
+| 13 | the pending `spawn` queue's length for the function being lowered |
+| 16, 17, … | the queue itself, two slots per spawning site: the thunk's number, the target's signature id |
+
+`st` is grown on demand past 16 by `lo-queue-push` (`vec-set` is bounds
+checked), and `lo-spawn-drain` empties it at the end of each function.
 
 `esc` deserves its own line: `break` pushes its loop's exit label, and
 `lo-while` only appends `unreachable` after a `while true` when `lo-escaped?`
@@ -403,9 +408,57 @@ pins it with a `deref` feeding an `add`, a second `deref` bound on its own, a
 `set-deref` through the shared pointer and another through a `ptr-add` of it.
 The handles have a fixture too: `concurrency` sends and receives on a `chan`,
 locks and unlocks a `mutex`, and runs `atomic-add`/`atomic-load`/`atomic-store`.
-Neither fixture spawns a thread, so both lower while `spawn` refuses.
-`join` lowers to `rt_join`, but nothing can produce a thread value while `spawn`
-refuses (below), so it is exercised only by the forms that type-check it.
+Neither fixture spawns a thread, so both lower through the plain path;
+`join` lowers to `rt_join`, and with `spawn` now spellable it is exercised end
+to end — `spawn.logos` and `examples/matrix.logos` both join every thread they
+start.
+
+## The thunk form (`spawn`)
+
+`(spawn f args…)` is the one form that emits a *second* function while a
+function's body is being lowered. Python does exactly that: the thunk is a
+fresh `IrFn` appended to the function list at the site, so its define prints
+immediately before its parent's. This arena cannot do it in place — `ir-fn`
+fixes a range at open (`fbase`, `fparam`) and `ir-fn-end` closes it from the
+*current* lengths — so a nested function's rows would be swallowed by the
+enclosing range: its `entry` block counted into `fcnt`, its `%env` parameter
+into `fpc`.
+
+So the arena defers. `lo-spawn` emits the site in Python's order — the
+arguments, `rt_alloc` with the record's size and alignment, the `bitcastrec`
+and one `geprec`+`store` per field, the `faddr`, `rt_thread_new` — with the
+`%env` record packed from the callee's *declared parameters*, not from
+captures: a spawn captures nothing lexically, and the runtime owns the record
+until the target returns. It then records the site on a per-function queue at
+the end of `st`: `st[13]` is the count, each entry is the thunk's number and
+the target's signature id. The name is allocated *at the site* from `st[12]`,
+the counter `lo-gensym` bumps, so `$spawn$1…` are numbered across the unit in
+evaluation order and never reset per function — two spawning functions number
+`$spawn$1` and `$spawn$2`, not `$spawn$1` twice. The dry pass allocates no
+name and queues nothing, so the numbering is the real pass's.
+
+`lo-spawn-drain` runs **after** `ir-fn-end` in `lo-fn`, and that is what keeps
+the parent's ranges honest: its `fcnt`/`fpc` were measured before the drain,
+and the thunk's rows land past them. Each thunk is emitted with its own
+counters (`%t1` again: `st[0..2]` are saved, zeroed and restored), one `env`
+parameter appended straight to `pnames`/`ptys` — no binding, no slot — and a
+body of `bitcastrec %env`, `geprec`+`load` per field, `call target` and
+`ret i8* null`.
+
+The drain then rotates the parent's f-row right by the number of thunks
+(`lo-fn-rotate`): the eight columns move together, so the table reads
+`[t1 … tk, F]` while the thunks' blocks stay physically after the parent's.
+That rotation is the one step that reproduces Python's define order; without
+it the same eighteen lines print after the parent instead of before it, which
+is a pure move and not byte equality. Its cost is that `fbase` is deliberately
+not monotonic across the f-table afterwards — a thunk's blocks sit past its
+parent's — so a reader must not mistake that for corruption: each row is still
+contiguous and `ir-fn-first`/`ir-fn-past` are per-row. `fid` is stale the
+moment the rotation runs, so the rotation is the last thing `lo-fn` does.
+
+`lo-node-type` answers `:thread` (printed `i8*`) for the form, which is what
+lets `spawn` sit in a `let` initialiser and be named; before B4 the type query
+refused it, so the declaration reported a binding it never made.
 
 ## Processes, files and arguments
 
@@ -436,25 +489,11 @@ runtime has no ordered string comparison to build on.
 Still refused, each at the form's node path with `E0002: '<head>' is not
 lowered by this backend yet`:
 
-- **`spawn`, and closures.** A thunk is a per-site nested function, while this
-  arena stores a function's parameters and blocks as contiguous global ranges
-  (`fparam`/`fpc`, `fbase`/`fcnt`). Emitting a thunk mid-body therefore corrupts
-  the enclosing function's ranges — measured, not assumed: three `%env`
-  parameters landed on `@main`. Deferring thunks to the end of the function (a
-  pending queue threaded through the context, or a row swap that preserves
-  define order) is the shape of the fix, and it is the next task's, not a
-  missing `case` in a dispatch. Until then `spawn` refuses rather than
-  miscompiles, and it refuses the same way wherever the form sits: as a
-  statement and as the initializer of a `let` both print
-  `E0002: 'spawn' is not lowered by this backend yet` at the form's own node
-  path. The type query refuses the form too (`lo-not-yet-type`, after
-  `lo-node-type`), rather than answering "no type" and leaving the declaration
-  to report a binding it never made — the old initializer shape was
-  `E0005: unknown name '<binding>'`, naming a name declared on the same line.
-- **`examples/matrix.logos`**, which lowers otherwise and differs only in its
-  four 18-line spawn thunks (75 lines with their separators, at 135–210 of
-  Python's `build/python-matrix.ll`, before `define i32 @main()` at 211); it
-  refuses at its first spawn site with the same `E0002`.
+- **Closures.** A closure's environment is a stack-slot record with a capture
+  list, and it would need the same arena surgery `spawn` needed — a per-site
+  nested function lowered without corrupting the parent's ranges — plus
+  `$lambda`/`$fnvalue` names drawn from the shared counter. `spawn` is the
+  precedent; nothing else about it is missing.
 - **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
 - **`build --test NAME`.** Every positive corpus file under `tests/exec`,
   `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so
@@ -462,7 +501,7 @@ lowered by this backend yet`:
   starts. That is a missing *mode* (skip the module `main`, lower the test body
   as the entry point, link `rt_leak_report`) and a gate that compares
   `build/<stem>.<test>.ll` per test — not a missing form. It is why the parity
-  list holds fixtures and three example programs rather than the corpus the
+  list holds fixtures and four example programs rather than the corpus the
   other gates run on.
 
 A shape with no finite layout is refused too, with a path and a code; see the
@@ -490,23 +529,27 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — forty-three files, all byte-identical to Python's
-`.ll`. The list also names three example programs (`examples/hello.logos`,
-`examples/json.logos`, `examples/wc.logos`): the first real programs, not
-fixtures, whose IR is claimed byte for byte. They are not a survey of the new
-forms, and the list's growth is not theirs: `run` appears in none of the three,
-`hello` prints one string, `wc` reads all of stdin and prints counts with no
-vector operations, and only `json` exercises vectors (and `alloc`/`ptr`). None
-of them touches a channel, a mutex, an atomic or a `(shared (ptr T))` —
-`concurrency` and `sharedptr` are fixtures because of exactly that gap.
-`tools/selfhost.sh` holds `IR_FLOOR=46` over the whole list, so a pruned list
+`tools/selfhost-ir.txt` — forty-four files, all byte-identical to Python's
+`.ll`. The list also names four example programs (`examples/hello.logos`,
+`examples/json.logos`, `examples/wc.logos`, `examples/matrix.logos`): real
+programs, not fixtures, whose IR is claimed byte for byte. They are not a
+survey of the new forms: `run` appears in none of them, `hello` prints one
+string, `wc` reads all of stdin and prints counts with no vector operations,
+and only `json` exercises vectors (and `alloc`/`ptr`). None of them touches a
+channel, a mutex, an atomic or a `(shared (ptr T))` — `concurrency` and
+`sharedptr` are fixtures because of exactly that gap. `matrix` is B4's
+end-to-end claim: four 18-line thunks at 135–210 of Python's
+`build/python-matrix.ll`, numbered `$spawn$1`–`$spawn$4` by the unit-wide
+counter and unpacking a six-field record, printed before `define i32 @main()`
+at 211 — which is the f-row rotation's whole job.
+`tools/selfhost.sh` holds `IR_FLOOR=48` over the whole list, so a pruned list
 fails rather than passing over fewer files. Set equality is judged on the list's
 *fixture* entries against `src/logosc/fixtures/ir-lower/*.logos`: every fixture
 on disk is listed and every listed fixture is on disk, so an addition or a
 deletion must move both names in the same commit and the count cannot be held
 still while one fixture is swapped for another. Set equality alone cannot stop
 the list and the directory shrinking together, though, so the fixture entries
-carry a floor of their own — `IR_FIXTURE_FLOOR=43` — and a fixture cannot leave
+carry a floor of their own — `IR_FIXTURE_FLOOR=44` — and a fixture cannot leave
 while a path outside the directory takes its place in the total. A path outside
 the directory is a claim of its own; it neither hides a missing fixture nor has
 to exist there.

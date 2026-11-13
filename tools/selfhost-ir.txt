@@ -9,12 +9,12 @@
 # Every fixture under src/logosc/fixtures/ir-lower is listed — the set is not
 # "roughly the corpus", it is exactly the directory, and tools/selfhost.sh
 # refuses a list whose fixture entries and that directory name different sets.
-# The list may also name files outside that directory, and does: the three
+# The list may also name files outside that directory, and does: the four
 # example programs below lower byte-identically and are the first *real*
 # programs, not fixtures, to claim parity. A path outside the directory is a
 # claim of its own — the gate builds it like any other entry and the floor
 # counts it — so it cannot hide a fixture that was added, deleted or swapped.
-# The list grew from seven to forty-three fixtures: the two known-different
+# The list grew from seven to forty-four fixtures: the two known-different
 # files (`string`, `match`) now agree, the shifts and the two wildcard-arm
 # shapes have fixtures of their own, the print, string, vector, array, memory,
 # pointer and call forms each have one, the layout and borrowed-vector shapes
@@ -28,12 +28,20 @@
 # pointer forms through a `(shared (ptr T))` — `deref`, `set-deref`, `ptr-add`
 # and a second `deref` of the result.
 #
+# B4 added the thunk form: `spawn` (`spawn.logos`, and `examples/matrix.logos`
+# below). A thunk is a per-site nested function, and the arena stores a
+# function's parameters and blocks as contiguous global ranges (`fparam`/`fpc`,
+# `fbase`/`fcnt`), so a thunk cannot be emitted where the site sits. The site
+# records the thunk on a per-function queue instead; the queue drains after the
+# enclosing `ir-fn-end`, which closes the parent's ranges first, and then the
+# parent's f-row is rotated right by the number of thunks so the table reads
+# `[t1 … tk, F]` while the thunk blocks stay after the parent's. That rotation
+# is what makes the define order Python's — each thunk's define immediately
+# before the define that spawns it — byte for byte; a plain drain reproduces
+# the same eighteen lines after the parent instead of before it.
+#
 # Still not lowered, and so deliberately absent from this list (no fixture
-# claims them): `spawn`/`join` — a thunk is a per-site nested function while
-# this arena stores a function's parameters and blocks as contiguous global
-# ranges (`fparam`/`fpc`, `fbase`/`fcnt`), so emitting one mid-body corrupts the
-# enclosing function's ranges; `spawn` therefore refuses with E0002 rather than
-# miscompiling — and closures. The positive corpus under tests/exec,
+# claims them): closures. The positive corpus under tests/exec,
 # tests/thread and tests/regress needs `build --test NAME` (skip the module
 # `main`, lower the test body as the entry point); that mode does not exist in
 # the port, which is why those files are absent too. A shape the lowerer must
@@ -45,8 +53,9 @@
 # fixture entries alone, so a fixture cannot leave while a path outside the
 # directory takes its place.
 #
-# Beyond the fixtures: three example programs, the first real programs rather
-# than fixtures whose IR is claimed byte-identical.
+# Beyond the fixtures: four example programs, the first real programs rather
+# than fixtures whose IR is claimed byte-identical. The fourth, `matrix`, is
+# B4's end-to-end spawn claim; the first three are hello, json and wc.
 src/logosc/fixtures/ir-lower/void-main.logos
 src/logosc/fixtures/ir-lower/arith.logos
 src/logosc/fixtures/ir-lower/struct.logos
@@ -88,12 +97,21 @@ src/logosc/fixtures/ir-lower/runprog.logos
 src/logosc/fixtures/ir-lower/resok.logos
 src/logosc/fixtures/ir-lower/optval.logos
 src/logosc/fixtures/ir-lower/tryprop.logos
-# The concurrency handles and the shared pointer: no thread spawns, so these
-# lower without the thunk form `spawn` still refuses.
+# The concurrency handles and the shared pointer: no thread spawns in either, so
+# they lower through the same path as the rest.
 src/logosc/fixtures/ir-lower/concurrency.logos
 src/logosc/fixtures/ir-lower/sharedptr.logos
+# The thunk forms: two spawning functions, a helper that spawns a worker and
+# `main` that spawns the helper, so a unit-wide `$spawn` counter is
+# distinguishable from a per-function one ($spawn$1 in the helper, $spawn$2 in
+# main), each thunk's temps restarting at %t1.
+src/logosc/fixtures/ir-lower/spawn.logos
 # The examples. They are not fixtures: each is a program the repository ships,
 # and each lowers through the same single-module path as the fixtures above.
 examples/hello.logos
 examples/json.logos
 examples/wc.logos
+# `matrix` is the end-to-end claim for B4: four 18-line thunks, numbered
+# $spawn$1–$spawn$4 by the unit-wide counter and unpacking a six-field record,
+# printed before `define i32 @main()` — the order the f-row rotation restores.
+examples/matrix.logos

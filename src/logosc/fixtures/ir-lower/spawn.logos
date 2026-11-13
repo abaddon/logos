@@ -1,0 +1,14 @@
+(mod spawner)
+
+(fn work :void ((id :i64) (label :str))
+  (print label)
+  (println id))
+
+(fn branch :void ((base :i64))
+  (let inner (spawn work (+ base 1) "worker"))
+  (join inner)
+  (println base))
+
+(fn main :void ()
+  (let outer (spawn branch 41))
+  (join outer))

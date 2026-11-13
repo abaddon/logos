@@ -65,6 +65,7 @@ src/logosc/fixtures/ir-lower/resok.logos
 src/logosc/fixtures/ir-lower/runprog.logos
 src/logosc/fixtures/ir-lower/sharedptr.logos
 src/logosc/fixtures/ir-lower/shift.logos
+src/logosc/fixtures/ir-lower/spawn.logos
 src/logosc/fixtures/ir-lower/strbyte.logos
 src/logosc/fixtures/ir-lower/strfrom.logos
 src/logosc/fixtures/ir-lower/string.logos
