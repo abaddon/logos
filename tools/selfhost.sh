@@ -18,11 +18,20 @@
 # A second phase compares the lowering. tools/selfhost-ir.txt lists the files
 # whose LLVM IR the port already reproduces: each is lowered by `gen2 build`
 # and by Python's `logos build`, and the two `.ll` files must be equal byte for
-# byte. The list is a subset of the positive corpus — the forms B2 does not
-# lower yet are excluded by name in its header — and IR_FLOOR is the same kind
-# of floor: a pruned list fails rather than passing over fewer files. The
-# floor counts distinct paths, not lines: a path named twice is one file, and
-# comparing it twice is not a bigger corpus.
+# byte. The list is exactly the fixtures under src/logosc/fixtures/ir-lower —
+# the forms B2 does not lower yet are excluded by name in its header — and the
+# script refuses a list and a directory that name different sets, so a fixture
+# cannot be added, deleted or swapped without the list moving in the same
+# commit. IR_FLOOR is the same kind of floor: a pruned list fails rather than
+# passing over fewer files. The floor counts distinct paths, not lines: a path
+# named twice is one file, and comparing it twice is not a bigger corpus.
+#
+# That phase judges the lowering's refusals too. Every fixture under
+# src/logosc/fixtures/ir-refuse pairs a `.logos` with a `.refuse` sidecar
+# holding the exact stderr line `gen2 build` must print: a shape with no finite
+# layout is a diagnostic with a code and a node path, never a crash, and a
+# signal or a silent exit is a difference. REFUSE_FLOOR keeps the directory
+# from being emptied.
 #
 # A third phase judges the resolver-owned negative corpus. Every
 # tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
@@ -94,10 +103,15 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
 # The lowering parity list: the fixtures whose IR the port already reproduces.
-# Twenty-four today — every fixture under src/logosc/fixtures/ir-lower, in the
-# order B2 proved them. A pruned list is a failure, not a smaller pass.
+# Thirty-two today — every fixture under src/logosc/fixtures/ir-lower, in the order
+# B2 and its fix round proved them. A pruned list is a failure, not a smaller
+# pass, and the set must equal the directory exactly (see the check below).
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=24
+IR_FLOOR=32
+# The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
+# sidecar naming the exact diagnostic line `gen2 build` must print. One today;
+# emptying the directory is a failure, not a smaller pass.
+REFUSE_FLOOR=1
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"
@@ -198,6 +212,28 @@ if (( IR_STEMS != IR_COUNT )); then
         "$IR_COUNT" "$IR_STEMS" >&2
     exit 2
 fi
+# The list and the directory must name the same set. Counting alone catches a
+# fixture deleted and delisted (one fewer) but not a compensating swap that
+# leaves the number where it was, and a list that names a file the directory
+# does not hold claims a parity nothing measured. Set equality makes any
+# addition or deletion move both sides in the same commit.
+shopt -s nullglob
+IR_DISK=(src/logosc/fixtures/ir-lower/*.logos)
+shopt -u nullglob
+if (( ${#IR_DISK[@]} == 0 )); then
+    printf 'ir: %s holds no fixtures; the list cannot be measured against an empty directory\n' \
+        "src/logosc/fixtures/ir-lower" >&2
+    exit 2
+fi
+IR_LISTED=$(printf '%s\n' "${IR_FILES[@]}" | sort)
+IR_ONDISK=$(printf '%s\n' "${IR_DISK[@]}" | sort)
+if [[ "$IR_LISTED" != "$IR_ONDISK" ]]; then
+    printf 'ir: tools/selfhost-ir.txt and src/logosc/fixtures/ir-lower name different sets:\n' >&2
+    comm -3 <(printf '%s\n' "$IR_LISTED") <(printf '%s\n' "$IR_ONDISK") |
+        awk '{ if (substr($0, 1, 1) == "\t") print "    only on disk: " substr($0, 2);
+               else print "    only in the list: " $0 }' >&2
+    exit 2
+fi
 mkdir -p "$OUT/ir"
 
 IDIFFS=0
@@ -237,6 +273,51 @@ for path in "${IR_FILES[@]}"; do
 done
 
 printf 'ir: %d files, %d differences\n' "$IR_COUNT" "$IDIFFS"
+
+# Still phase two, the other half of the lowering's contract: a shape the port
+# cannot spell must *refuse*, with a code and a node path, and never crash. A
+# `gen2 build` that exits on a signal, exits 0, or prints another line is a
+# difference like any other and counts in the same total. Each fixture under
+# src/logosc/fixtures/ir-refuse pairs a `.logos` with a `.refuse` sidecar
+# holding the exact first line of stderr, the way `.check` pairs with the
+# checker's list. The directory is the list; REFUSE_FLOOR keeps it from being
+# emptied, and the count moves with every add or delete.
+shopt -s nullglob
+REFUSED=(src/logosc/fixtures/ir-refuse/*.logos)
+shopt -u nullglob
+REFUSE_COUNT=${#REFUSED[@]}
+if (( REFUSE_COUNT < REFUSE_FLOOR )); then
+    printf 'refuse: found %d fixtures, below the floor of %d\n' "$REFUSE_COUNT" "$REFUSE_FLOOR" >&2
+    exit 2
+fi
+for path in "${REFUSED[@]}"; do
+    sidecar="${path%.logos}.refuse"
+    if [[ ! -f "$sidecar" ]]; then
+        printf 'refuse: %s: missing %s\n' "$path" "${sidecar##*/}"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    want="$(head -n 1 "$sidecar")"
+    "$BIN" build "$path" -o "$OUT/ir/$(basename "$path" .logos).refused.ll" \
+        > "$STDOUT" 2> "$STDERR"
+    status=$?
+    if (( status == 0 )); then
+        printf 'refuse: %s: expected %s, gen2 build exited 0\n' "$path" "$want"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    if (( status >= 128 )); then
+        printf 'refuse: %s: expected %s, gen2 build died on signal %d\n' \
+            "$path" "$want" "$((status - 128))"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
+    got="$(head -n 1 "$STDERR")"
+    if [[ "$got" != "$want" ]]; then
+        printf 'refuse: %s: expected %s, got %s\n' "$path" "$want" "${got:-nothing}"
+        IDIFFS=$((IDIFFS + 1))
+    fi
+done
 
 # Phase three: every resolver-owned negative fixture must make `gen2 resolve`
 # print the code its sidecar demands. A fixture that resolves cleanly, prints

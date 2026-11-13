@@ -1,0 +1,19 @@
+(mod structs-eq)
+
+(type one (struct (a :i16) (b :i16)))
+
+(type two (struct (c :i32) (d :i32)))
+
+(fn first :i16 ((p one))
+  (ret (get p b)))
+
+(fn main :i64 ()
+  (let v one (make one 1 2))
+  (let w two (make two 3 4))
+  (let p (alloc one 2))
+  (free p)
+  (let q (alloc two 2))
+  (free q)
+  (let x :i16 (first v))
+  (ret (if (= x 2)
+         (if (= (get w d) 4) 1 0) 0)))

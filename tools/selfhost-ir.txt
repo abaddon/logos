@@ -6,18 +6,25 @@
 # may not share a stem. Adding a file here is adding a byte-equality claim; a
 # file that only partly agrees makes the gate red.
 #
-# Every fixture under src/logosc/fixtures/ir-lower is listed. The list grew from
-# seven to twenty-four in W7 B2: the two known-different files (`string`,
-# `match`) now agree, the shifts and the two wildcard-arm shapes have fixtures
-# of their own, and the print, string, vector, array, memory, pointer and call
-# forms the corpus needs next each have one. `fieldset` and `heap` cover
-# `set-field`, `deref`, `set-deref` and `ptr-add`.
+# Every fixture under src/logosc/fixtures/ir-lower is listed — the set is not
+# "roughly the corpus", it is exactly the directory, and tools/selfhost.sh
+# refuses a list and a directory that name different sets. The list grew from
+# seven to thirty-one: the two known-different files (`string`, `match`) now agree,
+# the shifts and the two wildcard-arm shapes have fixtures of their own, the
+# print, string, vector, array, memory, pointer and call forms the corpus needs
+# next each have one, and the fix round added the layout and borrowed-vector
+# shapes the corpus could not see — one and two structs whose fields are
+# equal-width and unequal-width (`struct-eq`, `struct-pad`, `structs-eq`,
+# `structs-pad`), a struct whose field names an enum declared after it
+# (`enumfwd`), and a `(ref (vec T))` binding read, written and grown through
+# (`vecref`, `vecref2`).
 #
 # Still not lowered, and so deliberately absent from this list (no fixture
 # claims them): `spawn`/`join`, channels, mutexes and atomics, closures,
 # results and optionals (`some`/`none`/`ok`/`err`/`try`), `run`,
-# `read-all`/`read-file`, `args`, `str-byte`/`str-from-i64`, and moving or
-# freeing a vector through a `(ref …)` binding. They are PR C's list.
+# `read-all`/`read-file`, `args`, `str-byte`/`str-from-i64`. They are PR C's
+# list. A shape the lowerer must refuse rather than spell lives beside this
+# directory in src/logosc/fixtures/ir-refuse.
 #
 # The floor in tools/selfhost.sh is the number of lines below: a pruned list
 # fails the gate rather than passing over fewer files.
@@ -45,3 +52,11 @@ src/logosc/fixtures/ir-lower/arrset.logos
 src/logosc/fixtures/ir-lower/fieldset.logos
 src/logosc/fixtures/ir-lower/memory.logos
 src/logosc/fixtures/ir-lower/heap.logos
+src/logosc/fixtures/ir-lower/struct-eq.logos
+src/logosc/fixtures/ir-lower/struct-pad.logos
+src/logosc/fixtures/ir-lower/structs-eq.logos
+src/logosc/fixtures/ir-lower/structs-pad.logos
+src/logosc/fixtures/ir-lower/vecref.logos
+src/logosc/fixtures/ir-lower/vecref2.logos
+src/logosc/fixtures/ir-lower/enumfwd.logos
+src/logosc/fixtures/ir-lower/enumpay.logos

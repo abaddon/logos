@@ -1,0 +1,9 @@
+(mod enumpay)
+
+(type e (enum (a :i64) (b :i64)))
+
+(fn f :i64 ((c e))
+  (ret (match c ((a _) 1) ((b _) 2))))
+
+(fn main :i64 ()
+  (ret 0))

@@ -1,0 +1,9 @@
+(mod self-struct)
+
+(type node (struct (next node)))
+
+(fn f :void ((n node))
+  (ret))
+
+(fn main :i64 ()
+  (ret 0))

@@ -1,0 +1,19 @@
+(mod structs-pad)
+
+(type small (struct (a :i8) (b :i32)))
+
+(type wide (struct (x :i8) (y :i64)))
+
+(fn first :i8 ((p small))
+  (ret (get p a)))
+
+(fn main :i64 ()
+  (let v small (make small 1 2))
+  (let w wide (make wide 3 4))
+  (let p (alloc small 2))
+  (free p)
+  (let q (alloc wide 2))
+  (free q)
+  (let x :i8 (first v))
+  (ret (if (= x 0)
+         (get w y) 0)))

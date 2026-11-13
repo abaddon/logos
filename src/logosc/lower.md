@@ -240,6 +240,14 @@ what terminated `entry`. Enum arms are compared by variant *index*: the arm's
 head names the variant, and `lo-enum-test` looks it up in the enum the
 scrutinee's type points at.
 
+An enum arm binds its payload only when the arm *reads* it. `((a _) 1)` binds
+nothing — Python's `pattern_variant` answers `None` for `_` and the arm body
+never sees a name — while `((a n) n)` binds at the payload's declared type. The
+second pass now skips the binder when its text is `_`, so the ignored shape
+emits no `alloca`, no `getelementptr`, no `bitcast` and no `load`, and no
+temp numbers are spent on them: `enumpay` is byte-identical, where the eager
+binder cost two slots and five instructions.
+
 ## The shifts
 
 `lo-shift` lowers `shl`, `shr` (arithmetic, `ashr`) and `shr-u` (logical,
@@ -278,9 +286,21 @@ also catch a negative bound.
 A `(vec T)` is `{ T*, i64, i64 }` — buffer, length, capacity — and
 `lo-vec-part` reads one field. `lo-veclen`, `lo-vecget`, `lo-vecset` and
 `lo-vecfree` take the descriptor as a value; `lo-vecset` and `lo-vecfree` write
-through the binding's slot. A `(ref (vec T))` binding holds a pointer to the
+through the binding's slot. A `(ref (vec T))` parameter holds a pointer to the
 caller's descriptor, so `lo-ref-load` reads it once more before the fields.
 Bounds are `lo-vbounds` (an unsigned compare, panic `R0003`).
+
+The borrowed shape is covered on both sides of the call, and both fixtures that
+claim it are in the parity list. At the *callee* the parameter's slot holds the
+pointer, so every `vec-*` form loads the descriptor through it once. At the
+*caller* a ref parameter takes an address, never a value: `lo-ref-slot` answers
+with the address when the argument names a mutable binding whose own type is
+not a ref — the binding's slot *is* the descriptor, so `%v.0.addr` is what the
+callee must receive — and answers with the empty string otherwise, which sends
+the argument through `lo-value` and loads the pointer a ref binding already
+holds. That is Python's split in `argument`, and `vecref` (`len`, `get`, `set`,
+`push`, `free` through one ref) and `vecref2` (a ref passed on to another ref)
+are byte-identical because of it.
 
 `lo-vecpush` is the one long form: it grows the buffer by *allocate, copy,
 release* rather than `realloc`, because the leak tracker owns every block's
@@ -309,6 +329,31 @@ back and calls `rt_free`; `deref`, `set-deref` and `ptr-add` are one `load`, one
 follow their element, an optional is its element's, a result is the larger of
 its two sides, and a struct is the largest of its fields.
 
+`lo-size-struct` is C's layout, which is LLVM's for an identified struct: each
+field starts at the next multiple of its own alignment (`lo-pad`, fed by
+`lo-align-of`, the same table above without the sixty-three-vector list), and
+the whole is rounded up to the largest field's. Summing the fields instead gave
+`{ i8, i64 }` nine bytes for the sixteen LLVM lays out, and an `alloc` of it
+reserved nine — a heap under-allocation in emitted code that no corpus fixture
+could see. `[3 x { i8, i64 }]` is 48, not 27, and `struct-pad` and
+`structs-pad` pin the padded number in `rt_alloc`'s size argument.
+
+A struct's fields live in the shared payload table, so `lo-struct-body` records
+its base as the table's length at the moment it starts and writes it back into
+`pbase[id]`; the first scan cannot know it, because no body has been read yet
+and every struct declared there sees an empty table. `lo-enum-body` does the
+same for payloads. Without it every struct after the first emitted its
+predecessors' fields prepended — `%struct.wide = { i8, i8, i8, i32, i8, i64 }`
+for a two-field struct — which no one-struct fixture could see.
+
+Both were ordering defects of the *scan*, not of the layout rule, and the
+forward reference the checker allows is the same defect seen from the other
+side: a struct whose field names an enum declared after it used to crash the
+backend (`gen2 build` exited 139 with nothing on stderr) because the enum's
+payload table was still empty when the field was measured. With the base
+recorded at the body and the payload table filled before its length is used,
+that file lowers and `enumfwd` is byte-identical to Python's `.ll`.
+
 ## What it does not lower
 
 Still refused, each at the form's node path with `E0002: '<head>' is not
@@ -319,7 +364,31 @@ and optional forms (`ok`, `err`, `some`, `none`, `try`), `run`,
 ownership rules that go with them. That is PR C's list; the check phase keeps
 the boundary honest by listing only what the checker already decides.
 
+## A type with no finite layout
+
+A struct that holds itself by value — directly, or through an enum payload or
+another struct — has no LLVM spelling; the printer would write `%struct.node`
+inside `%struct.node`. `lo-reaches` walks the by-value edges (a pointer, `own`,
+`vec`, `ref` or function value stops the walk) and `lo-struct-body` refuses the
+declaration with `E0002: struct '<name>' contains itself by value` at the
+struct body's node path; `lo-enum-body` refuses the payload case the same way.
+Python refuses the same program with the same words, but at the *first use* of
+the type rather than at its declaration, because `use_type` is its only funnel
+and the backend has none. The difference shows only in a module that declares
+such a type and never uses it: Python accepts the declaration, this port
+refuses it. Nothing that can be lowered is lost — a type with no size cannot be
+allocated, passed or read — and the alternative was the self-referential row or
+the segfault a forward enum reference used to cause.
+
+The refusal is measured, not assumed: `src/logosc/fixtures/ir-refuse` holds one
+fixture per shape with a `.refuse` sidecar naming the exact first line of
+stderr, and phase two runs it beside the parity list. A signal, a silent exit
+or another line is a difference.
+
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — twenty-four files, all byte-identical to Python's
-`.ll`. `tools/selfhost.sh` holds `IR_FLOOR=24` so a pruned list fails rather
-than passing over fewer files.
+`tools/selfhost-ir.txt` — thirty-two files, all byte-identical to Python's `.ll`.
+`tools/selfhost.sh` holds `IR_FLOOR=32` so a pruned list fails rather than
+passing over fewer files, and compares the list against
+`src/logosc/fixtures/ir-lower/*.logos` as a *set*: an addition or a deletion
+must move both names in the same commit, so the count cannot be held still
+while one fixture is swapped for another.
