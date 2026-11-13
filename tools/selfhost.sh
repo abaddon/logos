@@ -214,12 +214,13 @@ done
 printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 
 # Phase two: every listed file's IR from `gen2 build` must equal Python's.
-# Python's oracle is a real `logos build`; its `.ll` lands at build/<stem>.ll,
-# so the previous run's file is removed first and its absence after the build
-# is a difference rather than a stale match. gen2's own output goes under
-# build/selfhost/ir/ and is removed the same way, for the same reason: a run
-# that compared a file it did not just write proves nothing. A build that exits
-# 0 and writes nothing is a difference on both sides.
+# Both drivers keep the IR at build/<stem>.ll and name the binary with `-o`
+# (`driver.py:164-171`), so each side is asked for a binary and the text the
+# comparison reads is the `.ll` beside the sources. gen2's `.ll` is moved under
+# build/selfhost/ir/ before Python's build takes the same path, and both are
+# removed before the run, so a file that was not just written cannot be read as
+# agreement. A build that exits 0 and writes no `.ll` is a difference on both
+# sides.
 if [[ ! -f "$IR_LIST" ]]; then
     printf 'ir: missing list: %s\n' "${IR_LIST#"$ROOT"/}" >&2
     exit 2
@@ -297,16 +298,17 @@ for path in "${IR_FILES[@]}"; do
         continue
     fi
     rm -f "$mine" "build/$stem.ll"
-    if ! "$BIN" build "$path" -o "$mine" > "$STDOUT" 2> "$STDERR"; then
+    if ! "$BIN" build "$path" -o "$OUT/ir/$stem.bin" > "$STDOUT" 2> "$STDERR"; then
         printf 'ir: %s: gen2 build failed: %s\n' "$path" "$(head -n 1 "$STDERR")"
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
-    if [[ ! -f "$mine" ]]; then
-        printf 'ir: %s: gen2 wrote no %s\n' "$path" "${mine#"$ROOT"/}"
+    if [[ ! -f "build/$stem.ll" ]]; then
+        printf 'ir: %s: gen2 wrote no build/%s.ll\n' "$path" "$stem"
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
+    mv "build/$stem.ll" "$mine"
     if ! python3 -m logos build "$path" -o "$OUT/ir/$stem.bin" > "$OUT/ir/$stem.log" 2>&1; then
         printf 'ir: %s: python build failed (log: %s)\n' "$path" "${OUT#"$ROOT"/}/ir/$stem.log"
         IDIFFS=$((IDIFFS + 1))
@@ -349,7 +351,7 @@ for path in "${REFUSED[@]}"; do
         continue
     fi
     want="$(head -n 1 "$sidecar")"
-    "$BIN" build "$path" -o "$OUT/ir/$(basename "$path" .logos).refused.ll" \
+    "$BIN" build "$path" -o "$OUT/ir/$(basename "$path" .logos).refused" \
         > "$STDOUT" 2> "$STDERR"
     status=$?
     if (( status == 0 )); then
@@ -535,10 +537,11 @@ mkdir -p "$OUT/unit"
 UDIFFS=0
 UNIT_COUNT=0
 
-# Compare one unit: gen2's IR for the roots against Python's. Python spells its
-# IR after the first root's stem (driver.py:116-118), so the file it wrote is
-# `build/<first stem>.ll`; both sides remove their target first so a stale file
-# cannot be read as agreement.
+# Compare one unit: gen2's IR for the roots against Python's. Both drivers
+# spell the IR after the first root's stem (`driver.py:116-118`) and write it to
+# `build/<first stem>.ll`; `-o` names each side's binary. gen2's text is moved
+# out of that path before Python writes its own, and both sides remove their
+# target first so a stale file cannot be read as agreement.
 unit_compare() {
     local tag="$1"
     shift
@@ -546,16 +549,17 @@ unit_compare() {
     local pyll="build/$(basename "$1" .logos).ll"
     UNIT_COUNT=$((UNIT_COUNT + 1))
     rm -f "$mine" "$pyll"
-    if ! "$BIN" build "$@" -o "$mine" > "$STDOUT" 2> "$STDERR"; then
+    if ! "$BIN" build "$@" -o "$OUT/unit/$tag.gen2.bin" > "$STDOUT" 2> "$STDERR"; then
         printf 'unit: %s: gen2 build failed: %s\n' "$tag" "$(head -n 1 "$STDERR")"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if [[ ! -f "$mine" ]]; then
-        printf 'unit: %s: gen2 wrote no %s\n' "$tag" "${mine#"$ROOT"/}"
+    if [[ ! -f "$pyll" ]]; then
+        printf 'unit: %s: gen2 wrote no %s\n' "$tag" "$pyll"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
+    mv "$pyll" "$mine"
     if (( $(wc -c < "$mine") < UNIT_BYTES_FLOOR )); then
         printf 'unit: %s: gen2 wrote %d bytes, below the floor of %d\n' \
             "$tag" "$(wc -c < "$mine")" "$UNIT_BYTES_FLOOR"
