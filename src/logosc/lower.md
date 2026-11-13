@@ -190,9 +190,14 @@ depth is saved and restored around each loop instead of reset.
   latter. `main` also gets the i32 return the C entry point expects, whatever
   the source declared; every other function keeps `:i64`, `:void` and so on
   as its own return type.
-- **Functions are looked up by source name**, and the call is emitted against
-  the *symbol*: `lo-call` resolves `fnk`/`enk` and hands `fsyms`/the extern's
-  own name to the `call` row.
+- **Functions are looked up per module.** `fnk`/`fnv`/`fnl` is keyed by
+  `<module>\0<name>` (`lo-fn-key`), and `lo-fn-id` resolves a call the way
+  `lower.py`'s `prepare` does: the caller's own module first, then the modules
+  its `use` forms name, in source order. That matters when two modules define
+  the same private helper — `body-test` and `check-test` each define
+  `show-check-fail` — because a name-only index binds every call to whichever
+  module was scanned last. The call is emitted against the *symbol*:
+  `lo-call` hands `fsyms`/the extern's own name to the `call` row.
 - **Globals.** A string literal becomes one `.strN`, interned by content:
   `lo-intern` returns the existing name when the bytes are already there, so
   two `"hello"`s share one global. `lo-cstring` appends the NUL before

@@ -8,11 +8,12 @@ negative fixture under `tests/parse` and compares the code with its `.expect`
 sidecar, then runs `gen2 check` over `tools/selfhost-check.txt` and compares the
 whole diagnostic line with the generated `.check` sidecar beside each fixture,
 then lowers the compiler's own eleven-module unit with `gen2 build` and with
-Python and requires the two `.ll` files to be equal byte for byte.
-This test is the smallest one that proves the wiring: it runs the gate and
-checks the five summary lines and the exit status, so a script that silently
-skipped a loop, overran the manifest, pruned the IR list, passed over zero
-files or compared a unit nobody wrote cannot look green.
+Python and requires the two `.ll` files to be equal byte for byte, and then
+does the same for the whole source set the gate builds gen2 from. This test is
+the smallest one that proves the wiring: it runs the gate and checks the five
+summary lines and the exit status, so a script that silently skipped a loop,
+overran the manifest, pruned the IR list, passed over zero files or compared a
+unit nobody wrote cannot look green.
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ IR_LINE = re.compile(r"^ir: (\d+) files, (\d+) differences$")
 RESOLVE_LINE = re.compile(r"^resolve: (\d+) fixtures, (\d+) differences$")
 #: `check: N fixtures, M differences`, the checker phase's summary.
 CHECK_LINE = re.compile(r"^check: (\d+) fixtures, (\d+) differences$")
-#: `unit: 1 file, M differences`, the whole-unit phase's summary.
-UNIT_LINE = re.compile(r"^unit: (\d+) file, (\d+) differences$")
+#: `unit: N files, M differences`, the whole-unit phase's summary: one file per
+#: unit compared (the closure and the whole source set).
+UNIT_LINE = re.compile(r"^unit: (\d+) files, (\d+) differences$")
 
 
 class SelfhostGateTest(unittest.TestCase):
@@ -98,7 +100,7 @@ class SelfhostGateTest(unittest.TestCase):
         self.assertEqual(check_differences, 0)
 
         unit_files, unit_differences = (int(group) for group in unit_match.groups())
-        self.assertEqual(unit_files, 1, "the unit phase did not compare one unit")
+        self.assertEqual(unit_files, 2, "the unit phase did not compare both units")
         self.assertEqual(unit_differences, 0)
 
 

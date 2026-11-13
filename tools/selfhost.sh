@@ -63,17 +63,27 @@
 # fixtures.
 #
 # A fifth phase judges the unit: the compiler's whole front end at once.
-# `gen2 build` and Python's `logos build` lower the same three roots — fmt, lex
-# and main, the eleven-module closure both binaries are built from — and the
-# two `.ll` files must be equal byte for byte. A unit is one file, so the phase
-# asserts equality rather than counting a corpus; what it floors is that the
-# thing compared is the unit (three roots on disk, and at least a megabyte on
-# each side), so two empty or truncated files cannot agree their way to a pass.
+# `gen2 build` and Python's `logos build` lower two units and the two `.ll`
+# files must be equal byte for byte: the eleven-module closure both binaries
+# are built from (fmt, lex and main), and the whole source set the gate builds
+# gen2 from (every src/logosc module including the `*_test` helpers, plus the
+# two standard modules). The second is the one a name-keyed function index
+# fails: a call in `body-test` that shares a helper name with `check-test`
+# binds to the wrong module's function even though every file formats
+# canonically, so the unit is where that defect shows.
+#
+# A unit is one file, so the phase counts units rather than a corpus; what it
+# floors is that each thing compared is the unit it claims — the closure names
+# three roots (UNIT_FLOOR) and the whole set names at least WHOLE_FLOOR, every
+# root is on disk, and each side's output is at least UNIT_BYTES_FLOOR bytes,
+# so two empty or truncated files cannot agree their way to a pass. Both sides
+# remove their target before building, as phase two does, so a stale file
+# cannot be compared against.
 #
 # Output: one line per fmt, ir, resolve, check or unit failure, then
 # `selfhost: N files, M differences`, `ir: N files, M differences`,
 # `resolve: N fixtures, M differences`, `check: N fixtures, M differences` and
-# `unit: 1 file, M differences`.
+# `unit: N files, M differences`.
 # Exit 0 when every phase is clean, 1 when any file or fixture differs, 2 when
 # the gate could not run at all (missing manifest or list, count mismatch, no
 # binary).
@@ -472,30 +482,49 @@ done
 printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
 
 # Phase five: the unit. The phases above judge files one at a time; this one
-# judges the compiler's whole front end at once. `gen2 build` and Python's
-# `logos build` lower the same three roots — fmt, lex and main, the eleven-
-# module closure the compiler is built from — and the two `.ll` files must be
-# equal byte for byte. It is the fixed point's first half: the port's own
-# lowering reproduces the oracle on the sources both are built from.
+# judges the compiler's whole front end at once, twice. `gen2 build` and
+# Python's `logos build` lower the eleven-module closure the compiler is built
+# from (fmt, lex and main) and the whole source set the gate builds gen2 from
+# (every src/logosc module, the shared test helpers included, plus the two
+# standard modules), and each pair of `.ll` files must be equal byte for byte.
+# It is the fixed point's first half: the port's own lowering reproduces the
+# oracle on the sources both are built from.
+#
+# The whole set is not redundant with the closure: the closure's modules do not
+# share helper names, while the test modules do (`body-test` and `check-test`
+# each define `show-check-fail`, `dump-tree` and so on). A function index keyed
+# by name alone binds those calls to whichever module was scanned last, which
+# is invisible to the fmt phase and to the closure, and which this comparison
+# catches.
 #
 # A unit is one file, so there is no corpus to count and no count to floor:
-# the phase asserts equality. What a floor can still hold is that the thing
-# compared is the unit — the root set names three modules (UNIT_FLOOR) and
-# each is on disk, and each side's output is at least UNIT_BYTES_FLOOR bytes,
-# so two empty or truncated files cannot agree their way to a pass. Both sides
-# remove their target before building, as phase two does, so a stale file
-# cannot be compared against.
+# each comparison asserts equality. What a floor can still hold is that the
+# thing compared is the unit it claims — the closure names three modules
+# (UNIT_FLOOR), the whole set names at least WHOLE_FLOOR, each root is on disk,
+# and each side's output is at least UNIT_BYTES_FLOOR bytes, so two empty or
+# truncated files cannot agree their way to a pass. Both sides remove their
+# target before building, as phase two does, so a stale file cannot be
+# compared against.
 UNIT_ROOTS=(src/logosc/fmt.logos src/logosc/lex.logos src/logosc/main.logos)
 UNIT_FLOOR=3
-# The unit is 15.5 MB of IR today. Below a megabyte it is not the closure,
-# whatever the two sides agree on.
+# Every module under src/logosc plus map and str: twenty today, and a pruned
+# tree must fail rather than compare a smaller unit.
+WHOLE_SOURCES=("${SOURCES[@]}")
+WHOLE_FLOOR=20
+# The closure is 15.5 MB of IR and the whole set 17.5 MB today. Below a
+# megabyte neither is the unit it claims, whatever the two sides agree on.
 UNIT_BYTES_FLOOR=1000000
 
 if (( ${#UNIT_ROOTS[@]} < UNIT_FLOOR )); then
     printf 'unit: %d roots, below the floor of %d\n' "${#UNIT_ROOTS[@]}" "$UNIT_FLOOR" >&2
     exit 2
 fi
-for path in "${UNIT_ROOTS[@]}"; do
+if (( ${#WHOLE_SOURCES[@]} < WHOLE_FLOOR )); then
+    printf 'unit: whole source set names %d files, below the floor of %d\n' \
+        "${#WHOLE_SOURCES[@]}" "$WHOLE_FLOOR" >&2
+    exit 2
+fi
+for path in "${UNIT_ROOTS[@]}" "${WHOLE_SOURCES[@]}"; do
     if [[ ! -f "$path" ]]; then
         printf 'unit: %s: missing root\n' "$path" >&2
         exit 2
@@ -504,35 +533,62 @@ done
 
 mkdir -p "$OUT/unit"
 UDIFFS=0
-MINE="$OUT/unit/gen2.ll"
-THEIRS="$OUT/unit/python.ll"
-rm -f "$MINE" "$THEIRS" build/fmt.ll
-if ! "$BIN" build "${UNIT_ROOTS[@]}" -o "$MINE" > "$STDOUT" 2> "$STDERR"; then
-    printf 'unit: gen2 build failed: %s\n' "$(head -n 1 "$STDERR")"
-    UDIFFS=$((UDIFFS + 1))
-elif [[ ! -f "$MINE" ]]; then
-    printf 'unit: gen2 wrote no %s\n' "${MINE#"$ROOT"/}"
-    UDIFFS=$((UDIFFS + 1))
-elif (( $(wc -c < "$MINE") < UNIT_BYTES_FLOOR )); then
-    printf 'unit: gen2 wrote %d bytes, below the floor of %d\n' \
-        "$(wc -c < "$MINE")" "$UNIT_BYTES_FLOOR"
-    UDIFFS=$((UDIFFS + 1))
-elif ! python3 -m logos build "${UNIT_ROOTS[@]}" -o "$OUT/unit/python" > "$OUT/unit/python.log" 2>&1; then
-    printf 'unit: python build failed (log: %s)\n' "${OUT#"$ROOT"/}/unit/python.log"
-    UDIFFS=$((UDIFFS + 1))
-elif [[ ! -f build/fmt.ll ]]; then
-    printf 'unit: python wrote no build/fmt.ll\n'
-    UDIFFS=$((UDIFFS + 1))
-elif (( $(wc -c < build/fmt.ll) < UNIT_BYTES_FLOOR )); then
-    printf 'unit: python wrote %d bytes, below the floor of %d\n' \
-        "$(wc -c < build/fmt.ll)" "$UNIT_BYTES_FLOOR"
-    UDIFFS=$((UDIFFS + 1))
-elif ! cmp -s "$MINE" build/fmt.ll; then
-    printf 'unit: output differs\n'
-    UDIFFS=$((UDIFFS + 1))
-fi
+UNIT_COUNT=0
 
-printf 'unit: 1 file, %d differences\n' "$UDIFFS"
+# Compare one unit: gen2's IR for the roots against Python's. Python spells its
+# IR after the first root's stem (driver.py:116-118), so the file it wrote is
+# `build/<first stem>.ll`; both sides remove their target first so a stale file
+# cannot be read as agreement.
+unit_compare() {
+    local tag="$1"
+    shift
+    local mine="$OUT/unit/$tag.gen2.ll"
+    local pyll="build/$(basename "$1" .logos).ll"
+    UNIT_COUNT=$((UNIT_COUNT + 1))
+    rm -f "$mine" "$pyll"
+    if ! "$BIN" build "$@" -o "$mine" > "$STDOUT" 2> "$STDERR"; then
+        printf 'unit: %s: gen2 build failed: %s\n' "$tag" "$(head -n 1 "$STDERR")"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if [[ ! -f "$mine" ]]; then
+        printf 'unit: %s: gen2 wrote no %s\n' "$tag" "${mine#"$ROOT"/}"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if (( $(wc -c < "$mine") < UNIT_BYTES_FLOOR )); then
+        printf 'unit: %s: gen2 wrote %d bytes, below the floor of %d\n' \
+            "$tag" "$(wc -c < "$mine")" "$UNIT_BYTES_FLOOR"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if ! python3 -m logos build "$@" -o "$OUT/unit/$tag.python" > "$OUT/unit/$tag.python.log" 2>&1; then
+        printf 'unit: %s: python build failed (log: %s)\n' \
+            "$tag" "${OUT#"$ROOT"/}/unit/$tag.python.log"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if [[ ! -f "$pyll" ]]; then
+        printf 'unit: %s: python wrote no %s\n' "$tag" "$pyll"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if (( $(wc -c < "$pyll") < UNIT_BYTES_FLOOR )); then
+        printf 'unit: %s: python wrote %d bytes, below the floor of %d\n' \
+            "$tag" "$(wc -c < "$pyll")" "$UNIT_BYTES_FLOOR"
+        UDIFFS=$((UDIFFS + 1))
+        return
+    fi
+    if ! cmp -s "$mine" "$pyll"; then
+        printf 'unit: %s: output differs\n' "$tag"
+        UDIFFS=$((UDIFFS + 1))
+    fi
+}
+
+unit_compare closure "${UNIT_ROOTS[@]}"
+unit_compare whole "${WHOLE_SOURCES[@]}"
+
+printf 'unit: %d files, %d differences\n' "$UNIT_COUNT" "$UDIFFS"
 if (( DIFFS > 0 || IDIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 || UDIFFS > 0 )); then
     exit 1
 fi
