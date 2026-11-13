@@ -76,6 +76,7 @@ src/logosc/fixtures/ir-lower/struct.logos
 src/logosc/fixtures/ir-lower/structs-eq.logos
 src/logosc/fixtures/ir-lower/structs-pad.logos
 src/logosc/fixtures/ir-lower/tryprop.logos
+src/logosc/fixtures/ir-lower/type-order.logos
 src/logosc/fixtures/ir-lower/vecgetref.logos
 src/logosc/fixtures/ir-lower/vecops.logos
 src/logosc/fixtures/ir-lower/vecpush.logos

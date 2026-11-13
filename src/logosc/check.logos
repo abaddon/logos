@@ -1843,7 +1843,7 @@
     (check-nothing))
   (set err (check-module-fn-bodies nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname ents vindex vis-start
              (vec-len vindex)
-             (check-mod-name mods slot) fps))
+             (check-mod-name mods slot) mods fps))
   (if (not (check-ok err))
     (ret (check-free-three dnames dids fps err))
     (check-nothing))
@@ -2020,13 +2020,13 @@
   (vec-push fps fnty)
   (ret))
 
-(fn check-module-fn-bodies check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (vis-s :i64) (vis-e :i64) (selfname :str) (fps (ref (vec :i64))))
+(fn check-module-fn-bodies check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (vis-s :i64) (vis-e :i64) (selfname :str) (mods (ref (vec check-mod))) (fps (ref (vec :i64))))
   (letmut i :i64 0)
   (letmut err check-error (check-pass))
   (while (and (check-ok err)
            (< i (vec-len fps)))
     (let c :i64 (vec-get fps i))
-    (set err (check-body-fn nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname ents vindex vis-s vis-e selfname c
+    (set err (check-body-fn nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname ents vindex vis-s vis-e selfname mods c
                (vec-get fps (+ i 1))
                (check-name-text nodes ntexts c)))
     (set i (+ i 2)))
@@ -2259,6 +2259,15 @@
   (while (and (not found)
            (< i (vec-len mods)))
     (set found (str-eq (get (vec-get mods i) name) owner))
+    (set i (+ i 1)))
+  (ret found))
+
+(fn check-in-set :bool ((bl (ref (vec :str))) (owner :str))
+  (letmut i :i64 2)
+  (letmut found :bool false)
+  (while (and (not found)
+           (< i (vec-len bl)))
+    (set found (str-eq (vec-get bl i) owner))
     (set i (+ i 1)))
   (ret found))
 
@@ -2676,8 +2685,7 @@
                 (vec-get bctl 3) text))
   (if (>= e 0)
     (if (or (= (get (vec-get ents e) kind) 2)
-          (not (str-eq (get (vec-get ents e) owner)
-                 (vec-get bl 1))))
+          (not (check-in-set bl (get (vec-get ents e) owner))))
       (ret (check-fail-at nodes ntexts where 103 (str-concat "cannot use '" (str-concat text (str-concat "' as a function value: '" (str-concat text "' is not part of this build"))))))
       (ret (body-store out (body-unknown))))
     (check-nothing))
@@ -6273,8 +6281,10 @@
                 (vec-get bctl 2)
                 (vec-get bctl 3) name))
   (if (and (>= e 0)
-        (not (str-eq (get (vec-get ents e) owner)
-               (vec-get bl 1))))
+        (or (not (check-in-set bl (get (vec-get ents e) owner)))
+          (and (> (get (vec-get ents e) var-n) 0)
+            (not (str-eq (get (vec-get ents e) owner)
+                   (vec-get bl 1))))))
     (ret (check-fail-at nodes ntexts id 103 (str-concat "imported functions are not lowered yet: '" (str-concat name "'"))))
     (check-nothing))
   (if (and (>= e 0)
@@ -7083,7 +7093,7 @@
              (>= fnty 0))
          (body-store out fnty) err)))
 
-(fn check-body-fn check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (vis-s :i64) (vis-e :i64) (selfname :str) (c :i64) (fnty :i64) (fname :str))
+(fn check-body-fn check-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (dnames (ref (vec :str))) (dids (ref (vec :i64))) (tags (ref (vec :i64))) (names (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (pnames (ref (vec :str))) (ptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (ents (ref (vec check-entry))) (vindex (ref (vec :i64))) (vis-s :i64) (vis-e :i64) (selfname :str) (mods (ref (vec check-mod))) (c :i64) (fnty :i64) (fname :str))
   (letmut bn
     (vec :i64)
     (make (vec :i64)))
@@ -7127,6 +7137,10 @@
   (vec-push br (vec-get elem fnty))
   (vec-push bl (str-concat "function '" (str-concat fname "'")))
   (vec-push bl selfname)
+  (letmut mm :i64 0)
+  (while (< mm (vec-len mods))
+    (vec-push bl (get (vec-get mods mm) name))
+    (set mm (+ mm 1)))
   (let c0 :i64 (get (vec-get nodes c) first))
   (let marker :bool (check-is-marker nodes ntexts c0))
   (let params :i64 (if marker

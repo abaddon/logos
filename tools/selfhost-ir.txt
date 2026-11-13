@@ -111,6 +111,10 @@ src/logosc/fixtures/ir-lower/sharedptr.logos
 # distinguishable from a per-function one ($spawn$1 in the helper, $spawn$2 in
 # main), each thunk's temps restarting at %t1.
 src/logosc/fixtures/ir-lower/spawn.logos
+# The F5 claim: the struct rows are printed in first-use order, not declaration
+# order. `alpha`, `beta` and `gamma` are declared in that order, and
+# `take`'s parameter is the first use, so the rows come out gamma, beta, alpha.
+src/logosc/fixtures/ir-lower/type-order.logos
 # The examples. They are not fixtures: each is a program the repository ships,
 # and each lowers through the same single-module path as the fixtures above.
 examples/hello.logos

@@ -1,0 +1,18 @@
+(mod order)
+
+(type alpha (struct (a :i64)))
+
+(type beta (struct (b :i64)))
+
+(type gamma (struct (g :i64)))
+
+(fn take :i64 ((g gamma))
+  (ret (get g g)))
+
+(fn main :i64 ()
+  (let b beta (make beta 2))
+  (let a alpha (make alpha 1))
+  (let g gamma (make gamma 3))
+  (ret (+ (+ (get a a)
+            (get b b))
+         (take g))))

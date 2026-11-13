@@ -92,12 +92,17 @@ call reaches a body this build lowers. The second answers whether that module
 is one of the set being lowered. A body outside the set is E0103, not here.
 
 The owner compare itself — the check that a call's declaring module is the
-module whose body is being read — is implemented and symmetric, but it is not
-exercised end to end by `gen2 check`. Every cross-module value crosses a call,
-and `body-call` refuses an imported callee earlier, with E0103
-`imported functions are not lowered yet`, before the owner compare can run. No
-corpus program reaches a two-module clash, so the unit case below pins the
-lookups rather than the clash.
+module whose body is being read — is the `check-in-set` call in `body-call` and
+`body-atom-value`. It asks whether the declaring module is *any* module of the
+unit being lowered, not just the one whose body is being read: a unit of two or
+more modules is checked as one program, so a call from `a` into `b` is legal
+and is typed from `b`'s entry (`check-visible-owner` finds it in the whole
+visible set). E0103 fires only when the callee's module is outside the build —
+`imported functions are not lowered yet: '<name>'` for a call, `'<name>' is not
+part of this build` for a function value — which is the single-root case the
+corpus pins. Before the unit landed the compare was `(str-eq owner (vec-get bl
+1))`: any callee but this module's own was refused, which is why the
+multi-module fixtures needed the set instead of the name.
 
 ## What it decides
 

@@ -18,24 +18,39 @@ lower-build mtriple mqual snames sbase scount sftys enames ewords gnames gdata
             fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2
             bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals
             tags tnames elem extra pbase powner tpnames tptypes pchild pvname
-            nod ntx
+            nod ntx mnods mntx mstarts mends
 ```
 
-Sixty-three vectors, no more and no less: the module tables `emit` prints, the
-type arena `types.logos` fills, and the parsed tree (`nod`, `ntx`). The call is
-long because the language has no struct of vectors and the arena is passed by
-reference; every `lo-*` function below takes the same list in the same order,
-and a caller (today `main.logos`'s `main-built`) allocates all of it once.
+Sixty-seven vectors, no more and no less: the module tables `emit` prints, the
+type arena `types.logos` fills, and the parsed tree. The call is long because
+the language has no struct of vectors and the arena is passed by reference;
+every `lo-*` function below takes the same list in the same order, and a caller
+(today `main.logos`'s `main-built`) allocates all of it once.
+
+The tree is a **unit**, not a root. `mnods` holds every module's nodes
+concatenated and `mntx` its texts; `mstarts`/`mends` are the half-open
+`[start, end)` range of each module in those two vectors, pushed in pairs
+(nodes, texts) by `main-append`. `nod`/`ntx` are the *current* module's slice:
+`lo-refill` frees them and re-pushes `[mstarts[2m], mends[2m])` before each
+pass over module `m`, so a pass walks exactly one module with node ids that
+start at 0 again. That is why every pass below is wrapped in a
+`(while (< m nmods) …)` loop rather than a single walk.
 
 `lower-build` does four things, in this order:
 
 1. pushes a passing `lower-error` into the one-element `berr` vector, so every
    later lookup can read the verdict in one index;
 2. zeroes the sixteen `st` slots, so counters start at `%t0`/`%v.0`;
-3. opens the module (`ir-module`) with the triple and `mqual = false`;
-4. scans the root's children twice — types (`lo-scan-types1`,
-   `lo-scan-types2`), then signatures (`lo-scan-sigs`) — and only then lowers
-   every `(fn …)` body (`lo-fn`), in source order.
+3. opens the module (`ir-module`) with the triple and `mqual`, which is
+   `nmods > 1`: one module keeps the bare names (`%struct.point`), a unit of two
+   or more qualifies them (`%struct.shapes.point`);
+4. makes four passes over the whole unit, each refilling `nod`/`ntx` per module
+   and walking that module's children in source order: type rows
+   (`lo-scan-types1`), then the rows those declarations need (`lo-scan-types2`),
+   then signatures (`lo-scan-sigs`), then bodies (`lo-fn`). The order matters:
+   a signature may name a type another module declares, so every type row exists
+   before any signature is read, and every signature exists before a body calls
+   it.
 
 ## Errors are data, not exceptions
 
@@ -50,7 +65,10 @@ other write is a no-op (`lo-bad` is the guard), so the pass does not have to
 unwind: each step begins with `(if (lo-bad berr) (ret …) (lo-nothing))` and the
 walk tests `lo-bad` in its loop condition. `lo-fail-at` fills `path` with the
 node path from `tree-path`, which is what makes the diagnostic name a form
-rather than a line. `lower-code` renders the number the way `types.logos` does
+rather than a line. `lo-path` is the same call behind the `tok = -1` guard, and
+it is also what every allocation site passes to `rt_alloc` (the string the leak
+report names): the path is a stored text id, so asking for it costs a
+`vec-get`, not a walk of the module. `lower-code` renders the number the way `types.logos` does
 (`2` → `E0002`, `103` → `E0103`), so the codes are `diag.py`'s, not a second
 table.
 
@@ -181,15 +199,14 @@ depth is saved and restored around each loop instead of reset.
   interning, so the table's bytes are exactly what `emit` prints inside
   `c"…"`, length included (`[5 x i8]` for `"hello"`).
 - **Structs and enums.** The row keeps the name the source declared, which for
-  a single module is the final name `llvm.py` prints (`%struct.point`). This
-  port's `mqual` is always `false`, and the reason is scope: the import closure
-  — lowering each `use` into the same unit, and the qualified spellings
-  (`%struct.shapes.point`) that only a multi-module unit needs — is **PR C's**
-  work, not this PR's. Until it lands, `lower-build` lowers the one root it is
-  given: a `use` is resolved for the checker's benefit and never lowered, and a
-  qualified spelling has no lookup path here. Every fixture in
-  `tools/selfhost-ir.txt` is one module with no `use`, which is what keeps this
-  gate honest.
+  a single module is the final name `llvm.py` prints (`%struct.point`). In a
+  unit larger than one module the name is spelled `<module>.<name>`
+  (`%struct.shapes.point`): `lo-one-type1` prefixes the declaring module's name,
+  and `powner` records that module on the row, so a type reached through a
+  callee's signature is spelled in the namespace that declared it. Two modules
+  may each declare a private `point`; two rows, two spellings, one type each.
+  Every fixture in `tools/selfhost-ir.txt` is one module with no `use`, which is
+  what keeps this gate honest about the bare spelling.
 
 ## Constants
 

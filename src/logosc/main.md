@@ -202,7 +202,9 @@ also exit 2.
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
 | `main-build a first count out` | `:i64` | copy the files, create the arena, run the pipeline, free it, return the status |
-| `main-built paths out …` | `:i64` | read, lex and parse the first root, resolve the set, check it, lower the root, emit, then write the IR |
+| `main-built paths out …` | `:i64` | read, lex and parse the first root, resolve the set, check it, load every other module, lower the unit, emit, then write the IR |
+| `main-append mnod mntx starts ends nod ntx` | `:void` | append one module's nodes and texts, recording the range the two ended at |
+| `main-load-module mods m mnod mntx starts ends` | `:i64` | read, lex and parse module `m` of the resolver's set into the unit, or return the first diagnostic |
 | `main-lower-diag file e` | `:i64` | print one lowering diagnostic and return 2 |
 | `main-ir-diag file nodes ntexts e` | `:i64` | print one emitter refusal at the module and return 2 |
 | `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a diagnostic |
@@ -222,6 +224,25 @@ and `close` releases it. A `:str` is a pointer and a length, so the two-argument
 ABI coincidence `src/std/io.logos` relies on. `main` returns the status
 and the emitted `main` hands it to the C entry point, so the process exits with
 0 or 2; nothing calls `exit`.
+
+## Loading the unit
+
+`build` lowers a **unit**, not a file. `resolve-set-of` already read every root
+and everything they `use`, and left them in `mods` — one `resolve-mod` per
+module, in dependency order, with the first root at slot 0. `main-built` parses
+the first root into `nod`/`ntx` (the lexer, the tree and the checker all take a
+single tree), then copies that module into `mnods`/`mntx` with `main-append`
+and loops `main-load-module` over the rest: each one is read, lexed and parsed
+into temporary vectors, appended to the unit's two vectors, and its temporary
+vectors are freed. `main-append` also pushes the half-open range
+`[start, end)` of the module's nodes and, as the next pair entry, of its
+texts — so `mstarts`/`mends` carry one `(nodes, texts)` pair per module and
+`lower-build` can refill the single-tree arena one module at a time.
+
+Loading is not lowering: no tree walk, no resolution and no checking happens
+here, and a module the resolver read twice is loaded once because `mods` names
+it once. A module that fails to lex or parse is reported at its own file
+(`main-diag`) before any lowering starts.
 
 ## Ownership
 

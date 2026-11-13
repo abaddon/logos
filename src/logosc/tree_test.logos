@@ -96,7 +96,7 @@
   (letmut nodes
     (vec node)
     (make (vec node)))
-  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1))
+  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1 -1))
   (letmut ntexts
     (vec :str)
     (make (vec :str)))

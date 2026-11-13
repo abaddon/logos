@@ -122,11 +122,42 @@ One per `Ty` constructor, plus the two declaration forms:
 | `type-struct name owner base count` | a declaration; `base`/`count` index `pattrs`/`pchild` |
 | `type-enum name owner base count` | the same for an enum |
 
-Each takes the six core vectors by `(ref …)` and returns the new id, which is
-always `(vec-len tags) - 1`. `type-param` appends one `(name, type)` row;
+Each takes the six core vectors by `(ref …)` and returns the id of the row it
+found or added. `type-param` appends one `(name, type)` row;
 `type-params-append` copies a temporary run in order. `type-field` appends one
 `(name text id, type id)` row. Callers capture a run's start *before* appending
 with `type-param-start` / `type-field-start`.
+
+## The table is interned
+
+`type-add` is the one place a row is appended, and it looks the row up first:
+`type-find` scans backwards for a row with the same tag, name, `elem` and
+`extra`, and a hit returns that id without appending. Repeated construction of
+the same type therefore returns the same id, which is what Python's `Ty`
+interning does — a `:i64` is one row, not one per use.
+
+The key is the whole row, so only constructors whose row is fully determined by
+their arguments are interned (`type-interned?`): prim, ptr, own, vec, ref, opt,
+shared, chan, atomic, arr, res, var. Three are left out, each for a reason a
+key cannot express:
+
+- `type-fn` — two signatures with the same head, return type and arity can have
+  different parameter types, and the parameters live in `ptypes`, which
+  `type-add` never sees. Interning on the visible columns alone would conflate
+  `(fn ((a :i64)) :i64)` with `(fn ((a :str)) :i64)`.
+- `type-struct` and `type-enum` — a declaration row is *edited after it is
+  made*: `pbase`/`extra` are filled by the second pass when the fields are
+  known, and `powner` by the constructor. A row for a name is a declaration,
+  not a structural fact, and two rows with equal columns can still be two
+  declarations.
+
+Without interning, the table grew with *visits*, not with distinct types: one
+module of 41,617 nodes produced 122,395 rows (about 2.9 per node), because every
+`lo-prim`/`lo-ptr`/`lo-own` in a body walk constructed its element type again.
+With it, `tags` holds the distinct types of the unit (a few hundred) and the
+per-visit cost is gone. Ids are still handed out in first-use order for the
+kinds that are interned — a duplicate simply reuses the earlier id — so the row
+order `lo-first-use` builds, and therefore the IR, does not move.
 
 The two-phase shape is not ceremony. A parameter's type may itself be a function
 type, whose own parameters are appended while the outer list is being read; if
