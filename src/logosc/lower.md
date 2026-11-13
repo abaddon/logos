@@ -167,10 +167,14 @@ depth is saved and restored around each loop instead of reset.
   `c"…"`, length included (`[5 x i8]` for `"hello"`).
 - **Structs and enums.** The row keeps the name the source declared, which for
   a single module is the final name `llvm.py` prints (`%struct.point`). This
-  port's `mqual` is always `false`: a multi-module unit's qualified spelling —
-  and the import-closure lowering that would produce the second module — is
-  not here yet. Every fixture in `tools/selfhost-ir.txt` is one module with no
-  `use`.
+  port's `mqual` is always `false`, and the reason is scope: the import closure
+  — lowering each `use` into the same unit, and the qualified spellings
+  (`%struct.shapes.point`) that only a multi-module unit needs — is **PR C's**
+  work, not this PR's. Until it lands, `lower-build` lowers the one root it is
+  given: a `use` is resolved for the checker's benefit and never lowered, and a
+  qualified spelling has no lookup path here. Every fixture in
+  `tools/selfhost-ir.txt` is one module with no `use`, which is what keeps this
+  gate honest.
 
 ## Constants
 
@@ -186,10 +190,11 @@ A float literal's type is `f64` unless the context asks for another width; the
 hex spelling means the text is the bit pattern the parser computed, so the
 port and Python agree on the last nibble instead of on a printed approximation.
 
-## The two gaps
+## The gaps
 
-These are the only fixtures that do not reproduce Python's `.ll`. They are
-named as known-different in `tools/selfhost-ir.txt` and are B2's work:
+Two of these are the fixtures that do not reproduce Python's `.ll`; both are
+named as known-different in `tools/selfhost-ir.txt`. The third is refused
+before there is any text to compare. All three are B2's work:
 
 1. **`str-len` extracts one field; Python extracts two.**
    `str_parts` in `lower.py` pulls *both* the pointer and the length out of the
@@ -210,14 +215,32 @@ named as known-different in `tools/selfhost-ir.txt` and are B2's work:
    *Needs:* the `br` into the first test (or into the wildcard arm's body)
    before the first `lo-w-block`, which is what Python's `match_expr` emits.
 
+3. **A wildcard arm is refused — B2's, not this PR's, and not in the list.**
+   `(match x (0 1) (_ 2))` where `x :i64` makes `gen2 build` fail with
+   `E0002: a match pattern is an integer literal or _` — printed at the file,
+   because the failure carries no node path — where Python lowers it and emits
+   no comparison for `_` at all. On an enum scrutinee the same arm fails
+   earlier, at `E0100: unknown variant in match`. Either way `_` is not taking
+   the wildcard path `lo-match` intends (`iswild`); it is treated as a pattern
+   that must be an integer literal or a variant name.
+   *Needs:* `_` recognised as a wildcard arm before the test is built, so the
+   arm's body is entered with no `icmp` and no `cbr`. No listed fixture uses a
+   wildcard arm, so the parity list never sees this one.
+
 ## What it does not lower
 
-`lo-value` dispatches arithmetic and the integer widths, comparisons, `and`/
-`or`/`not`, `cast`, `if`, `while`, `match`, `make`/`get`/`arr-get`, `str-len`,
-`f64-bits`, direct and `extern` calls, variant constructors and literals. Any
-other head reaches `lo-not-yet` and fails at the form's node path with
-`E0002`: `print`/`println`, `vec-*`, `arr-*` (other than `arr-get`), `alloc`/
-`free`, `spawn`/`join`, channels, mutexes, closures, results and optionals,
-`str-concat`/`str-eq`/`str-slice`, `run`, `read-file`, `args`, and the ownership
-rules around them. That is PR C's list, and the check phase keeps the boundary
-honest by listing only what the checker already decides.
+`lo-value` dispatches `+`, `-`, `*`, `/` and `%` at whatever integer width or
+float type the checker resolved, the comparisons, `and`/`or`/`not`, `cast`,
+`if`, `while`, `match`, `make`/`get`/`arr-get`, `str-len`, `f64-bits`, direct
+and `extern` calls, variant constructors and literals. The bit shifts are not
+lowered: `shl`, `shr` and `shr-u` reach `lo-not-yet` like any unhandled head, so
+`(shr a 2)` is `E0002: 'shr' is not lowered by this backend yet` at the form's
+node path. (`frem` and `fneg` are not forms at all — both front ends reject
+them as an unknown function, `E0103` — so they are missing from the language,
+not from this pass.) Any other head reaches `lo-not-yet` the same way, failing
+at the form's node path with `E0002`: `print`/`println`, `vec-*`, `arr-*`
+(other than `arr-get`), `alloc`/`free`, `spawn`/`join`, channels, mutexes,
+closures, results and optionals, `str-concat`/`str-eq`/`str-slice`, `run`,
+`read-file`, `args`, and the ownership rules around them. That is PR C's list,
+and the check phase keeps the boundary honest by listing only what the checker
+already decides.

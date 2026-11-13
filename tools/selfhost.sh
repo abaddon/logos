@@ -20,7 +20,9 @@
 # and by Python's `logos build`, and the two `.ll` files must be equal byte for
 # byte. The list is a subset of the positive corpus — the forms B2 does not
 # lower yet are excluded by name in its header — and IR_FLOOR is the same kind
-# of floor: a pruned list fails rather than passing over fewer files.
+# of floor: a pruned list fails rather than passing over fewer files. The
+# floor counts distinct paths, not lines: a path named twice is one file, and
+# comparing it twice is not a bigger corpus.
 #
 # A third phase judges the resolver-owned negative corpus. Every
 # tests/parse/**/*.expect names a fixture that must make `gen2 resolve` fail
@@ -168,7 +170,9 @@ printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 # Python's oracle is a real `logos build`; its `.ll` lands at build/<stem>.ll,
 # so the previous run's file is removed first and its absence after the build
 # is a difference rather than a stale match. gen2's own output goes under
-# build/selfhost/ir/.
+# build/selfhost/ir/ and is removed the same way, for the same reason: a run
+# that compared a file it did not just write proves nothing. A build that exits
+# 0 and writes nothing is a difference on both sides.
 if [[ ! -f "$IR_LIST" ]]; then
     printf 'ir: missing list: %s\n' "${IR_LIST#"$ROOT"/}" >&2
     exit 2
@@ -177,6 +181,22 @@ mapfile -t IR_FILES < <(grep -v '^[[:space:]]*#' "$IR_LIST" | grep -v '^[[:space
 IR_COUNT=${#IR_FILES[@]}
 if (( IR_COUNT < IR_FLOOR )); then
     printf 'ir: list names %d files, below the floor of %d\n' "$IR_COUNT" "$IR_FLOOR" >&2
+    exit 2
+fi
+# Counted, not assumed: seven lines naming one path are one file, and comparing
+# it seven times would report a corpus the run never read. Two paths that share
+# a stem are refused for the same reason — both sides write `<stem>.ll`, so one
+# entry would overwrite the other and be compared against it.
+IR_DISTINCT=$(printf '%s\n' "${IR_FILES[@]}" | sort -u | wc -l)
+if (( IR_DISTINCT != IR_COUNT )); then
+    printf 'ir: list names %d lines but %d distinct files; a repeated path is not a bigger corpus\n' \
+        "$IR_COUNT" "$IR_DISTINCT" >&2
+    exit 2
+fi
+IR_STEMS=$(printf '%s\n' "${IR_FILES[@]}" | while read -r p; do basename "$p" .logos; done | sort -u | wc -l)
+if (( IR_STEMS != IR_COUNT )); then
+    printf 'ir: list names %d files but %d stems; two entries share a .ll and would be compared against each other\n' \
+        "$IR_COUNT" "$IR_STEMS" >&2
     exit 2
 fi
 mkdir -p "$OUT/ir"
@@ -190,12 +210,17 @@ for path in "${IR_FILES[@]}"; do
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
+    rm -f "$mine" "build/$stem.ll"
     if ! "$BIN" build "$path" -o "$mine" > "$STDOUT" 2> "$STDERR"; then
         printf 'ir: %s: gen2 build failed: %s\n' "$path" "$(head -n 1 "$STDERR")"
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
-    rm -f "build/$stem.ll"
+    if [[ ! -f "$mine" ]]; then
+        printf 'ir: %s: gen2 wrote no %s\n' "$path" "${mine#"$ROOT"/}"
+        IDIFFS=$((IDIFFS + 1))
+        continue
+    fi
     if ! python3 -m logos build "$path" -o "$OUT/ir/$stem.bin" > "$OUT/ir/$stem.log" 2>&1; then
         printf 'ir: %s: python build failed (log: %s)\n' "$path" "${OUT#"$ROOT"/}/ir/$stem.log"
         IDIFFS=$((IDIFFS + 1))
