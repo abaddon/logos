@@ -599,6 +599,42 @@ pointers. The other string predicates are still refused: `!=`, `<` and the rest
 fail at the form with `E0002 … is not lowered by this backend yet`, because the
 runtime has no ordered string comparison to build on.
 
+## Generics
+
+A generic definition has no body: each call site that fixes its type variables
+gets a copy, named exactly as `mangle_instance` spells it — `lg.<module>.id$i64`
+for a copy of `id` at `:i64`, `pick$s5_point` for a `point` argument, and
+`map$i64$str` for a copy whose variables are fixed in the *signature's* order
+(the return type's variables first, then each parameter's, first appearance).
+
+The call site is what decides a copy, in `lo-call`: a callee whose signature
+mentions a type variable is unified parameter by parameter against the
+arguments' own types (`lo-unify`, in `lo-inst-call`). Unification binds a
+variable, checks an already-bound one for equality, and recurses through
+`vec`/`ptr`/`own`/`ref`/`opt`/`shared`/`chan`/`atomic`/`arr`/`res` and `fn` —
+`fn` also compares the head, so a capturing `(fn* …)` never unifies with a
+`(fn …)`. A variable the arguments do not fix is `E0501`; an argument whose type
+this backend cannot compute, or one that does not fit, is a diagnostic rather
+than a second, unchecked copy.
+
+The copy is then memoised by its mangled name (`lo-inst-add`), so two call
+sites at one type share one define, and the copy's type-argument bindings are
+kept in `ivn`/`ivt` with a per-copy range in `ivb`/`ivc`. After every function
+of a module has been lowered, `lo-inst-drain` lowers each copy in discovery
+order: it installs the copy's bindings as `curn`/`curt`, substitutes them into
+the scanned signature (`lo-inst-sig`, through `type-substitute`), and calls the
+same `lo-fn` an ordinary function goes through with the copy's name and the
+concrete signature. A copy discovered inside a copy appends itself to the queue
+and is lowered after the copies already queued, which is Python's breadth-first
+order. `lo-parse` substitutes the active bindings into every type it parses, so
+a `(vec T)` annotation inside the body becomes `(vec :i64)` for the copy and
+`(vec :str)` for the next one.
+
+A generic that no call reaches is not emitted at all: there is no type to emit
+it at. The instance name is a source name like any other, so the symbol is
+`lg.<module>.<copy>`; no user name can spell one because `$` is not a name
+character.
+
 ## What it does not lower
 
 Still refused, each at the form's node path with `E0002: '<head>' is not
@@ -607,11 +643,11 @@ lowered by this backend yet`:
 - **A named function used as a value** (`$fnvalue`). Python wraps each used
   definition once in a `$fnvalue$N` helper that takes `(i8*, T…)` and calls it,
   so a function pointer and a closure share one ABI. No fixture claims it.
-- **A generic function's instantiation.** A generic definition is refused at
-  its own node path rather than spelled: `E0002: function 'id' is generic:
-  this backend lowers no instantiation of it`. The checker's copies are what
-  Python lowers, and this backend has no record of them, so a unit holding one
-  cannot be lowered at all — `tests/exec/closures.logos` is the case in point.
+- **An instantiation inside a `(test …)` body.** Copies are discovered while a
+  body is lowered, and a test body is not lowered (there is no entry point for
+  it yet), so a copy that only a test reaches is never emitted —
+  `tests/exec/closures.logos` is the case in point: nine of its ten copies come
+  from `(test …)` bodies.
 - **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
 - **`build --test NAME`.** Every positive corpus file under `tests/exec`,
   `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so

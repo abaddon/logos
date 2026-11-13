@@ -154,3 +154,13 @@ examples/wc.logos
 # $spawn$1–$spawn$4 by the unit-wide counter and unpacking a six-field record,
 # printed before `define i32 @main()` — the order the f-row rotation restores.
 examples/matrix.logos
+# Generics (W8 step 3b): one copy at one type, two copies at two types one of
+# them a named struct, a copy reached from another copy, and a copy whose
+# parameter is a closure. The instance names are Python's `mangle_instance`
+# spellings (`id$i64`, `pick$s5_point`) and the copies print after every
+# module function, in discovery order.
+src/logosc/fixtures/ir-lower/generic-one.logos
+src/logosc/fixtures/ir-lower/generic-two.logos
+src/logosc/fixtures/ir-lower/generic-struct.logos
+src/logosc/fixtures/ir-lower/generic-nested.logos
+src/logosc/fixtures/ir-lower/generic-closure.logos

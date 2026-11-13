@@ -59,6 +59,11 @@ src/logosc/fixtures/ir-lower/extern-str.logos
 src/logosc/fixtures/ir-lower/extern.logos
 src/logosc/fixtures/ir-lower/fieldset.logos
 src/logosc/fixtures/ir-lower/float.logos
+src/logosc/fixtures/ir-lower/generic-closure.logos
+src/logosc/fixtures/ir-lower/generic-nested.logos
+src/logosc/fixtures/ir-lower/generic-one.logos
+src/logosc/fixtures/ir-lower/generic-struct.logos
+src/logosc/fixtures/ir-lower/generic-two.logos
 src/logosc/fixtures/ir-lower/heap.logos
 src/logosc/fixtures/ir-lower/match.logos
 src/logosc/fixtures/ir-lower/memory.logos
@@ -92,7 +97,6 @@ src/logosc/fixtures/ir-lower/vectors.logos
 src/logosc/fixtures/ir-lower/void-main.logos
 src/logosc/fixtures/ir-lower/wild-enum.logos
 src/logosc/fixtures/ir-lower/wild-int.logos
-src/logosc/fixtures/ir-refuse/generic-refuse.logos
 src/logosc/fixtures/ir-refuse/self-struct.logos
 src/logosc/fixtures/merge/cross-other.logos
 src/logosc/fixtures/merge/cross.logos

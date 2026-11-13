@@ -141,18 +141,17 @@ CHECK_FLOOR=122
 # entries must equal the fixture directory exactly (see the check below), while
 # a path outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=56
+IR_FLOOR=61
 # The fixture entries alone, so an outside path cannot pad the total while a
 # fixture leaves the directory. Fifty-two today; lowering this number is a
 # deliberate act, not a side effect of a pruned fixture set.
-IR_FIXTURE_FLOOR=52
+IR_FIXTURE_FLOOR=57
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
-# sidecar naming the exact diagnostic line `gen2 build` must print. Two today:
-# a struct that contains itself by value, and a generic definition, which the
-# port cannot lower because it has no instantiation record — the refusal is the
-# honest half of "generics do not lower". Emptying the directory is a failure,
-# not a smaller pass.
-REFUSE_FLOOR=2
+# sidecar naming the exact diagnostic line `gen2 build` must print. One today:
+# a struct that contains itself by value. The generic refusal that used to sit
+# here left with W8 step 3b, which lowers a generic at each instantiation.
+# Emptying the directory is a failure, not a smaller pass.
+REFUSE_FLOOR=1
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

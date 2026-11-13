@@ -1,0 +1,10 @@
+(mod generic-closure)
+
+(fn apply :U ((f : (fn (:T) :U)) (x :T))
+  (ret (f x)))
+
+(fn main :i64 ()
+  (let a :i64 (apply (fn :i64 ((n :i64))
+                       (ret (* n 2))) 10))
+  (println a)
+  (ret 0))

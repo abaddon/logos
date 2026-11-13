@@ -333,10 +333,11 @@
   (letmut i :i64 0)
   (while (< i (vec-len tags))
     (let bad :bool (emit-older-bad tags elem extra i))
-    (if bad
+    (let isvar :bool (= (vec-get tags i) 14))
+    (if (or bad isvar)
       (vec-push texts "")
       (vec-push texts (emit-type-one tags names elem extra enames ewords texts flag why i)))
-    (if bad
+    (if (and bad (not isvar))
       (emit-bad flag why (emit-c3 "type " (str-from-i64 i) " has a child id that is not older"))
       (emit-nothing))
     (set i (+ i 1)))
@@ -836,6 +837,9 @@
     (vec :i64)
     (make (vec :i64)))
   (vec-push flag 0)
+  (if (= (vec-get tags ty) 14)
+    (let _ :str (emit-var-line names flag why ty))
+    (emit-nothing))
   (emit-types tags names elem extra enames ewords flag why texts)
   (if (emit-slot-bad ty texts)
     (emit-bad flag why "the requested type id is not in the arena")

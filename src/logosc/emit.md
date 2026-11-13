@@ -131,7 +131,7 @@ behind).
 | 10, 11 | `chan`, `atomic` | `i8*` — opaque runtime handles |
 | 12 | `struct` | `%struct.<decl-name>` |
 | 13 | `enum` | `{ i32, [K x i64] }`, `K` from the module's enum list |
-| 14 | `var` | refused: `no LLVM layout for type <name>` |
+| 14 | `var` | refused when asked for directly: `no LLVM layout for type <name>`; left unspelled in the table `emit-types` builds |
 
 Primitives: `i8 i16 i32 i64` as themselves; `u8 u16 u32 u64` on the same widths;
 `bool` as `i1`; `f32` as `float`; `f64` as `double`; `str` as `{ i8*, i64 }`;
@@ -246,7 +246,12 @@ constructor that has a layout, compared with `type_text` of the same
 `logos.types` values. The fifteenth, a type variable, has no layout; its refusal
 is a negative case, and the generator takes the expected text from the exception
 `type_text` raises (`no LLVM layout for type T`), so the port must reproduce
-Python's words rather than its own. The other negative cases pin a mis-shaped
+Python's words rather than its own. The cache is different: `emit-types` fills
+one entry per row, and a variable row gets `""` — a generic's signature leaves
+such rows in the arena, Python's `IrModule` never asks for one, and aborting the
+whole build on a row nobody spells would refuse every program that declares a
+generic. A direct `emit-type-text` of a variable still answers Python's
+sentence, which is what the negative case pins. The other negative cases pin a mis-shaped
 row (`unknown IR opcode 0`), a primitive outside the list, an unterminated block,
 an unregistered enum, a dangling row type id, an out-of-order type child and a
 row with an unset type slot. The last three are **port-only**: no Python

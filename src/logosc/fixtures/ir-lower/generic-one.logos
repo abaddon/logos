@@ -1,7 +1,9 @@
-(mod generic-refuse)
+(mod generic-one)
 
 (fn id :T ((x :T))
   (ret x))
 
 (fn main :i64 ()
+  (let a :i64 (id 42))
+  (println a)
   (ret 0))
