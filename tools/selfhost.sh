@@ -135,21 +135,24 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
 # The lowering parity list: the files whose IR the port already reproduces.
-# Fifty-one today — the forty-seven fixtures under src/logosc/fixtures/ir-lower,
+# Fifty-six today — the fifty-two fixtures under src/logosc/fixtures/ir-lower,
 # in the order B2, its fix round, B3, B4 and W8 proved them, plus the four
 # example programs. A pruned list is a failure, not a smaller pass; the fixture
 # entries must equal the fixture directory exactly (see the check below), while
 # a path outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=51
+IR_FLOOR=56
 # The fixture entries alone, so an outside path cannot pad the total while a
-# fixture leaves the directory. Forty-seven today; lowering this number is a
+# fixture leaves the directory. Fifty-two today; lowering this number is a
 # deliberate act, not a side effect of a pruned fixture set.
-IR_FIXTURE_FLOOR=47
+IR_FIXTURE_FLOOR=52
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
-# sidecar naming the exact diagnostic line `gen2 build` must print. One today;
-# emptying the directory is a failure, not a smaller pass.
-REFUSE_FLOOR=1
+# sidecar naming the exact diagnostic line `gen2 build` must print. Two today:
+# a struct that contains itself by value, and a generic definition, which the
+# port cannot lower because it has no instantiation record — the refusal is the
+# honest half of "generics do not lower". Emptying the directory is a failure,
+# not a smaller pass.
+REFUSE_FLOOR=2
 
 cd "$ROOT" || exit 2
 mkdir -p "$OUT"

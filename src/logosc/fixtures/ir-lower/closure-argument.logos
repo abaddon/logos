@@ -1,0 +1,12 @@
+(mod closure-argument)
+
+(fn apply :i64 ((f : (fn (:i64) :i64)) (x :i64))
+  (ret (f x)))
+
+(fn main :i64 ()
+  (println (apply (fn :i64 ((n :i64))
+                    (ret (* n 5))) 10))
+  (let triple (fn :i64 ((n :i64))
+                (ret (* n 3))))
+  (println (apply triple 4))
+  (ret 0))

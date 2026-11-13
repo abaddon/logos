@@ -1,0 +1,16 @@
+(mod closure-mixed)
+
+(fn work :void ((x :i64))
+  (println x))
+
+(fn main :i64 ()
+  (let k 3)
+  (let f (fn :i64 ((n :i64))
+           (ret (+ n k))))
+  (let t (spawn work 7))
+  (join t)
+  (println (f 1))
+  (let g (fn :i64 ((n :i64))
+           (ret (* n k))))
+  (println (g 2))
+  (ret 0))

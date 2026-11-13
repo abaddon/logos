@@ -1,0 +1,9 @@
+(mod closure-none)
+
+(fn main :i64 ()
+  (let double (fn :i64 ((x :i64))
+                (ret (* x 2))))
+  (let a :i64 (double 4))
+  (let b :i64 (double a))
+  (println b)
+  (ret 0))

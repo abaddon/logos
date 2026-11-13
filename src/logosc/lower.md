@@ -171,12 +171,17 @@ record of counters shared across sixty call sites):
 | 9 | `esc` depth at function entry |
 | 10 | loop depth |
 | 11 | `esc` depth at the current loop's exit block |
-| 12 | `lo-gensym`'s counter, shared by every name no source can spell (`$spawn$N` today, `$lambda`/`$fnvalue` when closures land); unit-wide, never reset per function |
-| 13 | the pending `spawn` queue's length for the function being lowered |
-| 16, 17, … | the queue itself, two slots per spawning site: the thunk's number, the target's signature id |
+| 12 | `lo-gensym`'s counter, shared by every name no source can spell (`$spawn$N`, `$lambda$N`); unit-wide, never reset per function |
+| 13 | the number of deferred sites queued for the function being lowered |
+| 14 | where that queue's first row starts in `st` |
 
-`st` is grown on demand past 16 by `lo-queue-push` (`vec-set` is bounds
-checked), and `lo-spawn-drain` empties it at the end of each function.
+`st` is grown on demand past 16 by `lo-queue-site` (`vec-push` grows it), and
+`lo-site-drain` empties it at the end of each function. A row is four words —
+kind, generated number, the site's node or signature id, and the number of
+captures — followed by one binding-row index per capture; a row's length is
+`4 + captures`, so the next row starts where it ends. Two kinds exist today:
+`0` a `spawn` thunk, `1` a `(fn …)` closure. The queue is one list, in site
+order, because Python prints the deferred defines in exactly that order.
 
 `esc` deserves its own line: `break` pushes its loop's exit label, and
 `lo-while` only appends `unreachable` after a `while true` when `lo-escaped?`
@@ -471,7 +476,7 @@ evaluation order and never reset per function — two spawning functions number
 `$spawn$1` and `$spawn$2`, not `$spawn$1` twice. The dry pass allocates no
 name and queues nothing, so the numbering is the real pass's.
 
-`lo-spawn-drain` runs **after** `ir-fn-end` in `lo-fn`, and that is what keeps
+`lo-site-drain` runs **after** `ir-fn-end` in `lo-fn`, and that is what keeps
 the parent's ranges honest: its `fcnt`/`fpc` were measured before the drain,
 and the thunk's rows land past them. Each thunk is emitted with its own
 counters (`%t1` again: `st[0..2]` are saved, zeroed and restored), one `env`
@@ -479,7 +484,7 @@ parameter appended straight to `pnames`/`ptys` — no binding, no slot — and a
 body of `bitcastrec %env`, `geprec`+`load` per field, `call target` and
 `ret i8* null`.
 
-The drain then rotates the parent's f-row right by the number of thunks
+The drain then rotates the parent's f-row right by the number of sites
 (`lo-fn-rotate`): the eight columns move together, so the table reads
 `[t1 … tk, F]` while the thunks' blocks stay physically after the parent's.
 That rotation is the one step that reproduces Python's define order; without
@@ -493,6 +498,72 @@ moment the rotation runs, so the rotation is the last thing `lo-fn` does.
 `lo-node-type` answers `:thread` (printed `i8*`) for the form, which is what
 lets `spawn` sit in a `let` initialiser and be named; before B4 the type query
 refused it, so the declaration reported a binding it never made.
+
+## The closure form
+
+`(fn :R ((p :T)…) body…)` is the second thing that emits a function while a
+body is being lowered, and it reuses the thunk path rather than repeating it. A
+closure is a per-site nested function `$lambda$N`, named from the same
+unit-wide counter as `$spawn$N`, plus a two-word value `{ i8*, i8* }`: the
+environment and the code. The value's layout is the same for a capturing and a
+non-capturing closure, so one function type spells both, and the environment is
+`null` when nothing is captured.
+
+The site emits, in Python's order, the environment record first. Python packs
+the captured values into one stack slot — `allocarec` of the capture types,
+then `geprec`+`store` per capture — and `bitcastout` is the `i8*` the value
+carries. `lo-lambda` reads the capture list from `lo-captures`, which mirrors
+the checker's walk: a name is a capture when it is bound outside the
+expression, in first-use order, with the lambda's own parameters and `let`s
+shadowing it. The slot is a plan row like any other binding, and the fields
+it must spell are appended to `tvals` at the site; the plan row encodes the
+run as a negative `planty` entry (`-(start * 4096 + count)`), because
+`planty` holds type ids and the record has no type id of its own. The prologue
+then emits `allocarec` from that run instead of `alloca`.
+
+The body is lowered at drain time, after the parent's `ir-fn-end`, exactly as a
+thunk is: `$lambda$N`'s own counters, an `env` parameter appended straight to
+`pnames`/`ptys`, one `alloca` per declared parameter at the top of `entry` (a
+fresh builder hoists them, and the source order is the parameter order), then
+`bitcastrec %env` and one `geprec` per capture bound as the name's slot, so a
+read inside the lambda is the `load` any parameter's read is. That binding is
+why the checker's "a capture cannot be assigned" rule matters: the slot is the
+environment field, and a store would write the copy.
+
+`lo-lambda-fn` opens `entry` **before** the dry pass, not after it: `st[4]=0`
+lets `lo-w-block` append the block row, then `st[4]=1` runs the body that only
+plans slots. The order is load-bearing twice. A block row records its first
+instruction as the `ops` length at the moment it opens, so every planned
+`alloca` appended afterwards — and the whole real body — falls inside the row's
+range; a block opened after the allocas would own none of them and `clang`
+rejects the unnamed value. And the block must be outside the dry pass's
+suppression, or the define prints with no basic block at all (`function body
+requires at least one basic block`). The second phase then resets the
+counters, emits the plan's allocas with `st[4]=0`, records the environment and
+lowers the body for real.
+
+A call through a value is Python's `indirect_call`: load the binding,
+`extractvalue` the environment and the code, `bitcast` the code from `i8*` to
+its real signature `R (i8*, T…)`, then `icall` with the environment before the
+declared arguments. The signature is the callee's own function type, so the
+arity and every argument type come from the type query, not from the call site.
+`lo-node-type` answers the form's return type the same way, which is what lets
+`(let f (fn …))` be named and `(f 1)` be printed.
+
+The queue is one list for both kinds. `spawn` and a closure interleave in
+evaluation order, and each row carries its kind, so `lo-site-drain` dispatches
+while keeping Python's define order — one rotation of the parent's f-row by the
+number of rows, whatever their kind. A deferred function's own body may queue
+more sites (a `spawn` inside a lambda); the drain recurses on the row it just
+emitted, so the inner defines land before it and the inner row is rotated by
+its own count, which is the order Python's list append gives.
+
+One repair this needed beyond the rope: a signature's parameter types must be
+contiguous in `tptypes`, and parsing a parameter whose type is itself a
+function type appends that function's own parameters. `lo-sig-one` and
+`lo-lambda-shape` therefore parse every parameter first and append them
+afterwards, so a `(f : (fn (:i64) :i64))` parameter cannot push its own
+parameter list into the middle of the enclosing signature's run.
 
 ## Processes, files and arguments
 
@@ -533,11 +604,14 @@ runtime has no ordered string comparison to build on.
 Still refused, each at the form's node path with `E0002: '<head>' is not
 lowered by this backend yet`:
 
-- **Closures.** A closure's environment is a stack-slot record with a capture
-  list, and it would need the same arena surgery `spawn` needed — a per-site
-  nested function lowered without corrupting the parent's ranges — plus
-  `$lambda`/`$fnvalue` names drawn from the shared counter. `spawn` is the
-  precedent; nothing else about it is missing.
+- **A named function used as a value** (`$fnvalue`). Python wraps each used
+  definition once in a `$fnvalue$N` helper that takes `(i8*, T…)` and calls it,
+  so a function pointer and a closure share one ABI. No fixture claims it.
+- **A generic function's instantiation.** A generic definition is refused at
+  its own node path rather than spelled: `E0002: function 'id' is generic:
+  this backend lowers no instantiation of it`. The checker's copies are what
+  Python lowers, and this backend has no record of them, so a unit holding one
+  cannot be lowered at all — `tests/exec/closures.logos` is the case in point.
 - **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
 - **`build --test NAME`.** Every positive corpus file under `tests/exec`,
   `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so

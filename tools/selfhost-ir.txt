@@ -44,11 +44,27 @@
 # comparison and by `get` on the element, the two shapes whose type the query
 # used to read as the referent rather than its element.
 #
-# Still not lowered, and so deliberately absent from this list (no fixture
-# claims them): closures. The positive corpus under tests/exec,
-# tests/thread and tests/regress needs `build --test NAME` (skip the module
-# `main`, lower the test body as the entry point); that mode does not exist in
-# the port, which is why those files are absent too. A shape the lowerer must
+# W8 step 3a adds closures: a `(fn :R ((p :T)...) body...)` expression builds a
+# per-site nested function `$lambda$N` from the same unit-wide counter that
+# names `$spawn$N`, and a value of two words, `{ i8*, i8* }` — the environment
+# and the code. Captures travel in the same literal record the spawn thunks
+# unpack, one field per captured binding in first-use order, and a call through
+# a value is `extractvalue` twice, a `bitcast` to the real signature and an
+# `icall` that passes the environment first. The five fixtures are the shapes
+# the corpus needs: no capture, one capture, two captures, a closure passed to
+# a `(fn ...)` parameter and called there, and a `spawn` beside two closures in
+# one function — the last is the counter claim, that `$lambda` and `$spawn`
+# interleave and their defines still land in site order before the parent.
+#
+# Two closure shapes are still not lowered, and no fixture claims them: a named
+# function used as a value (`$fnvalue`, a wrapper per function) and a generic
+# function's instantiation. `tests/exec/closures.logos` is therefore absent:
+# its generic definitions are never spelled by this backend — Python emits ten
+# instance functions for them instead (`id$i64`, `apply$i64$i64`, ...) — so the
+# file cannot be lowered until instances are. The rest of the positive corpus
+# under tests/exec, tests/thread and tests/regress also needs
+# `build --test NAME` (skip the module `main`, lower the test body as the entry
+# point); that mode does not exist in the port either. A shape the lowerer must
 # refuse rather than spell lives beside this directory in
 # src/logosc/fixtures/ir-refuse.
 #
@@ -121,6 +137,14 @@ src/logosc/fixtures/ir-lower/spawn.logos
 # `take`'s parameter is the first use, so the rows come out gamma, beta, alpha.
 src/logosc/fixtures/ir-lower/type-order.logos
 src/logosc/fixtures/ir-lower/dirs.logos
+src/logosc/fixtures/ir-lower/closure-none.logos
+src/logosc/fixtures/ir-lower/closure-one.logos
+src/logosc/fixtures/ir-lower/closure-two.logos
+src/logosc/fixtures/ir-lower/closure-argument.logos
+# The counter and the queue in one function: `$spawn$2` is queued between
+# `$lambda$1` and `$lambda$3`, and the three defines still print in site order
+# before `define i32 @main()`.
+src/logosc/fixtures/ir-lower/closure-mixed.logos
 # The examples. They are not fixtures: each is a program the repository ships,
 # and each lowers through the same single-module path as the fixtures above.
 examples/hello.logos

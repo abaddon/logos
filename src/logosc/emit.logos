@@ -425,9 +425,9 @@
     (set args (str-concat args (emit-c3 (emit-text texts (vec-get types (+ tstart k))) " "
                                  (vec-get svals (+ start k)))))
     (set k (+ k 1)))
-  (let call :str (emit-c7 "call "
-                   (emit-text texts ret) " "
-                   (emit-name at callee) "(" args ")"))
+  (let target :str (if (str-eq at "%") callee
+                     (emit-name at callee)))
+  (let call :str (emit-c7 "call " (emit-text texts ret) " " target "(" args ")"))
   (ret (if (= (str-len dest) 0) call
          (emit-c3 dest " = " call))))
 
@@ -537,7 +537,7 @@
   (if (not (= count tcount))
     (ret (emit-icall-arity count tcount flag why))
     (emit-nothing))
-  (ret (emit-call-build texts tvals tstart tcount svals start count dest callee "" ret)))
+  (ret (emit-call-build texts tvals tstart tcount svals start count dest callee "%" ret)))
 
 (fn emit-instr :str ((texts (ref (vec :str))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (sigtys (ref (vec :i64))) (dnames (ref (vec :str))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (fret (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (ptys (ref (vec :i64))) (flag (ref (vec :i64))) (why (ref (vec :str))) (ops (ref (vec :i64))) (dests (ref (vec :str))) (a (ref (vec :str))) (b (ref (vec :str))) (c (ref (vec :str))) (d (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (i :i64))
   (let op :i64 (vec-get ops i))
