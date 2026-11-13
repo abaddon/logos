@@ -426,8 +426,8 @@
                                  (vec-get svals (+ start k)))))
     (set k (+ k 1)))
   (let call :str (emit-c7 "call "
-                   (emit-text texts ret) " " at callee "("
-                   (emit-c2 args ")")))
+                   (emit-text texts ret) " "
+                   (emit-name at callee) "(" args ")"))
   (ret (if (= (str-len dest) 0) call
          (emit-c3 dest " = " call))))
 
