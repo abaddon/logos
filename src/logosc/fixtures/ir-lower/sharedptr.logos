@@ -1,0 +1,16 @@
+(mod sharedptr)
+
+(fn main :i64 ()
+  (let p (alloc :i64 1))
+  (let s
+    (shared (ptr :i64))
+    (ptr p))
+  (set-deref s 6)
+  (let x :i64 (deref s))
+  (let y :i64 (+ (deref s) 1))
+  (set-deref s (+ x y))
+  (let q (ptr-add s 0))
+  (set-deref q 2)
+  (let z :i64 (deref q))
+  (free p)
+  (ret z))

@@ -74,7 +74,7 @@ class SelfhostGateTest(unittest.TestCase):
         self.assertEqual(differences, 0)
 
         lowered, ir_differences = (int(group) for group in ir_match.groups())
-        self.assertGreaterEqual(lowered, 44, "the IR parity list was pruned")
+        self.assertGreaterEqual(lowered, 46, "the IR parity list was pruned")
         self.assertEqual(ir_differences, 0)
 
         fixtures, resolve_differences = (

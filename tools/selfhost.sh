@@ -29,7 +29,11 @@
 # IR_FLOOR is the same kind of floor over the whole list: a pruned list fails
 # rather than passing over fewer files. The floor counts distinct paths, not
 # lines: a path named twice is one file, and comparing it twice is not a bigger
-# corpus.
+# corpus. IR_FIXTURE_FLOOR is a floor on the fixture entries alone: set equality
+# keeps the list and the directory moving together, but it cannot stop both from
+# shrinking by one while an outside path — which the directory does not own and
+# the total floor does count — takes the empty place. The two floors are separate
+# because those are two different claims.
 #
 # That phase judges the lowering's refusals too. Every fixture under
 # src/logosc/fixtures/ir-refuse pairs a `.logos` with a `.refuse` sidecar
@@ -108,13 +112,17 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
 # The lowering parity list: the files whose IR the port already reproduces.
-# Forty-four today — the forty-one fixtures under src/logosc/fixtures/ir-lower,
+# Forty-six today — the forty-three fixtures under src/logosc/fixtures/ir-lower,
 # in the order B2, its fix round and B3 proved them, plus the three example
 # programs. A pruned list is a failure, not a smaller pass; the fixture entries
 # must equal the fixture directory exactly (see the check below), while a path
 # outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=44
+IR_FLOOR=46
+# The fixture entries alone, so an outside path cannot pad the total while a
+# fixture leaves the directory. Forty-three today; lowering this number is a
+# deliberate act, not a side effect of a pruned fixture set.
+IR_FIXTURE_FLOOR=43
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today;
 # emptying the directory is a failure, not a smaller pass.
@@ -227,12 +235,22 @@ fi
 # the listed paths inside the directory only: an entry outside it (an example
 # program) is a claim the directory does not own, so it neither hides a missing
 # fixture nor has to exist on disk there.
+#
+# Set equality still lets the *directory and the list shrink together* while an
+# outside path takes the freed slot in the total, which IR_FLOOR counts. So the
+# fixture entries carry a floor of their own: a fixture cannot leave the corpus
+# even when something outside the directory is added in the same commit.
 shopt -s nullglob
 IR_DISK=(src/logosc/fixtures/ir-lower/*.logos)
 shopt -u nullglob
 if (( ${#IR_DISK[@]} == 0 )); then
     printf 'ir: %s holds no fixtures; the list cannot be measured against an empty directory\n' \
         "src/logosc/fixtures/ir-lower" >&2
+    exit 2
+fi
+if (( ${#IR_DISK[@]} < IR_FIXTURE_FLOOR )); then
+    printf 'ir: %s holds %d fixtures, below the fixture floor of %d; an outside path cannot stand in for one\n' \
+        "src/logosc/fixtures/ir-lower" "${#IR_DISK[@]}" "$IR_FIXTURE_FLOOR" >&2
     exit 2
 fi
 IR_LISTED_FIXTURES=$(printf '%s\n' "${IR_FILES[@]}" | grep '^src/logosc/fixtures/ir-lower/' | sort)

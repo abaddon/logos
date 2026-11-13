@@ -663,6 +663,10 @@
 (fn lo-not-yet lower-error ((nod (ref (vec node))) (ntx (ref (vec :str))) (berr (ref (vec lower-error))) (id :i64) (h :str))
   (ret (lo-fail-at nod ntx berr id 2 (str-concat "'" (str-concat h "' is not lowered by this backend yet")))))
 
+(fn lo-not-yet-type :i64 ((nod (ref (vec node))) (ntx (ref (vec :str))) (berr (ref (vec lower-error))) (id :i64) (h :str))
+  (let _ lower-error (lo-not-yet nod ntx berr id h))
+  (ret -1))
+
 (fn lo-parse lower-error ((nod (ref (vec node))) (ntx (ref (vec :str))) (tnk (ref (vec :str))) (tnv (ref (vec :i64))) (tags (ref (vec :i64))) (tnames (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (tptypes (ref (vec :i64))) (berr (ref (vec lower-error))) (id :i64) (out (ref (vec :i64))))
   (if (lo-bad berr)
     (ret (vec-get berr 0))
@@ -1133,6 +1137,15 @@
     (lo-nothing))
   (ret -1))
 
+(fn lo-peel-shared :i64 ((tags (ref (vec :i64))) (elem (ref (vec :i64))) (ty :i64))
+  (if (>= ty 0)
+    (if (= (vec-get tags ty)
+          (type-tag-shared))
+      (ret (vec-get elem ty))
+      (lo-nothing))
+    (lo-nothing))
+  (ret ty))
+
 (fn lo-node-type :i64 ((mtriple (ref (vec :str))) (mqual (ref (vec :i64))) (snames (ref (vec :str))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (enames (ref (vec :str))) (ewords (ref (vec :i64))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (pnames (ref (vec :str))) (ptys (ref (vec :i64))) (blabels (ref (vec :str))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ops (ref (vec :i64))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (tnames (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (tnk (ref (vec :str))) (tnv (ref (vec :i64))) (tnl (ref (vec :i64))) (fnk (ref (vec :str))) (fnv (ref (vec :i64))) (fnl (ref (vec :i64))) (enk (ref (vec :str))) (env (ref (vec :i64))) (enl (ref (vec :i64))) (vnk (ref (vec :str))) (vnv (ref (vec :i64))) (vni (ref (vec :i64))) (vnp (ref (vec :i64))) (bindn (ref (vec :str))) (bindt (ref (vec :i64))) (binds (ref (vec :str))) (binda (ref (vec :i64))) (plan (ref (vec :str))) (planty (ref (vec :i64))) (st (ref (vec :i64))) (loopx (ref (vec :str))) (looph (ref (vec :str))) (esc (ref (vec :str))) (cl (ref (vec :str))) (berr (ref (vec lower-error))) (item :i64) (expected :i64))
   (if (lo-bad berr)
     (ret -1)
@@ -1165,7 +1178,7 @@
     (ret (lo-type-arg mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr item))
     (lo-nothing))
   (if (str-eq h "deref")
-    (ret (vec-get elem (lo-node-type mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx item 1) -2)))
+    (ret (vec-get elem (lo-peel-shared tags elem (lo-node-type mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx item 1) -2))))
     (lo-nothing))
   (if (str-eq h "ptr")
     (ret (lo-ptr-of tags tnames elem extra pbase powner (lo-node-type mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx item 1) -2)))
@@ -1262,6 +1275,9 @@
     (lo-nothing))
   (if (>= (lo-variant-any vnk h) 0)
     (ret (vec-get vnv (lo-variant-any vnk h)))
+    (lo-nothing))
+  (if (str-eq h "spawn")
+    (ret (lo-not-yet-type nod ntx berr item h))
     (lo-nothing))
   (ret -1))
 
@@ -3274,7 +3290,7 @@
   (ret (lo-value mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx node 1) -2)))
 
 (fn lo-setderef :str ((mtriple (ref (vec :str))) (mqual (ref (vec :i64))) (snames (ref (vec :str))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (enames (ref (vec :str))) (ewords (ref (vec :i64))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (pnames (ref (vec :str))) (ptys (ref (vec :i64))) (blabels (ref (vec :str))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ops (ref (vec :i64))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (tnames (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (tnk (ref (vec :str))) (tnv (ref (vec :i64))) (tnl (ref (vec :i64))) (fnk (ref (vec :str))) (fnv (ref (vec :i64))) (fnl (ref (vec :i64))) (enk (ref (vec :str))) (env (ref (vec :i64))) (enl (ref (vec :i64))) (vnk (ref (vec :str))) (vnv (ref (vec :i64))) (vni (ref (vec :i64))) (vnp (ref (vec :i64))) (bindn (ref (vec :str))) (bindt (ref (vec :i64))) (binds (ref (vec :str))) (binda (ref (vec :i64))) (plan (ref (vec :str))) (planty (ref (vec :i64))) (st (ref (vec :i64))) (loopx (ref (vec :str))) (looph (ref (vec :str))) (esc (ref (vec :str))) (cl (ref (vec :str))) (berr (ref (vec lower-error))) (node :i64))
-  (let pty :i64 (lo-type-item mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx node 1)))
+  (let pty :i64 (lo-peel-shared tags elem (lo-type-item mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr (lo-child nod ntx node 1))))
   (if (not (or (= (vec-get tags pty) 1)
              (= (vec-get tags pty) 2)))
     (ret (lo-fail-str nod ntx berr node 100 "'set-deref' needs a pointer"))

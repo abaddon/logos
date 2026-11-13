@@ -393,8 +393,17 @@ handle, and `recv`'s type is the channel's element read from the channel type
 runtime calls (`lo-atomic-elem` answers the element).
 
 Because the shared wrapper is a fact about the type and not about the value,
-`deref` and `ptr-add` see through `(shared (ptr T))` to the pointer inside, and
-`lo-ptradd-type` answers the pointee's type so one `ptr-add` can feed the next.
+`deref`, `set-deref` and `ptr-add` see through `(shared (ptr T))` to the pointer
+inside, and `lo-ptradd-type` answers the pointee's type so one `ptr-add` can
+feed the next. The peel lives in the type query — `lo-peel-shared`, called from
+`lo-node-type`'s `deref` branch and from `lo-setderef` — not in one consumer:
+the load `lo-deref` emits yields the pointee, so a consumer that still saw
+`i64*` would spell `add i64* %t, 1` and clang would reject the file. `sharedptr`
+pins it with a `deref` feeding an `add`, a second `deref` bound on its own, a
+`set-deref` through the shared pointer and another through a `ptr-add` of it.
+The handles have a fixture too: `concurrency` sends and receives on a `chan`,
+locks and unlocks a `mutex`, and runs `atomic-add`/`atomic-load`/`atomic-store`.
+Neither fixture spawns a thread, so both lower while `spawn` refuses.
 `join` lowers to `rt_join`, but nothing can produce a thread value while `spawn`
 refuses (below), so it is exercised only by the forms that type-check it.
 
@@ -435,14 +444,17 @@ lowered by this backend yet`:
   pending queue threaded through the context, or a row swap that preserves
   define order) is the shape of the fix, and it is the next task's, not a
   missing `case` in a dispatch. Until then `spawn` refuses rather than
-  miscompiles. The refusal's shape depends on where the form sits: as a
-  statement it is `E0002: 'spawn' is not lowered by this backend yet` at the
-  form's path, and as the initializer of a `let` it lands one step earlier as
-  `E0005: unknown name '<binding>'`, because no type is produced for the thunk
-  and the declaration has nothing to give the name.
+  miscompiles, and it refuses the same way wherever the form sits: as a
+  statement and as the initializer of a `let` both print
+  `E0002: 'spawn' is not lowered by this backend yet` at the form's own node
+  path. The type query refuses the form too (`lo-not-yet-type`, after
+  `lo-node-type`), rather than answering "no type" and leaving the declaration
+  to report a binding it never made — the old initializer shape was
+  `E0005: unknown name '<binding>'`, naming a name declared on the same line.
 - **`examples/matrix.logos`**, which lowers otherwise and differs only in its
-  687 spawn-thunk lines; it refuses as `E0005: unknown name 'first'` for the
-  reason just given.
+  four 18-line spawn thunks (75 lines with their separators, at 135–210 of
+  Python's `build/python-matrix.ll`, before `define i32 @main()` at 211); it
+  refuses at its first spawn site with the same `E0002`.
 - **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
 - **`build --test NAME`.** Every positive corpus file under `tests/exec`,
   `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so
@@ -478,14 +490,23 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — forty-one files, all byte-identical to Python's `.ll`.
-The list also names three example programs (`examples/hello.logos`,
+`tools/selfhost-ir.txt` — forty-three files, all byte-identical to Python's
+`.ll`. The list also names three example programs (`examples/hello.logos`,
 `examples/json.logos`, `examples/wc.logos`): the first real programs, not
-fixtures, whose IR is claimed byte for byte. `tools/selfhost.sh` holds
-`IR_FLOOR=44` — the whole list — so a pruned list fails rather than passing over
-fewer files. Set equality is judged on the list's *fixture* entries against
-`src/logosc/fixtures/ir-lower/*.logos`: every fixture on disk is listed and
-every listed fixture is on disk, so an addition or a deletion must move both
-names in the same commit and the count cannot be held still while one fixture is
-swapped for another. A path outside the directory is a claim of its own; it
-neither hides a missing fixture nor has to exist there.
+fixtures, whose IR is claimed byte for byte. They are not a survey of the new
+forms, and the list's growth is not theirs: `run` appears in none of the three,
+`hello` prints one string, `wc` reads all of stdin and prints counts with no
+vector operations, and only `json` exercises vectors (and `alloc`/`ptr`). None
+of them touches a channel, a mutex, an atomic or a `(shared (ptr T))` —
+`concurrency` and `sharedptr` are fixtures because of exactly that gap.
+`tools/selfhost.sh` holds `IR_FLOOR=46` over the whole list, so a pruned list
+fails rather than passing over fewer files. Set equality is judged on the list's
+*fixture* entries against `src/logosc/fixtures/ir-lower/*.logos`: every fixture
+on disk is listed and every listed fixture is on disk, so an addition or a
+deletion must move both names in the same commit and the count cannot be held
+still while one fixture is swapped for another. Set equality alone cannot stop
+the list and the directory shrinking together, though, so the fixture entries
+carry a floor of their own — `IR_FIXTURE_FLOOR=43` — and a fixture cannot leave
+while a path outside the directory takes its place in the total. A path outside
+the directory is a claim of its own; it neither hides a missing fixture nor has
+to exist there.
