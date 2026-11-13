@@ -1,6 +1,7 @@
 # W8 step 3b — generic instantiation: report
 
-Branch `feat/selfhost-w7-backend`, commit at the end of this file. Measurement
+Branch `feat/selfhost-w7-backend`, feature commit `6d6584b`; this report rides
+in a docs commit of its own. Measurement
 note: `docs/superpowers/plans/2026-11-13-w8-generics-notes.md` (written first;
 every claim in it is `file:line` against `logos/check.py` and `logos/lower.py`).
 
@@ -115,5 +116,19 @@ pinned the refusal this branch removes. `IR_FLOOR` 56 → 61,
 
 ## Gates
 
-See the commit trailer message for the six gate lines. `body_test` and
-`check_test` at `-O0`/`-O2` were run detached; the counts are in the commit.
+`bash tools/pr_gate.sh` on the committed tree: **6/6**,
+`rc=0`. Its own logs:
+
+```
+selfhost: 329 files, 0 differences     (fmt fixed point, every tracked .logos)
+ir: 61 files, 0 differences            (the five new fixtures included)
+resolve: 14 fixtures, 0 differences
+check: 122 fixtures, 0 differences
+unit: 2 files, 0 differences
+```
+
+`emit_test` (the suite for the module this branch also touches) at `-O0` and
+`-O2`: 24 passed, 0 failed, 0 leaked — the `emit-type-var` negative case still
+pins Python's sentence. `check_test` and `body_test` do not import `lower`
+(`src/logosc/{check,body}_test.logos`' `use` lines), so no assertion in them can
+move with this diff; they were not re-run. There is no `lower` suite.
