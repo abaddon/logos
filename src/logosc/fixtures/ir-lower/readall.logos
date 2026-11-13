@@ -1,0 +1,5 @@
+(mod readall)
+
+(fn main :i64 ()
+  (let s :str (read-all))
+  (ret (str-len s)))

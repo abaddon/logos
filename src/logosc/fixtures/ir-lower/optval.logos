@@ -1,0 +1,16 @@
+(mod optval)
+
+(fn o :
+  (opt :i64) ((v :i64))
+  (if (> v 0)
+    (ret (some v))
+    (ret (none))))
+
+(fn main :i64 ()
+  (let a (match (o 4) ((some v) v)
+           (none 9)))
+  (let b (match (o -1) ((some v) v)
+           (none 5)))
+  (let c (match (o 3) ((some v) v)
+           (_ 1)))
+  (ret (+ a (+ b c))))

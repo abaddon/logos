@@ -1,0 +1,9 @@
+(mod argv)
+
+(fn main :i64 ()
+  (letmut a
+    (vec :str)
+    (args))
+  (let n :i64 (vec-len a))
+  (vec-free a)
+  (ret n))

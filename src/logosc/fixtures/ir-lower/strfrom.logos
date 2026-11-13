@@ -1,0 +1,5 @@
+(mod strfrom)
+
+(fn main :i64 ()
+  (let s :str (str-from-i64 42))
+  (ret (str-len s)))

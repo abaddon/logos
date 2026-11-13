@@ -107,7 +107,7 @@ CHECK_FLOOR=122
 # B2 and its fix round proved them. A pruned list is a failure, not a smaller
 # pass, and the set must equal the directory exactly (see the check below).
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=32
+IR_FLOOR=41
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today;
 # emptying the directory is a failure, not a smaller pass.

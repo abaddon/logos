@@ -1,0 +1,5 @@
+(mod readfile)
+
+(fn main :i64 ()
+  (let s :str (read-file "docs/LOGOS.md"))
+  (ret (str-len s)))
