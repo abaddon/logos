@@ -62,9 +62,18 @@
 # is the same kind of floor: a pruned list fails rather than passing over fewer
 # fixtures.
 #
-# Output: one line per fmt, ir, resolve or check failure, then
+# A fifth phase judges the unit: the compiler's whole front end at once.
+# `gen2 build` and Python's `logos build` lower the same three roots — fmt, lex
+# and main, the eleven-module closure both binaries are built from — and the
+# two `.ll` files must be equal byte for byte. A unit is one file, so the phase
+# asserts equality rather than counting a corpus; what it floors is that the
+# thing compared is the unit (three roots on disk, and at least a megabyte on
+# each side), so two empty or truncated files cannot agree their way to a pass.
+#
+# Output: one line per fmt, ir, resolve, check or unit failure, then
 # `selfhost: N files, M differences`, `ir: N files, M differences`,
-# `resolve: N fixtures, M differences` and `check: N fixtures, M differences`.
+# `resolve: N fixtures, M differences`, `check: N fixtures, M differences` and
+# `unit: 1 file, M differences`.
 # Exit 0 when every phase is clean, 1 when any file or fixture differs, 2 when
 # the gate could not run at all (missing manifest or list, count mismatch, no
 # binary).
@@ -461,7 +470,70 @@ for fixture in "${CHECKED[@]}"; do
 done
 
 printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
-if (( DIFFS > 0 || IDIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 )); then
+
+# Phase five: the unit. The phases above judge files one at a time; this one
+# judges the compiler's whole front end at once. `gen2 build` and Python's
+# `logos build` lower the same three roots — fmt, lex and main, the eleven-
+# module closure the compiler is built from — and the two `.ll` files must be
+# equal byte for byte. It is the fixed point's first half: the port's own
+# lowering reproduces the oracle on the sources both are built from.
+#
+# A unit is one file, so there is no corpus to count and no count to floor:
+# the phase asserts equality. What a floor can still hold is that the thing
+# compared is the unit — the root set names three modules (UNIT_FLOOR) and
+# each is on disk, and each side's output is at least UNIT_BYTES_FLOOR bytes,
+# so two empty or truncated files cannot agree their way to a pass. Both sides
+# remove their target before building, as phase two does, so a stale file
+# cannot be compared against.
+UNIT_ROOTS=(src/logosc/fmt.logos src/logosc/lex.logos src/logosc/main.logos)
+UNIT_FLOOR=3
+# The unit is 15.5 MB of IR today. Below a megabyte it is not the closure,
+# whatever the two sides agree on.
+UNIT_BYTES_FLOOR=1000000
+
+if (( ${#UNIT_ROOTS[@]} < UNIT_FLOOR )); then
+    printf 'unit: %d roots, below the floor of %d\n' "${#UNIT_ROOTS[@]}" "$UNIT_FLOOR" >&2
+    exit 2
+fi
+for path in "${UNIT_ROOTS[@]}"; do
+    if [[ ! -f "$path" ]]; then
+        printf 'unit: %s: missing root\n' "$path" >&2
+        exit 2
+    fi
+done
+
+mkdir -p "$OUT/unit"
+UDIFFS=0
+MINE="$OUT/unit/gen2.ll"
+THEIRS="$OUT/unit/python.ll"
+rm -f "$MINE" "$THEIRS" build/fmt.ll
+if ! "$BIN" build "${UNIT_ROOTS[@]}" -o "$MINE" > "$STDOUT" 2> "$STDERR"; then
+    printf 'unit: gen2 build failed: %s\n' "$(head -n 1 "$STDERR")"
+    UDIFFS=$((UDIFFS + 1))
+elif [[ ! -f "$MINE" ]]; then
+    printf 'unit: gen2 wrote no %s\n' "${MINE#"$ROOT"/}"
+    UDIFFS=$((UDIFFS + 1))
+elif (( $(wc -c < "$MINE") < UNIT_BYTES_FLOOR )); then
+    printf 'unit: gen2 wrote %d bytes, below the floor of %d\n' \
+        "$(wc -c < "$MINE")" "$UNIT_BYTES_FLOOR"
+    UDIFFS=$((UDIFFS + 1))
+elif ! python3 -m logos build "${UNIT_ROOTS[@]}" -o "$OUT/unit/python" > "$OUT/unit/python.log" 2>&1; then
+    printf 'unit: python build failed (log: %s)\n' "${OUT#"$ROOT"/}/unit/python.log"
+    UDIFFS=$((UDIFFS + 1))
+elif [[ ! -f build/fmt.ll ]]; then
+    printf 'unit: python wrote no build/fmt.ll\n'
+    UDIFFS=$((UDIFFS + 1))
+elif (( $(wc -c < build/fmt.ll) < UNIT_BYTES_FLOOR )); then
+    printf 'unit: python wrote %d bytes, below the floor of %d\n' \
+        "$(wc -c < build/fmt.ll)" "$UNIT_BYTES_FLOOR"
+    UDIFFS=$((UDIFFS + 1))
+elif ! cmp -s "$MINE" build/fmt.ll; then
+    printf 'unit: output differs\n'
+    UDIFFS=$((UDIFFS + 1))
+fi
+
+printf 'unit: 1 file, %d differences\n' "$UDIFFS"
+if (( DIFFS > 0 || IDIFFS > 0 || RDIFTS > 0 || CDIFFS > 0 || UDIFFS > 0 )); then
     exit 1
 fi
 exit 0

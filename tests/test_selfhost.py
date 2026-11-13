@@ -6,11 +6,13 @@ file `tools/selfhost-ir.txt` lists with `gen2 build` and compares the IR with
 Python's byte for byte, then runs `gen2 resolve` on every resolver-owned
 negative fixture under `tests/parse` and compares the code with its `.expect`
 sidecar, then runs `gen2 check` over `tools/selfhost-check.txt` and compares the
-whole diagnostic line with the generated `.check` sidecar beside each fixture.
+whole diagnostic line with the generated `.check` sidecar beside each fixture,
+then lowers the compiler's own eleven-module unit with `gen2 build` and with
+Python and requires the two `.ll` files to be equal byte for byte.
 This test is the smallest one that proves the wiring: it runs the gate and
-checks the four summary lines and the exit status, so a script that silently
-skipped a loop, overran the manifest, pruned the IR list or passed over zero
-files cannot look green.
+checks the five summary lines and the exit status, so a script that silently
+skipped a loop, overran the manifest, pruned the IR list, passed over zero
+files or compared a unit nobody wrote cannot look green.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ IR_LINE = re.compile(r"^ir: (\d+) files, (\d+) differences$")
 RESOLVE_LINE = re.compile(r"^resolve: (\d+) fixtures, (\d+) differences$")
 #: `check: N fixtures, M differences`, the checker phase's summary.
 CHECK_LINE = re.compile(r"^check: (\d+) fixtures, (\d+) differences$")
+#: `unit: 1 file, M differences`, the whole-unit phase's summary.
+UNIT_LINE = re.compile(r"^unit: (\d+) file, (\d+) differences$")
 
 
 class SelfhostGateTest(unittest.TestCase):
@@ -43,31 +47,37 @@ class SelfhostGateTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lines = result.stdout.splitlines()
-        self.assertGreaterEqual(len(lines), 4, "tools/selfhost.sh printed no summaries")
+        self.assertGreaterEqual(len(lines), 5, "tools/selfhost.sh printed no summaries")
         self.assertIsNotNone(
-            SELFHOST_LINE.match(lines[-4]),
-            f"fourth-to-last line is not the selfhost summary: {lines[-4]!r}",
+            SELFHOST_LINE.match(lines[-5]),
+            f"fifth-to-last line is not the selfhost summary: {lines[-5]!r}",
         )
         self.assertIsNotNone(
-            IR_LINE.match(lines[-3]),
-            f"third-to-last line is not the IR summary: {lines[-3]!r}",
+            IR_LINE.match(lines[-4]),
+            f"fourth-to-last line is not the IR summary: {lines[-4]!r}",
         )
         self.assertIsNotNone(
-            RESOLVE_LINE.match(lines[-2]),
-            f"second-to-last line is not the resolve summary: {lines[-2]!r}",
+            RESOLVE_LINE.match(lines[-3]),
+            f"third-to-last line is not the resolve summary: {lines[-3]!r}",
         )
         self.assertIsNotNone(
-            CHECK_LINE.match(lines[-1]),
-            f"last line is not the check summary: {lines[-1]!r}",
+            CHECK_LINE.match(lines[-2]),
+            f"second-to-last line is not the check summary: {lines[-2]!r}",
         )
-        selfhost_match = SELFHOST_LINE.match(lines[-4])
-        ir_match = IR_LINE.match(lines[-3])
-        resolve_match = RESOLVE_LINE.match(lines[-2])
-        check_match = CHECK_LINE.match(lines[-1])
+        self.assertIsNotNone(
+            UNIT_LINE.match(lines[-1]),
+            f"last line is not the unit summary: {lines[-1]!r}",
+        )
+        selfhost_match = SELFHOST_LINE.match(lines[-5])
+        ir_match = IR_LINE.match(lines[-4])
+        resolve_match = RESOLVE_LINE.match(lines[-3])
+        check_match = CHECK_LINE.match(lines[-2])
+        unit_match = UNIT_LINE.match(lines[-1])
         assert selfhost_match is not None  # for the type checker, not the test
         assert ir_match is not None
         assert resolve_match is not None
         assert check_match is not None
+        assert unit_match is not None
 
         files, differences = (int(group) for group in selfhost_match.groups())
         self.assertGreaterEqual(files, 100, "the manifest is smaller than the corpus")
@@ -86,6 +96,10 @@ class SelfhostGateTest(unittest.TestCase):
         checked, check_differences = (int(group) for group in check_match.groups())
         self.assertGreaterEqual(checked, 33, "the checker fixture list was pruned")
         self.assertEqual(check_differences, 0)
+
+        unit_files, unit_differences = (int(group) for group in unit_match.groups())
+        self.assertEqual(unit_files, 1, "the unit phase did not compare one unit")
+        self.assertEqual(unit_differences, 0)
 
 
 if __name__ == "__main__":
