@@ -15,7 +15,7 @@
 (fn fmt-arena :void ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
   (if (tree-ok t)
-    (fmt nodes ntexts)
+    (fmt 1 nodes ntexts)
     (print-tree-error t)))
 
 (fn fmt-src :void ((src :str))

@@ -15,6 +15,7 @@
 
 #include "rt.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -783,6 +784,194 @@ size_t rt_read_file(const unsigned char *path, size_t n,
     return len;
 }
 
+/* ---------------------------------------------------------------------------
+ * Directories
+ *
+ * Three questions the language could not ask before W8: whether a path is a
+ * directory, what is inside one, and how to create a directory that does not
+ * exist yet. They live here rather than behind a child process because the
+ * driver asks them once per argument and once per build, `mkdir -p` depends on
+ * a PATH entry that need not exist, and the test harness needs the same walk.
+ *
+ * `rt_read_dir`'s entries are process-lifetime and untracked, like the command
+ * line and a read file: the names belong to the runtime, and a caller that
+ * wants a `(vec :str)` builds its own tracked vector over these pairs, exactly
+ * as `(args)` does over `rt_args`. `rt_path_error`'s message is the C library's
+ * and is untracked for the same reason — a `:str` owns nothing.
+ * ------------------------------------------------------------------------- */
+
+long rt_is_dir(const unsigned char *path, size_t n) {
+    char *cpath = rt_cstr(path, n);
+    struct stat st;
+    int is_dir;
+
+    if (cpath == NULL) {
+        return 0;
+    }
+    /* stat, not lstat: a symbolic link to a directory names a directory, the
+     * way Path.is_dir says it does. A path that cannot be examined is simply
+     * not a directory; the caller reports the failure through the call that
+     * actually needs the bytes. */
+    is_dir = stat(cpath, &st) == 0 && S_ISDIR(st.st_mode);
+    free(cpath);
+    return is_dir;
+}
+
+/* One component of a path, created if it is missing. Returns 0 when the
+ * component is now a directory, -1 when it cannot be one (a regular file in
+ * the way, a permission error, and so on). */
+static int rt_mkdir_one(char *path) {
+    struct stat st;
+
+    if (mkdir(path, 0777) == 0) {
+        return 0;
+    }
+    if (errno != EEXIST) {
+        return -1;
+    }
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode) ? 0 : -1;
+}
+
+long rt_mkdirs(const unsigned char *path, size_t n) {
+    char *cpath = rt_cstr(path, n);
+    size_t i;
+    int failed = 0;
+
+    if (cpath == NULL || n == 0) {
+        free(cpath);
+        return -1;
+    }
+    /* Each prefix ending at a slash, then the whole path. A doubled slash and
+     * a leading slash give an empty or already-trailing prefix, which is
+     * skipped rather than passed to mkdir as "". */
+    for (i = 1; i <= n && !failed; i++) {
+        char saved;
+
+        if (cpath[i] != '/' && cpath[i] != '\0') {
+            continue;
+        }
+        if (cpath[i - 1] == '/') {
+            continue;
+        }
+        saved = cpath[i];
+        cpath[i] = '\0';
+        failed = rt_mkdir_one(cpath) != 0;
+        cpath[i] = saved;
+    }
+    free(cpath);
+    return failed ? -1 : 0;
+}
+
+size_t rt_read_dir(const unsigned char *path, size_t n, const rt_arg **out,
+                   const char *node_path) {
+    char *cpath = rt_cstr(path, n);
+    rt_arg *entries = NULL;
+    size_t count = 0;
+    size_t cap = 0;
+    DIR *dir;
+    struct dirent *entry;
+
+    if (cpath == NULL) {
+        rt_panic(rt_node_path(node_path), "R0003", "out of memory");
+    }
+    dir = opendir(cpath);
+    if (dir == NULL) {
+        free(cpath);
+        rt_read_file_panic(path, n, node_path);
+    }
+    for (;;) {
+        size_t len;
+        unsigned char *name;
+
+        errno = 0;
+        entry = readdir(dir);
+        if (entry == NULL) {
+            if (errno != 0) {
+                /* A read that fails part way is not a shorter directory. */
+                (void)closedir(dir);
+                free(cpath);
+                rt_read_file_panic(path, n, node_path);
+            }
+            break;
+        }
+        /* "." and ".." name the directory itself; a caller listing a tree
+         * would recurse forever on them. */
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        if (count == cap) {
+            size_t want = cap != 0 ? cap * 2 : 16;
+            rt_arg *grown;
+
+            if (want < cap || want > (size_t)-1 / sizeof *entries) {
+                (void)closedir(dir);
+                free(cpath);
+                rt_panic(rt_node_path(node_path), "R0003",
+                         "directory has too many entries");
+            }
+            grown = realloc(entries, want * sizeof *entries);
+            if (grown == NULL) {
+                (void)closedir(dir);
+                free(cpath);
+                rt_panic(rt_node_path(node_path), "R0003", "out of memory");
+            }
+            entries = grown;
+            cap = want;
+        }
+        len = strlen(entry->d_name);
+        name = malloc(len != 0 ? len : 1);
+        if (name == NULL) {
+            (void)closedir(dir);
+            free(cpath);
+            rt_panic(rt_node_path(node_path), "R0003", "out of memory");
+        }
+        if (len != 0) {
+            memcpy(name, entry->d_name, len);
+        }
+        entries[count].ptr = name;
+        entries[count].len = len;
+        count += 1;
+    }
+    (void)closedir(dir);
+    free(cpath);
+    /* Never a count without an array, and never an array for no entries: the
+     * empty-directory case is (NULL, 0), which a caller reads as an empty
+     * vector. */
+    if (out != NULL) {
+        *out = count != 0 ? entries : NULL;
+    }
+    return count;
+}
+
+unsigned char *rt_path_error(const unsigned char *path, size_t n, size_t *out_len) {
+    char *cpath = rt_cstr(path, n);
+    const char *msg;
+    size_t len;
+    rt_str s;
+
+    if (cpath == NULL) {
+        msg = "out of memory";
+    } else if (access(cpath, R_OK | W_OK) == 0) {
+        msg = "";
+    } else {
+        msg = strerror(errno);
+    }
+    free(cpath);
+    if (msg == NULL) {
+        msg = "unknown error";
+    }
+    len = strlen(msg);
+    s = rt_str_new(len);
+    s.len = len;
+    if (len != 0) {
+        memcpy(s.data, msg, len);
+    }
+    if (out_len != NULL) {
+        *out_len = len;
+    }
+    return s.data;
+}
+
 /* The command line, filled once by a constructor so the emitted `main` keeps
  * its fixed signature. Both the bytes and the array of pairs live until the
  * process exits; they are plain malloc for the reason in the section comment
@@ -908,9 +1097,17 @@ struct rt_run {
 /* How long a child may run before it is killed. A constant, not a parameter:
  * a test that hangs is a bug in the program, and 124 is the shell's code for a
  * command that timed out. The guard lets the timeout probe build a short
- * budget; nothing in the compiler defines it. */
+ * budget.
+ *
+ * Ninety seconds since W8 step 2. The compiler's own unit is 18.2 MB of IR and
+ * clang at -O2 spends 27 s on it on an idle machine, so the 30 s this used to
+ * be had none of the margin the fixed point needs: the same command timed out
+ * at 124 on a busy host, which the driver can only report as a clang failure.
+ * Three minutes would buy more room still; ninety is the largest budget that
+ * is still obviously a hang guard rather than a wait, and clang is the only
+ * child in the repository that comes close to it. */
 #ifndef RT_RUN_TIMEOUT_MS
-#define RT_RUN_TIMEOUT_MS 30000
+#define RT_RUN_TIMEOUT_MS 90000
 #endif
 
 /* A child that wrote nothing still gives a `:str` a valid pointer. */

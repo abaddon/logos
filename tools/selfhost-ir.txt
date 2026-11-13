@@ -57,6 +57,11 @@
 # fixture entries alone, so a fixture cannot leave while a path outside the
 # directory takes its place.
 #
+# W8 step 2 adds `dirs`: the four directory forms `(read-dir p)`, `(is-dir p)`,
+# `(mkdirs p)` and `(path-error p)`. `read-dir` builds its tracked vector the
+# way `args` does, so the fixture pins both the copy and the `icmp -- count ==
+# 0` branch; `is-dir` is the runtime's integer compared against zero.
+#
 # Beyond the fixtures: four example programs, the first real programs rather
 # than fixtures whose IR is claimed byte-identical. The fourth, `matrix`, is
 # B4's end-to-end spawn claim; the first three are hello, json and wc.
@@ -115,6 +120,7 @@ src/logosc/fixtures/ir-lower/spawn.logos
 # order. `alpha`, `beta` and `gamma` are declared in that order, and
 # `take`'s parameter is the first use, so the rows come out gamma, beta, alpha.
 src/logosc/fixtures/ir-lower/type-order.logos
+src/logosc/fixtures/ir-lower/dirs.logos
 # The examples. They are not fixtures: each is a program the repository ships,
 # and each lowers through the same single-module path as the fixtures above.
 examples/hello.logos

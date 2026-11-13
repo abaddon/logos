@@ -4,10 +4,14 @@
 # Build gen2 from src/logosc/*.logos plus the two standard modules gen2 may
 # use: map and str. Only those two, not the whole src/std directory — the
 # stdlib's `_test` files carry `(test …)` forms and are not modules gen2 needs.
-# Then run `gen2 fmt <file>` for every path in tools/selfhost-manifest.txt and
-# compare its stdout with the file, byte for byte. Every tracked .logos file is
-# canonical (tools/accept.sh proves the Python formatter is a fixed point), so
-# any difference is either a printer bug in the Logos port or a file that is no
+# Then run `gen2 fmt <copy>` for every path in tools/selfhost-manifest.txt and
+# compare the copy with the file, byte for byte. `fmt` rewrites in place and
+# prints nothing (W8 step 2 matches Python), so the file is copied under build/
+# first: the gate never writes to the tree it is judging, and a run that leaves
+# the copy unchanged proves both halves of the contract — the canonical bytes
+# and the silence on stdout. Every tracked .logos file is canonical
+# (tools/accept.sh proves the Python formatter is a fixed point), so any
+# difference is either a printer bug in the Logos port or a file that is no
 # longer canonical.
 #
 # The floor: the manifest must list every tracked .logos file and at least
@@ -131,17 +135,17 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
 # The lowering parity list: the files whose IR the port already reproduces.
-# Fifty today — the forty-six fixtures under src/logosc/fixtures/ir-lower,
-# in the order B2, its fix round, B3 and B4 proved them, plus the four example
-# programs. A pruned list is a failure, not a smaller pass; the fixture entries
-# must equal the fixture directory exactly (see the check below), while a path
-# outside it is a claim of its own and is only counted.
+# Fifty-one today — the forty-seven fixtures under src/logosc/fixtures/ir-lower,
+# in the order B2, its fix round, B3, B4 and W8 proved them, plus the four
+# example programs. A pruned list is a failure, not a smaller pass; the fixture
+# entries must equal the fixture directory exactly (see the check below), while
+# a path outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=50
+IR_FLOOR=51
 # The fixture entries alone, so an outside path cannot pad the total while a
-# fixture leaves the directory. Forty-six today; lowering this number is a
+# fixture leaves the directory. Forty-seven today; lowering this number is a
 # deliberate act, not a side effect of a pruned fixture set.
-IR_FIXTURE_FLOOR=46
+IR_FIXTURE_FLOOR=47
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today;
 # emptying the directory is a failure, not a smaller pass.
@@ -194,18 +198,32 @@ fi
 DIFFS=0
 STDOUT="$OUT/current.out"
 STDERR="$OUT/current.err"
+FMTDIR="$OUT/fmt"
+rm -rf "$FMTDIR"
+mkdir -p "$FMTDIR"
+INDEX=0
 for path in "${FILES[@]}"; do
     if [[ ! -f "$path" ]]; then
         printf 'selfhost: %s: missing file\n' "$path"
         DIFFS=$((DIFFS + 1))
         continue
     fi
-    if ! "$BIN" fmt "$path" > "$STDOUT" 2> "$STDERR"; then
+    # The copy's own name is irrelevant to the printer and unique per entry, so
+    # two manifest paths that share a stem cannot collide.
+    INDEX=$((INDEX + 1))
+    copy="$FMTDIR/$INDEX.logos"
+    cp "$path" "$copy"
+    if ! "$BIN" fmt "$copy" > "$STDOUT" 2> "$STDERR"; then
         printf 'selfhost: %s: gen2 fmt failed: %s\n' "$path" "$(head -n 1 "$STDERR")"
         DIFFS=$((DIFFS + 1))
         continue
     fi
-    if ! cmp -s "$STDOUT" "$path"; then
+    if [[ -s "$STDOUT" ]]; then
+        printf 'selfhost: %s: fmt wrote %d bytes to stdout\n' "$path" "$(wc -c < "$STDOUT")"
+        DIFFS=$((DIFFS + 1))
+        continue
+    fi
+    if ! cmp -s "$copy" "$path"; then
         printf 'selfhost: %s: output differs\n' "$path"
         DIFFS=$((DIFFS + 1))
     fi

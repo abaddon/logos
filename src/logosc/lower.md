@@ -509,6 +509,16 @@ runtime call: it is a bounds-checked `gep` and `i8` load. `args` asks `rt_args`
 for the count and the raw pointer array, allocates the `(vec :str)` through
 `rt_alloc` and fills it one argument per element (`argv`).
 
+The four directory forms (`readdir`, `isdir`, `mkdirs`, `patherror`) are the
+same shape with the pieces they need. `is-dir` calls `rt_is_dir` and compares
+the result against zero — one `icmp`, no branch, so it is an expression like any
+other. `mkdirs` returns `rt_mkdirs`'s status unchanged. `path-error` returns
+`rt_path_error`'s message with its byte count through a slot, like `strfrom`.
+`read-dir` is `args` over `rt_read_dir(ptr, len, &pairs, node_path)`: the pair
+array copied into a tracked buffer, a count of zero becoming the `(NULL, 0, 0)`
+descriptor `vec-free` releases, and the branch's blocks named `dirN.fill` and
+`dirN.done`.
+
 ## String comparison
 
 `(= a b)` with two `:str` operands compares bytes. `lo-compare` asks the

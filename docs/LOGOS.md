@@ -764,6 +764,10 @@ Expected stdout, exit 0:
 | `read-all` | 0 | `(read-all)` reads standard input to a `:str` |
 | `read-file` | 1 | `(read-file p)` the whole file p names, as a `:str` |
 | `args` | 0 | `(args)` the command line, as a tracked `(vec :str)` |
+| `read-dir` | 1 | `(read-dir p)` the entry names in directory p, as a tracked `(vec :str)` |
+| `is-dir` | 1 | `(is-dir p)` whether p is a directory, as `:bool` |
+| `mkdirs` | 1 | `(mkdirs p)` creates p and every missing parent; 0 when it is a directory, -1 otherwise |
+| `path-error` | 1 | `(path-error p)` why p cannot be read and written, or `""` when it can |
 | `run` | 2 | `(run prog args)` starts prog with the arguments the vector names |
 | `run-status` | 1 | `(run-status r)` the child's exit code, or 128 + signal |
 | `run-out` | 1 | `(run-out r)` the child's standard output, as a `:str` |
@@ -875,7 +879,7 @@ Expected stdout, exit 0:
 
 ### Reserved names
 
-A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `none`, `not`, `ok`, `or`, `print`, `println`, `ptr`, `ptr-add`, `read-file`, `recv`, `ret`, `run`, `run-err`, `run-out`, `run-status`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
+A definition may not take a name a form already spells (E0003). The reserved forms are: `alloc`, `and`, `args`, `break`, `cast`, `continue`, `deref`, `err`, `f64-bits`, `free`, `get`, `if`, `is-dir`, `join`, `let`, `letmut`, `lock`, `make`, `match`, `mkdirs`, `none`, `not`, `ok`, `or`, `path-error`, `print`, `println`, `ptr`, `ptr-add`, `read-dir`, `read-file`, `recv`, `ret`, `run`, `run-err`, `run-out`, `run-status`, `send`, `set`, `set-deref`, `set-field`, `shl`, `shr`, `shr-u`, `some`, `spawn`, `try`, `unlock`, `while`.
 
 Reserved form prefixes: `vec-`, `str-`, `arr-`, `atomic-`. Reserved enum variant names: `ok`, `err`, `some`, `none`, `try`, `print`, `println`, `spawn`, `join`, `mutex`, `lock`, `unlock`, `chan`, `send`, `recv`, `atomic`, `atomic-add`, `atomic-load`, `atomic-store`.
 

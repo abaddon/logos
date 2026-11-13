@@ -1456,6 +1456,7 @@ RESERVED_FORMS = frozenset(
     set-deref ptr-add print println spawn join lock unlock send recv ok err some
     none try break continue cast shl shr shr-u and or not
     read-file args f64-bits run run-status run-out run-err
+    read-dir is-dir mkdirs path-error
     """.split()
 )
 #: Form families: every name starting with one of these heads is a form.
@@ -1976,6 +1977,14 @@ class _Checker:
             return self._read_file(node, env)
         if kind == "args":
             return self._args(node, env)
+        if kind == "read-dir":
+            return self._read_dir(node, env)
+        if kind == "is-dir":
+            return self._is_dir(node, env)
+        if kind == "mkdirs":
+            return self._mkdirs(node, env)
+        if kind == "path-error":
+            return self._path_error(node, env)
         if kind == "run":
             return self._run(node, env)
         if kind in ("run-status", "run-out", "run-err"):
@@ -3112,6 +3121,68 @@ class _Checker:
         if len(node.items) != 1:
             raise diag(WRONG_ARITY, node.path, "'args' takes no arguments")
         return Vec(Prim("str"))
+
+    def _is_dir(self, node: Node, env: _Env) -> Ty:
+        """``(is-dir p)``: whether ``p`` names a directory, as ``:bool``.
+
+        ``p`` is a ``:str``. A path that does not exist, or cannot be
+        examined, is simply not a directory: the form has nowhere to carry the
+        reason, and the call that needs the bytes — ``read-file``,
+        ``read-dir`` — reports it instead. Symbolic links are followed, as
+        ``Path.is_dir`` follows them.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'is-dir' takes a :str")
+        self._exact_operand(items[1], env, node, Prim("str"), "is-dir")
+        return Prim("bool")
+
+    def _read_dir(self, node: Node, env: _Env) -> Ty:
+        """``(read-dir p)``: the entries of directory ``p``, as ``(vec :str)``.
+
+        ``p`` is a ``:str``. The elements are entry names, without ``.`` and
+        ``..``, in whatever order the file system returns them; a caller that
+        needs a stable order sorts them. Like ``(args)``, the vector is an
+        ordinary tracked value — the names live for the process, the vector's
+        buffer is the caller's, and ``vec-free`` releases it — so an
+        unread directory panics R0007 at this node rather than returning a
+        shorter vector.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'read-dir' takes a :str")
+        self._exact_operand(items[1], env, node, Prim("str"), "read-dir")
+        return Vec(Prim("str"))
+
+    def _mkdirs(self, node: Node, env: _Env) -> Ty:
+        """``(mkdirs p)``: create ``p`` and its parents, returning ``:i64``.
+
+        ``p`` is a ``:str``. The result is ``0`` when ``p`` is a directory
+        afterwards and ``-1`` when it could not be made one — a regular file in
+        the way, a permission error, an empty path. The driver decides whether
+        that is fatal; the form only reports it.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'mkdirs' takes a :str")
+        self._exact_operand(items[1], env, node, Prim("str"), "mkdirs")
+        return Prim("i64")
+
+    def _path_error(self, node: Node, env: _Env) -> Ty:
+        """``(path-error p)``: why ``p`` cannot be read and written, or ``""``.
+
+        ``p`` is a ``:str``. The result is the C library's message for the
+        ``errno`` the failed access left — ``No such file or directory``,
+        ``Permission denied`` — or the empty string when ``p`` can be opened
+        for both. It exists for the ``fmt`` verb, whose contract is Python's
+        one line ``logos: <path>: <strerror>`` and exit 1; ``read-file`` panics
+        instead, which is right for a form with no result to put a failure in.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'path-error' takes a :str")
+        self._exact_operand(items[1], env, node, Prim("str"), "path-error")
+        return Prim("str")
 
     def _run(self, node: Node, env: _Env) -> Ty:
         """``(run prog args)``: start a child and hand back its ``:run`` handle.

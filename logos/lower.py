@@ -556,6 +556,37 @@ _RT_READ_FILE = IrDecl(
 #: Logos value: the form copies both into a tracked buffer the caller frees.
 _RT_ARGS = IrDecl("rt_args", (Ptr(_PTR_U8),), Prim("i64"))
 
+#: ``long rt_is_dir(const unsigned char *path, size_t n)``: 1 when the path is
+#: a directory, 0 when it is not one or cannot be examined. The form's
+#: ``:bool`` is one ``icmp`` over the runtime's integer, the way a comparison's
+#: result is, so the language's boolean never crosses the boundary.
+_RT_IS_DIR = IrDecl("rt_is_dir", (_VOID_PTR, Prim("i64")), Prim("i64"))
+
+#: ``size_t rt_read_dir(const unsigned char *path, size_t n,
+#: const rt_arg **out, const char *node_path)``. The array is ``rt_arg``
+#: pairs — a pointer and a length, layout-compatible with ``:str`` — exactly
+#: like ``rt_args``'s, so the form copies it into a tracked buffer the caller
+#: frees the same way. ``node_path`` is the ``read-dir`` node, so an
+#: unreadable directory panics R0007 at the call.
+_RT_READ_DIR = IrDecl(
+    "rt_read_dir",
+    (_VOID_PTR, Prim("i64"), Ptr(_PTR_U8), Ptr(Prim("u8"))),
+    Prim("i64"),
+)
+
+#: ``long rt_mkdirs(const unsigned char *path, size_t n)``: 0 when the
+#: directory exists afterwards, -1 when it could not be made one. Returned as
+#: ``:i64`` unchanged: the driver decides whether a failure is fatal.
+_RT_MKDIRS = IrDecl("rt_mkdirs", (_VOID_PTR, Prim("i64")), Prim("i64"))
+
+#: ``unsigned char *rt_path_error(const unsigned char *path, size_t n,
+#: size_t *out_len)``. The C library's message for a path that cannot be read
+#: and written, or the empty string; the byte count comes back through a slot
+#: exactly as ``rt_read_file``'s does, and the buffer is the runtime's.
+_RT_PATH_ERROR = IrDecl(
+    "rt_path_error", (_VOID_PTR, Prim("i64"), Ptr(Prim("i64"))), _VOID_PTR
+)
+
 #: ``unsigned char *rt_str_from_i64(long long v, size_t *out_len)``. The text
 #: is a process-lifetime untracked buffer, like ``rt_str_concat``'s result; the
 #: byte count comes back through a slot.
@@ -2471,6 +2502,127 @@ class _Fn:
         self.emit(("load", data, _PTR_U8, slot))
         return self.str_value(data, size)
 
+    def is_dir(self, node: Node) -> str:
+        """``(is-dir p)``: one runtime call and one ``icmp``.
+
+        The runtime answers in ``:i64`` — 1 for a directory — and the form's
+        ``:bool`` is that integer compared against zero. No branch: the whole
+        form is an expression the caller may use as a condition or store.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'is-dir' takes a :str")
+        pointer, length = self.str_parts(items[1], node.path)
+        self.lowering.declare(_RT_IS_DIR)
+        status = self.temp()
+        self.emit(("call", status, "rt_is_dir", (pointer, length)))
+        answer = self.temp()
+        self.emit(("icmp", answer, "ne", Prim("i64"), status, "0"))
+        return answer
+
+    def read_dir(self, node: Node) -> str:
+        """``(read-dir p)``: the entries, copied into a tracked ``(vec :str)``.
+
+        The shapes are ``args``'s with the path appended to the call: the
+        runtime's ``rt_arg`` pairs are layout-compatible with ``:str``, so one
+        ``memcpy`` into an ``rt_alloc`` buffer builds the vector, and a count
+        of zero is the (NULL, 0, 0) descriptor whose buffer ``vec-free``
+        releases like any other. The names themselves live for the process and
+        are untracked, like the command line's bytes.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'read-dir' takes a :str")
+        ty = self.type_of(node)
+        if not isinstance(ty, Vec):
+            raise diag(
+                UNKNOWN_NODE,
+                node.path,
+                f"'read-dir' did not produce a vector, found {ty}",
+            )
+        self.lowering.use_type(ty.elem, node.path)
+        size = sizeof_of(ty.elem, *self.lowering.layouts())
+        align = align_of(ty.elem, *self.lowering.layouts())
+        pointer, length = self.str_parts(items[1], node.path)
+        slot = self.slot(_PTR_U8, path=node.path)
+        self.lowering.declare(_RT_READ_DIR)
+        count = self.temp()
+        self.emit(
+            (
+                "call",
+                count,
+                "rt_read_dir",
+                (pointer, length, slot, self._c_argument(node.path)),
+            )
+        )
+        source = self.temp()
+        self.emit(("load", source, _PTR_U8, slot))
+        empty = self.temp()
+        self.emit(("icmp", empty, "eq", Prim("i64"), count, "0"))
+        origin = self.block.label
+        self.labels += 1
+        tag = f"dir{self.labels}"
+        fill, done = f"{tag}.fill", f"{tag}.done"
+        self.block.term = ("cbr", empty, done, fill)
+
+        self.new_block(fill)
+        self.no_overflow(count, size, node.path)
+        if size == 1:
+            bytes_ = count
+        else:
+            bytes_ = self.temp()
+            self.emit(("mul", bytes_, Prim("i64"), count, str(size)))
+        self.lowering.declare(_RT_ALLOC)
+        raw = self.temp()
+        self.emit(
+            ("call", raw, "rt_alloc", (bytes_, str(align), self._c_argument(node.path)))
+        )
+        fresh = self.temp()
+        self.emit(("bitcast", fresh, _VOID_PTR, Ptr(ty.elem), raw))
+        # ``rt_read_dir`` never hands back a count without an array, so
+        # ``source`` is a real address on this path.
+        self.lowering.declare(_MEMCPY)
+        self.emit(("call", "", "memcpy", (raw, source, bytes_)))
+        producer = self.block.label
+        self.block.term = ("br", done)
+
+        self.new_block(done)
+        data = self.temp()
+        self.emit(
+            ("phi", data, Ptr(ty.elem), (("null", origin), (fresh, producer)))
+        )
+        return self.vec_value(ty, data, count, count)
+
+    def mkdirs(self, node: Node) -> str:
+        """``(mkdirs p)``: one runtime call, its status returned as ``:i64``."""
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'mkdirs' takes a :str")
+        pointer, length = self.str_parts(items[1], node.path)
+        self.lowering.declare(_RT_MKDIRS)
+        status = self.temp()
+        self.emit(("call", status, "rt_mkdirs", (pointer, length)))
+        return status
+
+    def path_error(self, node: Node) -> str:
+        """``(path-error p)``: the runtime's message, empty when p is usable.
+
+        ``read-file``'s shape without the node-path argument and without the
+        panic: the message is a string like any other, so a caller can print
+        it instead of dying on it.
+        """
+        items = node.items
+        if len(items) != 2:
+            raise diag(WRONG_ARITY, node.path, "'path-error' takes a :str")
+        pointer, length = self.str_parts(items[1], node.path)
+        slot = self.slot(Prim("i64"), path=node.path)
+        self.lowering.declare(_RT_PATH_ERROR)
+        data = self.temp()
+        self.emit(("call", data, "rt_path_error", (pointer, length, slot)))
+        size = self.temp()
+        self.emit(("load", size, Prim("i64"), slot))
+        return self.str_value(data, size)
+
     def args(self, node: Node) -> str:
         """``(args)``: the command line, copied into a tracked ``(vec :str)``.
 
@@ -3573,6 +3725,14 @@ class _Fn:
             return self.read_all(item)
         if kind == "read-file":
             return self.read_file(item)
+        if kind == "read-dir":
+            return self.read_dir(item)
+        if kind == "is-dir":
+            return self.is_dir(item)
+        if kind == "mkdirs":
+            return self.mkdirs(item)
+        if kind == "path-error":
+            return self.path_error(item)
         if kind == "args":
             return self.args(item)
         if kind == "run":

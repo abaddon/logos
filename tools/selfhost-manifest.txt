@@ -47,6 +47,7 @@ src/logosc/fixtures/ir-lower/arrset.logos
 src/logosc/fixtures/ir-lower/callret.logos
 src/logosc/fixtures/ir-lower/concurrency.logos
 src/logosc/fixtures/ir-lower/control.logos
+src/logosc/fixtures/ir-lower/dirs.logos
 src/logosc/fixtures/ir-lower/enumfwd.logos
 src/logosc/fixtures/ir-lower/enumpay.logos
 src/logosc/fixtures/ir-lower/extern-str.logos
@@ -132,6 +133,7 @@ tests/diff/strings.logos
 tests/exec/args.logos
 tests/exec/cast.logos
 tests/exec/closures.logos
+tests/exec/dirs.logos
 tests/exec/divzero.logos
 tests/exec/extern.logos
 tests/exec/floats.logos

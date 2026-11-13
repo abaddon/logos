@@ -241,6 +241,37 @@ typedef struct {
  * tracked `(vec :str)` over these pairs. */
 size_t rt_args(const rt_arg **args);
 
+/* Whether `path` names a directory.
+ * stat, not lstat, so a symbolic link to a directory counts as one. A path
+ * that cannot be examined is not a directory; the caller reports the failure
+ * through the call that needs the bytes, not through this test. */
+long rt_is_dir(const unsigned char *path, size_t n);
+
+/* The names of the entries in directory `path`, without "." and "..", in the
+ * order the file system returns them; the caller sorts if it needs a stable
+ * order. Returns the count and stores the address of the process-lifetime
+ * array of pairs in *out, which is NULL exactly when the count is zero.
+ * `node_path` locates a panic, as `read-file`'s does.
+ * Panics R0007 at `node_path` when the directory cannot be opened, or when
+ * reading it fails part way — a short list would read as a smaller directory.
+ * The names are malloc'ed once each and never released: like the command line,
+ * they live as long as the process and are not tracked. */
+size_t rt_read_dir(const unsigned char *path, size_t n, const rt_arg **out,
+                   const char *node_path);
+
+/* Create `path` and every missing parent, like `mkdir -p`.
+ * Returns 0 when `path` is a directory afterwards, -1 when it cannot be made
+ * one — a regular file in the way, a permission error, or an empty path. */
+long rt_mkdirs(const unsigned char *path, size_t n);
+
+/* The C library's message for why `path` cannot be opened for reading and
+ * writing, or the empty string when it can; the byte count goes to *out_len.
+ * This is `fmt`'s error line: Python reports an OSError as
+ * `logos: <path>: <strerror>`, so the driver asks before it reads and gets the
+ * same words without a panic. The buffer is process-lifetime and untracked,
+ * like the other strings the runtime builds. */
+unsigned char *rt_path_error(const unsigned char *path, size_t n, size_t *out_len);
+
 /* An opaque handle to a finished child process: process-lifetime and not
  * tracked, like a mutex or a channel, because no form releases it. */
 typedef struct rt_run rt_run;
@@ -255,9 +286,9 @@ typedef struct rt_run rt_run;
  * The child's stdout and stderr are captured into the handle. Returns once the
  * child has exited and both streams have reached end of file, so a child that
  * talks a lot on both cannot deadlock against a full pipe. A child still
- * running after 30 seconds is killed, and its status is then 124; otherwise
+ * running after 90 seconds is killed, and its status is then 124; otherwise
  * the status is the exit code, or 128 + the number of the signal that ended
- * it. The 30 seconds bound the child as well as the pipes: a child that closes
+ * it. The 90 seconds bound the child as well as the pipes: a child that closes
  * both streams and then never exits is killed too. A grandchild that inherits
  * the pipes and keeps them open is not: it can hold the call past the deadline
  * until it exits, because end of file is what ends the read.

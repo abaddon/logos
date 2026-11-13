@@ -23,7 +23,7 @@ from logos.check import CheckedModule, check_module
 from logos.diag import LogosError
 from logos.parser import parse
 from logos.resolve import resolve
-from logos.types import Prim, Vec
+from logos.types import Prim, Ptr, Vec
 
 ROOT = Path(__file__).resolve().parents[1]
 EXEC = ROOT / "tests" / "exec"
@@ -347,6 +347,19 @@ class RuntimeFormsExecTest(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertNotIn(b"LEAK", done.stderr)
 
+    def test_dirs_lists_a_directory_it_made_and_names_a_missing_path(self):
+        for opt in ("-O0", "-O2"):
+            with self.subTest(opt=opt):
+                done = self.run_case("dirs", "dirs", opt)
+                self.assertEqual(
+                    done.stdout,
+                    b"true\nfalse\nfalse\n0\n0\n1\nonly\n25\n"
+                    b"No such file or directory\n0\n",
+                    done.stderr,
+                )
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertNotIn(b"LEAK", done.stderr)
+
     def test_str_byte_at_the_length_panics(self):
         for opt in ("-O0", "-O2"):
             with self.subTest(opt=opt):
@@ -356,3 +369,122 @@ class RuntimeFormsExecTest(unittest.TestCase):
                 self.assertIn(
                     b"R0003: byte index out of bounds", done.stderr
                 )
+
+class DirectoryFormsCheckTest(unittest.TestCase):
+    """The four directory forms: ``read-dir``, ``is-dir``, ``mkdirs`` and
+    ``path-error``.
+
+    Each is pinned at the three layers the rest of the runtime surface uses:
+    the type the checker gives it, the diagnostic a wrong program gets, and the
+    call the lowerer makes. The end-to-end expectations are the ``dirs``
+    corpus case.
+    """
+
+    def test_read_dir_is_a_vector_of_str(self):
+        cm = checked('(mod m)(fn f :i64 () (letmut d (read-dir ".")) (ret (vec-len d)))')
+        self.assertEqual(type_of(cm, "read-dir"), Vec(Prim("str")))
+
+    def test_read_dir_takes_a_str(self):
+        error = fail_on("(mod m)(fn f :i64 () (letmut d (read-dir 5)) (ret 0))")
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(error.message, "'read-dir' takes a :str, found :i64")
+        # The operand is child 1 of the `letmut` at 2, so the diagnostic is at
+        # the operand rather than at the form.
+        self.assertEqual(error.path, "m/f/2/1")
+
+    def test_read_dir_takes_one_argument(self):
+        error = fail_on('(mod m)(fn f :i64 () (letmut d (read-dir "." ".")) (ret 0))')
+        self.assertEqual(error.code, "E0102")
+        self.assertEqual(error.message, "'read-dir' takes a :str")
+
+    def test_is_dir_is_a_bool(self):
+        cm = checked('(mod m)(fn f :bool () (ret (is-dir ".")))')
+        self.assertEqual(type_of(cm, "is-dir"), Prim("bool"))
+
+    def test_is_dir_takes_a_str(self):
+        error = fail_on("(mod m)(fn f :bool () (ret (is-dir 5)))")
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(error.message, "'is-dir' takes a :str, found :i64")
+
+    def test_is_dir_takes_one_argument(self):
+        error = fail_on('(mod m)(fn f :bool () (ret (is-dir "." ".")))')
+        self.assertEqual(error.code, "E0102")
+        self.assertEqual(error.message, "'is-dir' takes a :str")
+
+    def test_mkdirs_is_an_i64(self):
+        cm = checked('(mod m)(fn f :i64 () (ret (mkdirs "build/x")))')
+        self.assertEqual(type_of(cm, "mkdirs"), Prim("i64"))
+
+    def test_mkdirs_takes_a_str(self):
+        error = fail_on("(mod m)(fn f :i64 () (ret (mkdirs 5)))")
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(error.message, "'mkdirs' takes a :str, found :i64")
+
+    def test_mkdirs_takes_one_argument(self):
+        error = fail_on('(mod m)(fn f :i64 () (ret (mkdirs "a" "b")))')
+        self.assertEqual(error.code, "E0102")
+        self.assertEqual(error.message, "'mkdirs' takes a :str")
+
+    def test_path_error_is_a_str(self):
+        cm = checked('(mod m)(fn f :str () (ret (path-error "build/x")))')
+        self.assertEqual(type_of(cm, "path-error"), Prim("str"))
+
+    def test_path_error_takes_a_str(self):
+        error = fail_on("(mod m)(fn f :str () (ret (path-error 5)))")
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(error.message, "'path-error' takes a :str, found :i64")
+
+    def test_path_error_takes_one_argument(self):
+        error = fail_on('(mod m)(fn f :str () (ret (path-error "a" "b")))')
+        self.assertEqual(error.code, "E0102")
+        self.assertEqual(error.message, "'path-error' takes a :str")
+
+
+class DirectoryFormsLoweringTest(unittest.TestCase):
+    def test_read_dir_calls_the_runtime_and_builds_a_tracked_vector(self):
+        module = lowered('(mod m)(fn main :void () (letmut d (read-dir ".")) (vec-free d))')
+        fn = main_of(module)
+        names = call_names(fn)
+        self.assertIn("rt_read_dir", names)
+        self.assertIn("rt_alloc", names)
+        self.assertIn("memcpy", names)
+        self.assertIn("rt_free", names)
+        params, ret = declares(module)["rt_read_dir"]
+        self.assertEqual(ret, Prim("i64"))
+        self.assertEqual(len(params), 4)
+
+    def test_read_dir_panics_at_its_own_node_path(self):
+        module = lowered('(mod m)(fn main :void () (letmut d (read-dir ".")) (vec-free d))')
+        paths = [g.data for g in module.globals]
+        self.assertIn(b"m/main/2/1\x00", paths)
+
+    def test_is_dir_compares_the_runtime_status_against_zero(self):
+        module = lowered('(mod m)(fn main :void () (if (is-dir ".") (println 1) (println 0)))')
+        fn = main_of(module)
+        self.assertIn("rt_is_dir", call_names(fn))
+        compares = [i for i in ops(fn, "icmp") if i[3] == Prim("i64")]
+        self.assertTrue(
+            any(i[5] == "0" for i in compares),
+            "is-dir must test the runtime's integer against zero",
+        )
+        self.assertIn("rt_is_dir", declares(module))
+
+    def test_mkdirs_returns_the_runtime_status(self):
+        module = lowered('(mod m)(fn main :void () (println (mkdirs "build/x")))')
+        fn = main_of(module)
+        self.assertIn("rt_mkdirs", call_names(fn))
+        params, ret = declares(module)["rt_mkdirs"]
+        self.assertEqual(ret, Prim("i64"))
+        self.assertEqual(len(params), 2)
+
+    def test_path_error_reads_its_length_through_a_slot(self):
+        module = lowered('(mod m)(fn main :void () (println (path-error "build/x")))')
+        fn = main_of(module)
+        self.assertIn("rt_path_error", call_names(fn))
+        params, ret = declares(module)["rt_path_error"]
+        self.assertEqual(ret, Ptr(Prim("u8")))
+        self.assertEqual(len(params), 3)
+        # Unlike read-file, the buffer is the return value: the slot holds the
+        # byte count, so it is loaded as an :i64.
+        loads = [i for i in ops(fn, "load") if i[2] == Prim("i64")]
+        self.assertTrue(loads, "path-error must load its length as an :i64")
