@@ -1,0 +1,13 @@
+(mod closure-widths)
+
+(fn mix :i64 ((b :u8) (f : (fn (:i64) :i64)) (k :i64))
+  (let g (fn :i64 ((n :i64))
+           (ret (+ (+ (cast :i64 b)
+                     (f n)) k))))
+  (ret (g 10)))
+
+(fn main :i64 ()
+  (println (mix (cast :u8 7)
+             (fn :i64 ((n :i64))
+               (ret (* n 3))) 5))
+  (ret 0))

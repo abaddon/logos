@@ -145,6 +145,19 @@ src/logosc/fixtures/ir-lower/closure-argument.logos
 # `$lambda$1` and `$lambda$3`, and the three defines still print in site order
 # before `define i32 @main()`.
 src/logosc/fixtures/ir-lower/closure-mixed.logos
+# The capture walk (W8 step 3a defect): a form's head is not a child, because the
+# tree sets `first` past it, so a function value read only as a call head used
+# to be missed by `lo-captures` and the lambda body read the enclosing frame's
+# slot instead. Four shapes pin the fix: a generic whose closure captures a
+# parameter and a function value (`add-with$i64` beside `$lambda$3`, the
+# `add-with` shape `tests/exec/closures.logos` reports), a closure capturing
+# another closure beside an `i64` (two fields, the head is the first capture),
+# a struct captured by value, and a `u8` beside a function value so the field
+# offsets cannot accidentally align. `closure-none` above stays the empty case.
+src/logosc/fixtures/ir-lower/closure-fnvalue.logos
+src/logosc/fixtures/ir-lower/closure-fn-two.logos
+src/logosc/fixtures/ir-lower/closure-struct.logos
+src/logosc/fixtures/ir-lower/closure-widths.logos
 # The examples. They are not fixtures: each is a program the repository ships,
 # and each lowers through the same single-module path as the fixtures above.
 examples/hello.logos

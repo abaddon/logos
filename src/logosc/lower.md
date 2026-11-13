@@ -515,7 +515,21 @@ then `geprec`+`store` per capture — and `bitcastout` is the `i8*` the value
 carries. `lo-lambda` reads the capture list from `lo-captures`, which mirrors
 the checker's walk: a name is a capture when it is bound outside the
 expression, in first-use order, with the lambda's own parameters and `let`s
-shadowing it. The slot is a plan row like any other binding, and the fields
+shadowing it.
+
+A form's head is a **use**, but it is not a child: the tree sets `first` past
+the head token (`tree-child-start`), so a walk over the child chain alone never
+sees it. `lo-cap-scan-form` therefore looks the head up itself, before walking
+the arguments, through the same `lo-cap-name` test an atom uses. That is what
+captures a function value: in `(f (+ y x))` the read of `f` *is* the call, and
+leaving it out of the environment made the lambda body read the enclosing
+frame's slot instead — a load whose type the inner frame never allocated, which
+clang rejects. A head that is not a binding is not a capture: `lo-cap-name`
+asks `lo-lookup`, so `let`, `fn`, a module function and an operator all fall
+through. The fields are then the bindings' own types, in the same first-use
+order, so the site's record and the body's `geprec` cannot disagree.
+
+The slot is a plan row like any other binding, and the fields
 it must spell are appended to `tvals` at the site; the plan row encodes the
 run as a negative `planty` entry (`-(start * 4096 + count)`), because
 `planty` holds type ids and the record has no type id of its own. The prologue

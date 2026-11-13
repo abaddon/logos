@@ -1,0 +1,13 @@
+(mod closure-struct)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn shift-by :i64 ((p point) (k :i64))
+  (let f (fn :i64 ((n :i64))
+           (ret (+ (+ n (+ (get p x)
+                          (get p y))) k))))
+  (ret (f 1)))
+
+(fn main :i64 ()
+  (println (shift-by (make point 3 4) 5))
+  (ret 0))

@@ -1,0 +1,12 @@
+(mod closure-fn-two)
+
+(fn twice-with :i64 ((k :i64))
+  (let add (fn :i64 ((n :i64))
+             (ret (+ n k))))
+  (let twice (fn :i64 ((n :i64))
+               (ret (add (add n)))))
+  (ret (twice 3)))
+
+(fn main :i64 ()
+  (println (twice-with 2))
+  (ret 0))
