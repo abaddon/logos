@@ -8,26 +8,40 @@
 #
 # Every fixture under src/logosc/fixtures/ir-lower is listed — the set is not
 # "roughly the corpus", it is exactly the directory, and tools/selfhost.sh
-# refuses a list and a directory that name different sets. The list grew from
-# seven to thirty-one: the two known-different files (`string`, `match`) now agree,
-# the shifts and the two wildcard-arm shapes have fixtures of their own, the
-# print, string, vector, array, memory, pointer and call forms the corpus needs
-# next each have one, and the fix round added the layout and borrowed-vector
-# shapes the corpus could not see — one and two structs whose fields are
-# equal-width and unequal-width (`struct-eq`, `struct-pad`, `structs-eq`,
-# `structs-pad`), a struct whose field names an enum declared after it
-# (`enumfwd`), and a `(ref (vec T))` binding read, written and grown through
-# (`vecref`, `vecref2`).
+# refuses a list whose fixture entries and that directory name different sets.
+# The list may also name files outside that directory, and does: the three
+# example programs below lower byte-identically and are the first *real*
+# programs, not fixtures, to claim parity. A path outside the directory is a
+# claim of its own — the gate builds it like any other entry and the floor
+# counts it — so it cannot hide a fixture that was added, deleted or swapped.
+# The list grew from seven to forty-one fixtures: the two known-different files
+# (`string`, `match`) now agree, the shifts and the two wildcard-arm shapes have
+# fixtures of their own, the print, string, vector, array, memory, pointer and
+# call forms each have one, the layout and borrowed-vector shapes the corpus
+# could not see have theirs (`struct-eq`, `struct-pad`, `structs-eq`,
+# `structs-pad`, `enumfwd`, `vecref`, `vecref2`), and B3 added the forms the
+# corpus needs to be a language rather than a subset: `str-byte`,
+# `str-from-i64`, `read-file`, `read-all`, `args`, `run` with its three
+# accessors, and the result and optional forms (`resok`, `optval`, `tryprop`).
 #
 # Still not lowered, and so deliberately absent from this list (no fixture
-# claims them): `spawn`/`join`, channels, mutexes and atomics, closures,
-# results and optionals (`some`/`none`/`ok`/`err`/`try`), `run`,
-# `read-all`/`read-file`, `args`, `str-byte`/`str-from-i64`. They are PR C's
-# list. A shape the lowerer must refuse rather than spell lives beside this
-# directory in src/logosc/fixtures/ir-refuse.
+# claims them): `spawn`/`join` — a thunk is a per-site nested function while
+# this arena stores a function's parameters and blocks as contiguous global
+# ranges (`fparam`/`fpc`, `fbase`/`fcnt`), so emitting one mid-body corrupts the
+# enclosing function's ranges; `spawn` therefore refuses with E0002 rather than
+# miscompiling — and closures. Channels, mutexes and atomics *are* lowered and
+# agree with Python on a hand-written probe, but no listed fixture claims them,
+# so they are absent here. The positive corpus under tests/exec, tests/thread
+# and tests/regress needs `build --test NAME` (skip the module `main`, lower the
+# test body as the entry point); that mode does not exist in the port, which is
+# why those files are absent too. A shape the lowerer must refuse rather than
+# spell lives beside this directory in src/logosc/fixtures/ir-refuse.
 #
-# The floor in tools/selfhost.sh is the number of lines below: a pruned list
+# The floor in tools/selfhost.sh counts the entries below: a pruned list
 # fails the gate rather than passing over fewer files.
+#
+# Beyond the fixtures: three example programs, the first real programs rather
+# than fixtures whose IR is claimed byte-identical.
 src/logosc/fixtures/ir-lower/void-main.logos
 src/logosc/fixtures/ir-lower/arith.logos
 src/logosc/fixtures/ir-lower/struct.logos
@@ -69,3 +83,8 @@ src/logosc/fixtures/ir-lower/runprog.logos
 src/logosc/fixtures/ir-lower/resok.logos
 src/logosc/fixtures/ir-lower/optval.logos
 src/logosc/fixtures/ir-lower/tryprop.logos
+# The examples. They are not fixtures: each is a program the repository ships,
+# and each lowers through the same single-module path as the fixtures above.
+examples/hello.logos
+examples/json.logos
+examples/wc.logos

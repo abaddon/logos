@@ -103,6 +103,15 @@ The lowering emits into exactly one open block at a time. Its label lives in
 - **sealing without a terminator is the bug class this discipline exists to
   catch**: `emit` refuses a block with `bterm = 0`, which is exactly how the
   `match` gap below shows up instead of producing invalid IR;
+- **the terminator goes to the open block, not the last row.** `lo-term-set`
+  searches the block table backwards for the row whose label is `cl`'s and whose
+  terminator is still empty. The distinction matters because `match` opens its
+  `testN` blocks before the bodies that seal them, so the open block is not
+  always the newest row; taking the last one puts the branch on a block the
+  branch does not belong to and leaves the intended block unterminated — the
+  failure `emit` reports as `block '…' has no terminator`. When no row matches,
+  the last block is the fallback; that path exists for the window before the
+  first `lo-w-block` opens `entry`, when no row can match at all;
 - labels are the function's own counter, `st[2]`, handed out by `lo-label`:
   `thenN`, `elseN`, `joinN`, `headN`, `bodyN`, `exitN`, `matchN.testK` and so
   on. Numbers, not scopes, so two nesting levels never collide.
@@ -144,6 +153,7 @@ record of counters shared across sixty call sites):
 | 9 | `esc` depth at function entry |
 | 10 | loop depth |
 | 11 | `esc` depth at the current loop's exit block |
+| 12 | `lo-gensym`'s counter, for a name no source can spell (`$N`); nothing calls it yet |
 
 `esc` deserves its own line: `break` pushes its loop's exit label, and
 `lo-while` only appends `unreachable` after a `while true` when `lo-escaped?`
@@ -354,15 +364,97 @@ payload table was still empty when the field was measured. With the base
 recorded at the body and the payload table filled before its length is used,
 that file lowers and `enumfwd` is byte-identical to Python's `.ll`.
 
+## Results, optionals and `try`
+
+`ok`/`err` spell a result as `{ i1, [1 x T] }` and `some`/`none` an optional as
+`{ i1, T }`: both are SSA values built with `insertvalue` from `undef`, so the
+payload is written once and every read is an `extractvalue` at the tag or
+payload index. `lo-ctor-type` answers the constructor's own type, and
+`lo-result-value`/`lo-optional-value` rebuild a value from a tag and a payload.
+
+`try` is the only form that branches on the tag. It requires the enclosing
+function and its argument to be results of the same shape — otherwise
+`E0601: cannot try this result in this function` — emits `<tag>.err`, which
+re-wraps the error at the caller's result type and returns it, and leaves the
+`.ok` block's payload as the expression's value (`tryprop`). `match` over a
+result or an optional decides each arm from the constructor name in the
+pattern (`lo-tag-test`), comparing field 0 rather than an enum's variant index.
+
+## Channels, mutexes and atomics
+
+All three are runtime handles, and their *type* is the only thing the shared
+marker changes. `(chan T n)` is `rt_chan_new` with the capacity and the
+element's size, and its type is `(shared (chan T))`; `send` and `recv` pass the
+handle, and `recv`'s type is the channel's element read from the channel type
+(`lo-chan-elem`). `(mutex)` is `rt_mutex_new` and its type `(shared :mutex)`;
+`lock` and `unlock` are `rt_mutex_lock`/`rt_mutex_unlock` on that handle.
+`(atomic T v)` is `rt_atomic_new` with the initial value, its type
+`(shared (atomic T))`, and `atomic-add`/`atomic-load`/`atomic-store` the three
+runtime calls (`lo-atomic-elem` answers the element).
+
+Because the shared wrapper is a fact about the type and not about the value,
+`deref` and `ptr-add` see through `(shared (ptr T))` to the pointer inside, and
+`lo-ptradd-type` answers the pointee's type so one `ptr-add` can feed the next.
+`join` lowers to `rt_join`, but nothing can produce a thread value while `spawn`
+refuses (below), so it is exercised only by the forms that type-check it.
+
+## Processes, files and arguments
+
+`(run prog argv)` copies the program and every argument into NUL-terminated
+strings, calls `rt_run_start` with the vector's contents, releases the temporary
+vector *after* the call returns (freeing it first would hand the runtime a
+pointer into freed memory) and zeroes its slot. The result is a `:run` handle:
+`run-status` reaps it, `run-out` and `run-err` read the process-lifetime buffers
+with their byte counts and rebuild a `:str` from pointer and length
+(`runprog`). `read-all`/`read-file` are the same shape over `rt_read_all` and
+`rt_read_file` (`readall`, `readfile`), and `str-from-i64` over
+`rt_str_from_i64` with a slot for the length (`strfrom`). `str-byte` is not a
+runtime call: it is a bounds-checked `gep` and `i8` load. `args` asks `rt_args`
+for the count and the raw pointer array, allocates the `(vec :str)` through
+`rt_alloc` and fills it one argument per element (`argv`).
+
+## String comparison
+
+`(= a b)` with two `:str` operands compares bytes. `lo-compare` asks the
+operand's type and sends a string pair to `lo-streq`, the length-first `memcmp`
+join `str-eq` already lowers to, so equality never becomes a compare of two
+pointers. The other string predicates are still refused: `!=`, `<` and the rest
+fail at the form with `E0002 … is not lowered by this backend yet`, because the
+runtime has no ordered string comparison to build on.
+
 ## What it does not lower
 
 Still refused, each at the form's node path with `E0002: '<head>' is not
-lowered by this backend yet`: `spawn`/`join`, channels (`chan`, `send`,
-`recv`), mutexes (`mutex`, `lock`, `unlock`) and atomics, closures, the result
-and optional forms (`ok`, `err`, `some`, `none`, `try`), `run`,
-`read-all`/`read-file`, `args`, `str-byte` and `str-from-i64`, and the
-ownership rules that go with them. That is PR C's list; the check phase keeps
-the boundary honest by listing only what the checker already decides.
+lowered by this backend yet`:
+
+- **`spawn`, and closures.** A thunk is a per-site nested function, while this
+  arena stores a function's parameters and blocks as contiguous global ranges
+  (`fparam`/`fpc`, `fbase`/`fcnt`). Emitting a thunk mid-body therefore corrupts
+  the enclosing function's ranges — measured, not assumed: three `%env`
+  parameters landed on `@main`. Deferring thunks to the end of the function (a
+  pending queue threaded through the context, or a row swap that preserves
+  define order) is the shape of the fix, and it is the next task's, not a
+  missing `case` in a dispatch. Until then `spawn` refuses rather than
+  miscompiles. The refusal's shape depends on where the form sits: as a
+  statement it is `E0002: 'spawn' is not lowered by this backend yet` at the
+  form's path, and as the initializer of a `let` it lands one step earlier as
+  `E0005: unknown name '<binding>'`, because no type is produced for the thunk
+  and the declaration has nothing to give the name.
+- **`examples/matrix.logos`**, which lowers otherwise and differs only in its
+  687 spawn-thunk lines; it refuses as `E0005: unknown name 'first'` for the
+  reason just given.
+- **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
+- **`build --test NAME`.** Every positive corpus file under `tests/exec`,
+  `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so
+  `gen2 build` refuses it with `no 'main' function to build` before lowering
+  starts. That is a missing *mode* (skip the module `main`, lower the test body
+  as the entry point, link `rt_leak_report`) and a gate that compares
+  `build/<stem>.<test>.ll` per test — not a missing form. It is why the parity
+  list holds fixtures and three example programs rather than the corpus the
+  other gates run on.
+
+A shape with no finite layout is refused too, with a path and a code; see the
+next section.
 
 ## A type with no finite layout
 
@@ -386,9 +478,14 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — thirty-two files, all byte-identical to Python's `.ll`.
-`tools/selfhost.sh` holds `IR_FLOOR=32` so a pruned list fails rather than
-passing over fewer files, and compares the list against
-`src/logosc/fixtures/ir-lower/*.logos` as a *set*: an addition or a deletion
-must move both names in the same commit, so the count cannot be held still
-while one fixture is swapped for another.
+`tools/selfhost-ir.txt` — forty-one files, all byte-identical to Python's `.ll`.
+The list also names three example programs (`examples/hello.logos`,
+`examples/json.logos`, `examples/wc.logos`): the first real programs, not
+fixtures, whose IR is claimed byte for byte. `tools/selfhost.sh` holds
+`IR_FLOOR=44` — the whole list — so a pruned list fails rather than passing over
+fewer files. Set equality is judged on the list's *fixture* entries against
+`src/logosc/fixtures/ir-lower/*.logos`: every fixture on disk is listed and
+every listed fixture is on disk, so an addition or a deletion must move both
+names in the same commit and the count cannot be held still while one fixture is
+swapped for another. A path outside the directory is a claim of its own; it
+neither hides a missing fixture nor has to exist there.

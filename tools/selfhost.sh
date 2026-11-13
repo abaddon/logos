@@ -18,13 +18,18 @@
 # A second phase compares the lowering. tools/selfhost-ir.txt lists the files
 # whose LLVM IR the port already reproduces: each is lowered by `gen2 build`
 # and by Python's `logos build`, and the two `.ll` files must be equal byte for
-# byte. The list is exactly the fixtures under src/logosc/fixtures/ir-lower —
-# the forms B2 does not lower yet are excluded by name in its header — and the
-# script refuses a list and a directory that name different sets, so a fixture
-# cannot be added, deleted or swapped without the list moving in the same
-# commit. IR_FLOOR is the same kind of floor: a pruned list fails rather than
-# passing over fewer files. The floor counts distinct paths, not lines: a path
-# named twice is one file, and comparing it twice is not a bigger corpus.
+# byte. The list's fixture entries are exactly the fixtures under
+# src/logosc/fixtures/ir-lower — the forms B2 and B3 do not lower yet are
+# excluded by name in its header — and the script refuses a list whose fixture
+# entries and that directory name different sets, so a fixture cannot be added,
+# deleted or swapped without the list moving in the same commit. The list also
+# names files outside the directory (the three example programs today): those
+# are claims of their own, built and counted like any other entry, and they sit
+# outside the set-equality check because the directory does not own them.
+# IR_FLOOR is the same kind of floor over the whole list: a pruned list fails
+# rather than passing over fewer files. The floor counts distinct paths, not
+# lines: a path named twice is one file, and comparing it twice is not a bigger
+# corpus.
 #
 # That phase judges the lowering's refusals too. Every fixture under
 # src/logosc/fixtures/ir-refuse pairs a `.logos` with a `.refuse` sidecar
@@ -102,12 +107,14 @@ RESOLVE_FLOOR=14
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=122
 
-# The lowering parity list: the fixtures whose IR the port already reproduces.
-# Thirty-two today — every fixture under src/logosc/fixtures/ir-lower, in the order
-# B2 and its fix round proved them. A pruned list is a failure, not a smaller
-# pass, and the set must equal the directory exactly (see the check below).
+# The lowering parity list: the files whose IR the port already reproduces.
+# Forty-four today — the forty-one fixtures under src/logosc/fixtures/ir-lower,
+# in the order B2, its fix round and B3 proved them, plus the three example
+# programs. A pruned list is a failure, not a smaller pass; the fixture entries
+# must equal the fixture directory exactly (see the check below), while a path
+# outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=41
+IR_FLOOR=44
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today;
 # emptying the directory is a failure, not a smaller pass.
@@ -212,11 +219,14 @@ if (( IR_STEMS != IR_COUNT )); then
         "$IR_COUNT" "$IR_STEMS" >&2
     exit 2
 fi
-# The list and the directory must name the same set. Counting alone catches a
-# fixture deleted and delisted (one fewer) but not a compensating swap that
-# leaves the number where it was, and a list that names a file the directory
-# does not hold claims a parity nothing measured. Set equality makes any
-# addition or deletion move both sides in the same commit.
+# The list's fixture entries and the directory must name the same set. Counting
+# alone catches a fixture deleted and delisted (one fewer) but not a compensating
+# swap that leaves the number where it was, and a list that names a file the
+# directory does not hold claims a parity nothing measured. Set equality makes
+# any addition or deletion move both sides in the same commit. The check is over
+# the listed paths inside the directory only: an entry outside it (an example
+# program) is a claim the directory does not own, so it neither hides a missing
+# fixture nor has to exist on disk there.
 shopt -s nullglob
 IR_DISK=(src/logosc/fixtures/ir-lower/*.logos)
 shopt -u nullglob
@@ -225,11 +235,15 @@ if (( ${#IR_DISK[@]} == 0 )); then
         "src/logosc/fixtures/ir-lower" >&2
     exit 2
 fi
-IR_LISTED=$(printf '%s\n' "${IR_FILES[@]}" | sort)
+IR_LISTED_FIXTURES=$(printf '%s\n' "${IR_FILES[@]}" | grep '^src/logosc/fixtures/ir-lower/' | sort)
+if [[ -z "$IR_LISTED_FIXTURES" ]]; then
+    printf 'ir: tools/selfhost-ir.txt names no fixture under src/logosc/fixtures/ir-lower\n' >&2
+    exit 2
+fi
 IR_ONDISK=$(printf '%s\n' "${IR_DISK[@]}" | sort)
-if [[ "$IR_LISTED" != "$IR_ONDISK" ]]; then
-    printf 'ir: tools/selfhost-ir.txt and src/logosc/fixtures/ir-lower name different sets:\n' >&2
-    comm -3 <(printf '%s\n' "$IR_LISTED") <(printf '%s\n' "$IR_ONDISK") |
+if [[ "$IR_LISTED_FIXTURES" != "$IR_ONDISK" ]]; then
+    printf 'ir: the fixtures in tools/selfhost-ir.txt and src/logosc/fixtures/ir-lower name different sets:\n' >&2
+    comm -3 <(printf '%s\n' "$IR_LISTED_FIXTURES") <(printf '%s\n' "$IR_ONDISK") |
         awk '{ if (substr($0, 1, 1) == "\t") print "    only on disk: " substr($0, 2);
                else print "    only in the list: " $0 }' >&2
     exit 2
