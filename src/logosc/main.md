@@ -16,9 +16,9 @@ order the Python compiler does.
 
 ```
 gen2 fmt <file>
-gen2 resolve <file>
+gen2 resolve <file>...
 gen2 check <file>
-gen2 build <file> -o <out>
+gen2 build <file>... -o <out>
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -28,19 +28,28 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 |---|---|
 | `0` | the program, `gen2` |
 | `1` | the verb, `fmt`, `resolve`, `check` or `build` |
-| `2` | the file to format, resolve, check or build |
-| `3` | `-o`, for `build` only |
-| `4` | the path `build` writes the IR to |
+| `2` … `n-3` | the files to resolve or build (one or more) |
+| `2` | the file to format or check (exactly one) |
+| `n-2` | `-o`, for `build` only |
+| `n-1` | the path `build` writes the IR to |
 
-`main` accepts exactly three elements for `fmt`, `resolve` and `check`, and
-exactly five for `build`. **No arguments, an unknown verb, a missing file, a
-`build` without its `-o <out>`, or any extra argument** prints the usage to
-stderr and exits 2:
+`n` is `(vec-len a)`, so the files a `build` names are `a[2]` through
+`a[n-3]` and the output path is the last element. `resolve` and `build` take
+one file or many; `fmt` and `check` take exactly one. **No arguments, an
+unknown verb, a missing file, a `build` that is not at least
+`build <file> -o <out>`, or a `fmt`/`check` with an extra argument** prints the
+usage to stderr and exits 2:
 
 ```
-usage: gen2 <fmt|resolve|check> <file>
-       gen2 build <file> -o <out>
+usage: gen2 <fmt|check> <file>
+       gen2 resolve <file>...
+       gen2 build <file>... -o <out>
 ```
+
+Two arities are *not* usage errors, because they are facts about the build set
+rather than about the command line: a set with no `main` and a set with two
+`main`s each print one diagnostic line and exit 2 (`E0103` and `E0003`; see
+"Output" below).
 
 The usage line is fixed, not derived from `argv[0]`: the gate runs
 `build/selfhost/gen2`, and a message that echoed the path would change with the
@@ -76,10 +85,11 @@ any other Logos program (`docs/manual/19-runtime-access.logos`). That line names
 a node path rather than a source position, because no source position exists
 yet.
 
-`gen2 resolve` lexes and parses the file the same way, then runs
-`resolve-file` instead of `fmt`. On success it prints nothing to either stream
-and exits 0. On a resolver diagnostic it prints exactly one line to stderr and
-exits 2:
+`gen2 resolve` lexes and parses one file, then runs `resolve-file` instead of
+`fmt`; with several files it runs `resolve-set-of` over all of them, which
+resolves the set as one unit (`resolve.md`). On success it prints nothing to
+either stream and exits 0. On a resolver diagnostic it prints exactly one line
+to stderr and exits 2:
 
 ```
 <location>: <CODE>: <message>
@@ -125,14 +135,31 @@ checker failure is `E0002`, `E0003`, `E0100`, `E0101`, `E0500`, `E0501`,
 file with an expression error checks and exits 0 — see `check.md` for the
 exact boundary.
 
-`gen2 build` runs the same four steps and then lowers and prints: `lex`,
-`tree-parse`, `resolve-set` and `check-file` exactly as `check` does, then
-`lower-build` over the parsed tree, then `emit` over the arena the lowering
-filled. It writes the emitted IR — the whole text `out[0]` — to the `-o` path,
-prints nothing to either stream, and exits 0. Nothing else is produced: no
-object file, no binary, no `.ll` in a directory of `gen2`'s choosing. `-o`
-names the file, and the parity phase in `tools/selfhost.sh` names it so the
-text can be compared with Python's `build/<stem>.ll`.
+`gen2 build` parses its first file, then runs the same steps as `check` over
+the whole set it was given: `resolve-set-of` over every file, and `check-file`
+over the module set the resolver built. It then requires exactly one `main`
+somewhere in the set (see below), lowers the first file's module, and emits.
+It writes the emitted IR — the whole text `out[0]` — to the `-o` path, prints
+nothing to either stream, and exits 0. Nothing else is produced: no object
+file, no binary, no `.ll` in a directory of `gen2`'s choosing. `-o` names the
+file, and the parity phase in `tools/selfhost.sh` names it so the text can be
+compared with Python's `build/<stem>.ll`.
+
+Two checks belong to `build` and not to `check`:
+
+- **One `main`, somewhere in the set.** `check-file` already refuses a second
+  `main` anywhere in the module set (`E0003`, `duplicate definition 'main'`),
+  because a second entry point is a second definition. A set with *no* `main`
+  is refused by `check-required-main` with `E0103: no 'main' function to
+  build`, located at the first root's file. Neither is a usage error: the
+  command line was well formed and the source was not. The check runs after
+  the checker, so a set that also has a body error reports the checker's
+  refusal first, as Python's `build_program` does.
+- **One root so far.** The lowering still spans one module, so a build with
+  more than one root is refused with `E0103: multiple roots are not lowered
+  yet` at the second root once the checker has passed. It is a temporary
+  stop for the multi-module lowering, not a rule of the language; a one-root
+  build is untouched.
 
 The pipeline stops at the first failure and each failure has one shape:
 
@@ -160,19 +187,22 @@ also exit 2.
 | function | returns | meaning |
 |---|---|---|
 | `main` | `:i64` | the entry point: read `argv`, dispatch, return the status |
-| `main-args a` | `:i64` | check the verb and arity, then run the file |
+| `main-args a` | `:i64` | check the verb and arity, then run the verb |
+| `main-args-build a n` | `:i64` | check `build`'s shape: one or more files, then `-o` and the path |
+| `main-paths a first count paths` | `:void` | copy `count` argv entries into a new `paths` vector |
 | `main-run verb path` | `:i64` | create the six vectors, run, free them, return the status |
 | `main-source verb path …` | `:i64` | read, lex, then parse or report `E0006` |
 | `main-tree verb path …` | `:i64` | parse, then format, resolve or report `E0001` |
 | `main-print nodes ntexts` | `:i64` | run `fmt` and return 0 |
 | `main-resolved file nodes ntexts` | `:i64` | run `resolve-file` and return 0 or the diagnostic |
+| `main-resolve-set a first count` | `:i64` | run `resolve-set-of` over the argv files and return 0 or the diagnostic |
 | `main-resolve-diag file e` | `:i64` | print one resolver diagnostic and return 2 |
 | `main-at path file line col fallback` | `:str` | the diagnostic's location: path, `file:line:col`, or `fallback` |
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
-| `main-build file out` | `:i64` | create the arena, run the pipeline, free it, return the status |
-| `main-built file path …` | `:i64` | read, lex, parse, resolve, check, lower, emit, then write the IR |
+| `main-build a first count out` | `:i64` | copy the files, create the arena, run the pipeline, free it, return the status |
+| `main-built paths out …` | `:i64` | read, lex and parse the first root, resolve the set, check it, lower the root, emit, then write the IR |
 | `main-lower-diag file e` | `:i64` | print one lowering diagnostic and return 2 |
 | `main-ir-diag file nodes ntexts e` | `:i64` | print one emitter refusal at the module and return 2 |
 | `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a diagnostic |
@@ -197,7 +227,8 @@ and the emitted `main` hands it to the C entry point, so the process exits with
 
 `main` owns three things and frees all of them before it returns:
 
-- the `(args)` vector, with `vec-free`;
+- the `(args)` vector, with `vec-free`; `main-build` and `main-resolve-set`
+  also free the `paths` vector they copy the file names into;
 - the four lexer vectors and the two arena vectors, also with `vec-free`, on
   every path — success, `E0006` and `E0001`;
 - `check`'s two resolver tables (`all` and `mods`), with `vec-free`, on every
@@ -246,11 +277,13 @@ tracked `.logos` file, and then runs `build` over the files in
 - **No clang, no binary.** `gen2 build` stops at the IR. PR B's contract is the
   text; invoking the linker driver is `gen2`'s next wave, and until then
   `tools/selfhost.sh` compares the text with Python's.
-- **One file, one module.** `build` parses the file it is given and lowers the
-  root's children: a `use` is resolved for the checker's benefit but the
-  imported module is not lowered into the same unit, and `mqual` is always
-  false. Every fixture in the parity list is a single module with no `use`;
-  the corpus and the compiler's own source need the import closure, which is
-  PR C's.
+- **One module, one unit.** `build` resolves the whole set, so a `use` between
+  its files is answered and the checker sees every module, but the lowering
+  still lowers only the first root's children: the imported modules are not
+  lowered into the same unit and `mqual` is always false. A multi-root build
+  that passes the checker is therefore refused rather than written short. Every
+  fixture in the parity list is a single module with no `use`; the corpus and
+  the compiler's own source need the import closure and the multi-module
+  lowering, which are the next step.
 - **No diagnostic for an unreadable file.** That is `read-file`'s `R0007`, with
   its own line, not a fourth code here.

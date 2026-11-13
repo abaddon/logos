@@ -118,11 +118,11 @@ CHECK_FLOOR=122
 # must equal the fixture directory exactly (see the check below), while a path
 # outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=48
+IR_FLOOR=49
 # The fixture entries alone, so an outside path cannot pad the total while a
-# fixture leaves the directory. Forty-four today; lowering this number is a
+# fixture leaves the directory. Forty-five today; lowering this number is a
 # deliberate act, not a side effect of a pruned fixture set.
-IR_FIXTURE_FLOOR=44
+IR_FIXTURE_FLOOR=45
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today;
 # emptying the directory is a failure, not a smaller pass.

@@ -317,6 +317,18 @@ holds. That is Python's split in `argument`, and `vecref` (`len`, `get`, `set`,
 `push`, `free` through one ref) and `vecref2` (a ref passed on to another ref)
 are byte-identical because of it.
 
+The type query peels too. `vec-get`'s branch of `lo-node-type` answers the
+element of the *referent*: `lo-peel-ref` first removes a `(shared …)` wrapper
+(`lo-peel-shared`) and then a `(ref …)` wrapper, and only then does `elem` read
+the `(vec T)`'s element. The value path already read through the ref — that is
+`lo-vecget`'s `direct` test — so a type computed from the type as written
+disagreed with the value it typed: `(< (vec-get st 0) n)` with
+`st :(ref (vec :i64))` was "a comparison needs numbers", `(get (vec-get nodes
+id) next)` with `nodes :(ref (vec node))` was "get needs a struct", and in
+`ir.logos` nine `add { i64*, i64, i64 }` instructions reached emit, where clang
+refused the file. `vecgetref` pins both shapes in the parity list: a `vec-get`
+of a ref vector feeding a comparison and feeding `get` on a struct element.
+
 `lo-vecpush` is the one long form: it grows the buffer by *allocate, copy,
 release* rather than `realloc`, because the leak tracker owns every block's
 record and a block handed to `realloc` would leave the tracker describing an

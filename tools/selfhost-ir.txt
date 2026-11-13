@@ -40,6 +40,10 @@
 # before the define that spawns it — byte for byte; a plain drain reproduces
 # the same eighteen lines after the parent instead of before it.
 #
+# C1 adds `vecgetref`: a `(ref (vec T))` operand used by `vec-get` in a
+# comparison and by `get` on the element, the two shapes whose type the query
+# used to read as the referent rather than its element.
+#
 # Still not lowered, and so deliberately absent from this list (no fixture
 # claims them): closures. The positive corpus under tests/exec,
 # tests/thread and tests/regress needs `build --test NAME` (skip the module
@@ -86,6 +90,7 @@ src/logosc/fixtures/ir-lower/structs-eq.logos
 src/logosc/fixtures/ir-lower/structs-pad.logos
 src/logosc/fixtures/ir-lower/vecref.logos
 src/logosc/fixtures/ir-lower/vecref2.logos
+src/logosc/fixtures/ir-lower/vecgetref.logos
 src/logosc/fixtures/ir-lower/enumfwd.logos
 src/logosc/fixtures/ir-lower/enumpay.logos
 src/logosc/fixtures/ir-lower/strbyte.logos
