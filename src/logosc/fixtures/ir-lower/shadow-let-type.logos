@@ -1,0 +1,15 @@
+(mod shadow-let-type)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn earlier :i64 ()
+  (let point :i64 5)
+  (ret point))
+
+(fn make-point point ()
+  (ret (make point 3 4)))
+
+(fn main :i64 ()
+  (println (earlier))
+  (println (get (make-point) x))
+  (ret 0))

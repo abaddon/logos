@@ -218,3 +218,18 @@ src/logosc/fixtures/ir-lower/float-cmp-int.logos
 src/logosc/fixtures/ir-lower/float-long-literal.logos
 src/logosc/fixtures/ir-lower/float-div-zero.logos
 src/logosc/fixtures/ir-lower/float-cmp-f32.logos
+
+# W8's last two corpus cases and the function-scope lifetime they exposed. `!=`
+# on `:str` is `str_compare` then an `icmp eq i1 …, false` (the same instruction
+# Python's `compare` emits; the equality itself stays a `phi` inside the
+# compare), and a binding must die with its function: `bindn`/`binda` is the
+# port's `self.vars`, so a parameter or `let` left live would shadow a later
+# function's variant constructor or (by spelling) any name it reuses.
+# `shadow-param` and `shadow-let-variant` fail without the close; the
+# `shadow-let-type` pair pins the namespace that must NOT be reached — a `let`
+# named after a struct type leaves `(make point …)` resolving through the type
+# table.
+src/logosc/fixtures/ir-lower/strneq.logos
+src/logosc/fixtures/ir-lower/shadow-param.logos
+src/logosc/fixtures/ir-lower/shadow-let-type.logos
+src/logosc/fixtures/ir-lower/shadow-let-variant.logos

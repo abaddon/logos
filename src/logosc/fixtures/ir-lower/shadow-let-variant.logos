@@ -1,0 +1,16 @@
+(mod shadow-let-variant)
+
+(type shade (enum (a :i64) (b)))
+
+(fn earlier :i64 ()
+  (let b :i64 5)
+  (ret b))
+
+(fn make-shade shade ()
+  (ret b))
+
+(fn main :i64 ()
+  (println (earlier))
+  (match (make-shade) ((a n) (println n))
+    (b (println 0)))
+  (ret 0))

@@ -1,0 +1,6 @@
+(mod strneq)
+
+(fn main :i64 ()
+  (println (!= "abc" "abd"))
+  (println (!= "abc" "abc"))
+  (ret 0))

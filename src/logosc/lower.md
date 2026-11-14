@@ -858,7 +858,7 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — eighty-two paths, all byte-identical to Python's
+`tools/selfhost-ir.txt` — eighty-six paths, all byte-identical to Python's
 `.ll`. The list also names four example programs (`examples/hello.logos`,
 `examples/json.logos`, `examples/wc.logos`, `examples/matrix.logos`): real
 programs, not fixtures, whose IR is claimed byte for byte. They are not a
@@ -871,14 +871,14 @@ end-to-end claim: four 18-line thunks at 135–210 of Python's
 `build/python-matrix.ll`, numbered `$spawn$1`–`$spawn$4` by the unit-wide
 counter and unpacking a six-field record, printed before `define i32 @main()`
 at 211 — which is the f-row rotation's whole job.
-`tools/selfhost.sh` holds `IR_FLOOR=82` over the whole list, so a pruned list
+`tools/selfhost.sh` holds `IR_FLOOR=90` over the whole list, so a pruned list
 fails rather than passing over fewer files. Set equality is judged on the list's
 *fixture* entries against `src/logosc/fixtures/ir-lower/*.logos`: every fixture
 on disk is listed and every listed fixture is on disk, so an addition or a
 deletion must move both names in the same commit and the count cannot be held
 still while one fixture is swapped for another. Set equality alone cannot stop
 the list and the directory shrinking together, though, so the fixture entries
-carry a floor of their own — `IR_FIXTURE_FLOOR=78` — and a fixture cannot leave
+carry a floor of their own — `IR_FIXTURE_FLOOR=86` — and a fixture cannot leave
 while a path outside the directory takes its place in the total. A path outside
 the directory is a claim of its own; it neither hides a missing fixture nor has
 to exist there.
