@@ -33,7 +33,7 @@ Entries are flat with a fixed stride, and `g-lookup`/`g-field` read them:
 | `g-type-meaning` | name, meaning | 2 | `guide.TYPE_MEANING` (12) |
 | `g-rules` | cheat-sheet text, where enforced | 2 | `guide.RULES` (10) |
 | `g-titles` | file stem, heading | 2 | `guide.CHAPTER_TITLES` (20) |
-| `g-reserved-forms` | name | 1 | `check.RESERVED_FORMS`, sorted (48) |
+| `g-reserved-forms` | name | 1 | `check.RESERVED_FORMS`, sorted (49) |
 | `g-reserved-prefixes` | name | 1 | `check.RESERVED_PREFIXES` (4) |
 | `g-reserved-variants` | name | 1 | `check.RESERVED_VARIANTS` (19) |
 
@@ -56,13 +56,13 @@ does not already document (`g-forms`), which is `_build_forms`'s append.
 
 ### `atomic`, the one name the two lists disagree on
 
-`RESERVED_FORMS` has 48 names and `g-reserved-forms` prints Python's list.
-The port's `check-reserved-name` also refuses a definition named `atomic`,
+`RESERVED_FORMS` has 49 names and `g-reserved-forms` prints Python's list.
+The port's `check-reserved-name` has those 49 plus `atomic`, so 50.
 which Python does not: Python refuses the *call* (`(atomic)` is the form, so a
 function of that name is uncallable, and the error is `E0102` at the call site),
 while the port refuses the definition with `E0003`. That is a checker
 divergence, not a manual one; the manual reports the compiler whose tables it
-reads, so it prints 48 and the report for W8 step 4 records the difference. If
+reads, so it prints 49 and the report for W8 step 4 records the difference. If
 the checker is made to agree with Python, `check-reserved-name` should scan this
 same table and the extra test disappears.
 
@@ -90,6 +90,16 @@ only, as `sorted(MANUAL_DIR.glob("*.logos"))` does), and for each chapter:
 The rendered text and the declared output are both right-stripped of newlines
 (`g-rstrip`), as `rstrip("\n")` does, and the chapter number is the count of
 chapters taken so far, not the directory position.
+
+### The three externs
+
+`rt_create`, `close` and `unlink` are declared once in the unit, and a
+declaration is only visible to a module the declaring one is processed before —
+so a second declaration is `E0003` and a use without one is `E0103`. They live
+here, and `main.logos`'s `main-spit` uses them through `(use guide)`: `main` is
+the only module that depends on this one, so this module is always processed
+first, and `main` already depended on it for the verb. That is the same shape
+`fmt.logos` uses for `rt_write`, with the dependency in the other direction.
 
 ## The markdown
 
