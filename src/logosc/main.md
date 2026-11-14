@@ -56,13 +56,18 @@ leak report is compiled in. A repeated `--test` takes the last value. See
 `cli.py`), `--only CAT` filters by category and must name one of the eight, and
 `--opt` is consumed the way `argparse` reads it after `cli._normalize_argv`:
 one flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two
-levels. A second positional argument, and any other word starting with `-`, is
-a usage error; `--update-baseline` is parsed and refused with exit 2 until W9.
-The runner is landed through two of its seven steps (see `harness.md`): it
-walks the tree, derives every case id and reads that case's directives, but it
-builds and runs nothing yet, so each enumerated case prints `PASS <id> -` and
-only a malformed directive prints `FAIL <id> <detail>`. Ids, their order and
-the detail sentences are Python's `tester.py`.
+levels, `--opt=-O0` is one, and a run with no `--opt` is both. A second
+positional argument, and any other word starting with `-`, is a usage error;
+`--update-baseline` is parsed and refused with exit 2 until W9.
+
+The run is `harness.logos`'s (`h-run`), and this file gives it the levels and
+turns its status into the process's: every case is built and run at each level,
+its four clauses and its levels are compared, and the report ends with
+`<passed> passed, <failed> failed, <leaks> leaked`. Exit 1 when a case failed,
+when a file sat outside the known categories, or when nothing ran; 2 on the two
+usage errors above. Ids, their order, the detail sentences and the summary are
+Python's `tester.py` and `cli.py`; the trailing baseline line is W9's, so a run
+ends at the summary.
 
 **No arguments, an unknown verb, a missing file, a `build` with no file, a
 `fmt` with no path, or a `check` with an extra argument** prints the usage to
@@ -313,10 +318,11 @@ leaves nothing behind that could be mistaken for a success.
 | `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
 | `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
 | `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
-| `main-test-opts a i n` | `:i64` | consume the levels after `--opt`; -1 when there is none |
+| `main-test-opts a i n levels` | `:i64` | consume the levels after `--opt` into `levels`; -1 when there is none |
+| `main-test-opt-eq s next levels` | `:i64` | push an attached `--opt=-O0`'s value and skip the word |
 | `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
 | `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
-| `main-test-run path only flags` | `:i64` | validate `--only`, refuse the baseline, call `h-run` |
+| `main-test-run path only levels flags` | `:i64` | validate `--only`, refuse the baseline, call `h-run` and return its status |
 | `main-test-unknown name` | `:i64` | print the unknown-category line and return 2 |
 | `main-test-no-baseline` | `:i64` | print the deferred-baseline line and return 2 |
 | `main-sort names` | `:void` | sort entry names byte-wise, in place |
@@ -484,13 +490,12 @@ one-file program, where it also compares the binary with Python's.
 - **No flag parsing.** `fmt`'s arguments are all paths or `-`; a path that
   begins with `-` is read as a path, where `argparse` would call it an unknown
   flag. The verb has no flags to confuse it with.
-- **No child process from `test`.** The runner is landed two steps at a time:
-  discovery and the directive reader are in, and the verb stops there. It
-  builds no case and starts no process, so every case it enumerates prints
-  `PASS <id> -`; a case whose directive is malformed prints `FAIL <id>
-  <detail>` and nothing else. `harness.md` names what the remaining steps owe —
-  a child with stdin `/dev/null`, a 10 s bound with a kill, the level loop and
-  its cross-level comparison, the summary line and the baseline.
+- **No baseline line, and no `--update-baseline`.** The runner writes no
+  `summary.txt` and compares nothing against one: a run ends at the summary,
+  where Python prints `baseline tests/summary.txt: n regression(s)` or
+  `baseline: none` (`cli.py:271-276`). That, with percent-encoded ids, is W9.
+  `harness.md` names the rest — the negative fixtures' codes and a file the
+  parser refuses.
 - **No front-end exit-1.** A lexer, tree, resolver or checker refusal is the
   port's own diagnostic line with exit 2, where Python's `build` prints
   `error.render()` and exits 1 (`cli.py:311-327`). The link failures do follow

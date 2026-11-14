@@ -1,16 +1,18 @@
-# `src/logosc/harness.logos` — discovery, ids and the directive reader
+# `src/logosc/harness.logos` — discovery, running and the report
 
-The first two steps of the `test` verb: which files a suite run covers, what
-each case is called and in what order, and what a case's directives say. The
-reference is `logos/tester.py`; Python is the oracle for every sentence here.
-`main.md` owns the command line; this module owns the corpus.
+The `test` verb, six of its seven steps: which files a suite run covers, what
+each case is called and in what order, what a case's directives say, how a case
+is built and run at every level, how the levels are compared, and what the run
+prints. The reference is `logos/tester.py` and `logos/cli.py`; Python is the
+oracle for every sentence here. `main.md` owns the command line; this module
+owns the corpus.
 
-`h-run` is the entry point: `(h-run ROOT ONLY)` prints one line per case and
-returns the number of failures, or `-1` when `ROOT` does not exist. `main`
-turns a non-zero count into exit 1 and an unknown `--only` into exit 2. A case
-is now built and run: `h-execute` spawns the compiler to build one test binary
-and then the binary itself, and the four clauses are compared. Nothing here
-writes a report file; the summary line and the baseline are steps 5–6.
+`h-run` is the entry point: `(h-run ROOT ONLY LEVELS)` prints one line per
+case, at every level, then the skipped files, then the summary line, and
+returns the run's exit status. `main` turns an unknown `--only` into exit 2.
+A case is built once per level and run, the four clauses are compared, and the
+levels are compared with each other. Nothing here writes a report file: the
+baseline belongs to W9.
 
 ## Discovery
 
@@ -142,32 +144,84 @@ characters that occur in practice — single quotes, and `\\`, `\'`, `\n`, `\r`,
 `\t` escaped — so a detail is readable and equivalence-grade rather than
 byte-identical for non-ASCII or control bytes.
 
-Only `-O0` runs. `--opt` is still parsed by `main` and ignored here: the level
-loop and the cross-level comparison are step 5.
+## The level loop — `_run_case`
+
+`h-test` is `tester._run_case` (`484-530`). The directives are read first, and
+a malformed one fails the case before any child starts. Then `opts` is walked
+in order — `-O0 -O2` unless `--opt` said otherwise — and for each level:
+
+1. the binary path is Python's: `build/harness/<category>/<relative>/<NN>-<safe>.<LEVEL>.bin`,
+   where `NN` is the test index, `<safe>` is the name with every byte outside
+   `[A-Za-z0-9_.-]` replaced by `_` (`533-542`), and `<LEVEL>` is the option
+   with every non-alphanumeric byte dropped (`-O0` → `O0`, empty → `O0`);
+2. `h-execute` builds and runs it and answers an `h-outcome`: the detail string
+   (empty when the case passed), whether the case ran at all, and what it
+   printed and exited with;
+3. an empty detail is not appended; anything else joins the case's problems
+   with `"; "`, each already prefixed with its level (`521`, `530`);
+4. a case that ran contributes an observation — stdout, stderr, exit code —
+   and its `LEAK ` lines are added to the suite total even when the case
+   failed (`580`). A case that did not run (build failure, timeout, a spawn
+   that failed) has no observation: there is nothing to compare.
+
+## The cross-level comparison — `_disagreement`
+
+Two levels must agree on all three observation fields, or the compiler changed
+meaning while optimising. `h-disagree-one` mirrors `_disagreement`
+(`586-611`): the first observation is compared with each later one, field by
+field, in the order stdout, exit code, stderr, and the case fails with
+
+```
+-O0 and -O2 disagree: stdout 'a' vs 'b', exit code 0 vs 1
+```
+
+The difference is a problem of the case in its own right, joined after that
+level's problems with `"; "`. It is never repaired, and a case that failed at
+one level but ran at both still gets the comparison.
+
+## The report
+
+`h-run` prints what `cli._test` prints (`239-277`), in its order: one
+`PASS|FAIL <id> <detail>` line per case, one `SKIP <path>` per `*.logos` file
+under a suite root that no category claimed, and the summary
+
+```
+<passed> passed, <failed> failed, <leaks> leaked
+```
+
+`h-pass` and `h-fail` are the only counters — every printed case line is one
+of them, so a reader of the output and the summary cannot disagree. A run with
+no case prints `test: no cases found in <path>`; a run with skipped files
+prints `logos: test: <n> file(s) outside the known categories were skipped` on
+stderr. Both, and any failed case, make the exit status 1, and that status is
+`h-run`'s return value. The baseline line is W9's: this run prints nothing
+after the summary.
 
 ## What it does not do yet
 
 The harness is seven steps (`2026-11-13-w8-harness-notes.md` §5) and this
-module is steps 1–3. Deferred, with the Python it belongs to:
+module is steps 1–6: discovery, the directive reader, the child's I/O, one
+level, both levels with their comparison, and the whole suite's report. What is
+left, with the Python it belongs to:
 
-- **Both levels and the cross-level comparison.** `_run_case`'s `opts` loop and
-  `_disagreement` (`516-530`, `586-611`). Every case now runs once, at `-O0`.
 - **The negative fixtures' judgement.** `_run_negative` (`456-482`) runs the
   checker over the file and its reachable set, and compares the code. This verb
-  enumerates the case and prints `PASS`; the code is not checked yet.
+  enumerates the case and prints `PASS`; the code is not checked. Every tracked
+  negative fixture passes in Python, so the line matches, but it is not earned
+  yet — a fixture whose code changed would still print `PASS` here.
 - **`_run_unparsable`** (`348-389`) and the raw-text `EXPECT_ERROR` scan
   (`103`, `392-403`): a file the parser refuses is reported here as `parse
   failed: <message>`, which is Python's sentence only when the message happens
   to match. No tracked fixture fails to parse (the ones that must stay as
   `.logos.txt`, which discovery never sees), so the branch is unreachable in the
   corpus and is deferred rather than guessed.
-- **Skipped files.** A file under a suite root that no category claims is
-  printed as `SKIP <path>` and fails the run (`cli.py:241-255`). `h-discover`
-  keeps the claimed files only, so a stray fixture would vanish instead of
-  failing. `tests/` holds none; the skip set belongs to the whole-suite step
-  (6), which owns the exit status.
-- **The summary line, the leak total, the baseline** — steps 5–6. `main`
-  refuses `--update-baseline` with exit 2 rather than pretending.
+- **The baseline** — write, merge and compare (`760-976`), with its
+  percent-encoded ids. W9. `main` refuses `--update-baseline` with exit 2
+  rather than pretending, and the run ends at the summary line where Python
+  prints `baseline …: n regression(s)`.
+- **`_one_line`'s truncation and `repr`'s escapes** (`745-750`, `604`), as
+  before: a pathological detail could be longer or spelled differently than
+  Python's. No current fixture needs either.
 
 ## Evidence
 
@@ -176,15 +230,21 @@ module is steps 1–3. Deferred, with the Python it belongs to:
   header) line for line, in order. `tests/summary.txt` at this commit holds 308
   `PASS` lines, not the 307 the harness notes record — one fixture landed with
   W8 step 3c-1b, and the baseline is that run's output.
-- **`--only`.** `gen2 test tests --only mem` prints the same 7 ids as
-  `python3 -m logos test tests --only mem`.
+- **`--only`.** `gen2 test tests --only mem` prints the same 7 ids, in the same
+  order, as `python3 -m logos test tests --only mem`, and the same leak total
+  (`6`) after the same summary shape. Two of the seven do not build in the
+  port's lowering, so the statuses and the exit code differ; see below.
 - **Malformed directives.** 26 fixtures under a scratch tree, one variant per
   rule above; the 25 that the reader owns produce byte-identical `FAIL <id>
   <detail>` lines from both implementations, in the same order. The 26th is a
   nameless test: the reader accepts it and Python's *build* refuses it
   (`E0002 test needs a name`), a divergence step 4 owns.
 - **Exit status.** A missing root prints Python's line and exits 1; an unknown
-  `--only` exits 2 with Python's sentence.
+  `--only` exits 2 with Python's sentence; a suite tree holding a `.logos` file
+  outside every category prints `SKIP <path>` and the stderr sentence and exits
+  1; a tree with no case prints `test: no cases found in <path>` after its
+  summary and exits 1. All four match `python3 -m logos test` on the same tree,
+  except that Python's run ends with a baseline line.
 - **Standard input.** `gen2 test tests/exec/read.logos` builds and runs both
   cases, prints two `PASS` lines and returns 0 in about a second. Before the
   redirect it hung: `read-all` in the child inherited the harness's terminal.
@@ -196,7 +256,23 @@ module is steps 1–3. Deferred, with the Python it belongs to:
   `tests/test_gen2_test.py` removes the binary, the run reports `FAIL
   exec/missing/cannot-be-started -O0: could not run: <path>: No such file or
   directory` and exits 1 with empty stderr. Panicking R0006 would exit 2.
-- **The exec corpus.** `gen2 test tests --only exec` reports 107 of 139 cases
-  passing at `-O0`; the 32 failures are classified in
-  `2026-11-14-w8-harness-step3-report.md` and are the work queue for the level
-  loop and the port gaps it exposes.
+- **The exec corpus.** `gen2 test tests --only exec` reports `107 passed, 32
+  failed, 4 leaked` over 139 lines at both levels; Python reports `139 passed,
+  0 failed, 4 leaked`. The 32 failures are classified in
+  `2026-11-14-w8-harness-steps4-6-report.md` §6, and every other line is
+  Python's byte for byte.
+- **The whole suite.** `gen2 test tests` prints 308 case lines and
+  `273 passed, 35 failed, 10 leaked`; Python prints the same 308 lines,
+  `308 passed, 0 failed, 10 leaked`, and then a baseline line. The 35 are the
+  exec 32, the two `mem` cases of the same `match`-as-an-argument gap, and one
+  `regress` case whose float comparison emits an integer compare over float
+  constants. None of the three sets is a comparison the harness could have
+  avoided: each case does not build.
+- **The level loop and the levels' agreement.** `src/logosc/harness_test.logos`
+  calls `h-level`, `h-safe-name`, `h-leaks`, `h-summary` and `h-disagree-one`
+  directly; both implementations print `4 passed, 0 failed, 0 leaked` for it,
+  and its `-O0 and -O2 disagree: …` case is the only pinned form of that
+  sentence. `tests/test_gen2_test.py`'s `ReportTest` covers the rest through
+  the binary: both levels by their binaries, `--opt` (and `--opt=-O0`)
+  selecting a level, two agreeing levels staying silent, the skip line and the
+  empty run.
