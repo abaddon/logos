@@ -46,10 +46,14 @@ src/logosc/fixtures/ir-lower/array.logos
 src/logosc/fixtures/ir-lower/arrset.logos
 src/logosc/fixtures/ir-lower/callret.logos
 src/logosc/fixtures/ir-lower/closure-argument.logos
+src/logosc/fixtures/ir-lower/closure-fn-two.logos
+src/logosc/fixtures/ir-lower/closure-fnvalue.logos
 src/logosc/fixtures/ir-lower/closure-mixed.logos
 src/logosc/fixtures/ir-lower/closure-none.logos
 src/logosc/fixtures/ir-lower/closure-one.logos
+src/logosc/fixtures/ir-lower/closure-struct.logos
 src/logosc/fixtures/ir-lower/closure-two.logos
+src/logosc/fixtures/ir-lower/closure-widths.logos
 src/logosc/fixtures/ir-lower/concurrency.logos
 src/logosc/fixtures/ir-lower/control.logos
 src/logosc/fixtures/ir-lower/dirs.logos
