@@ -22,6 +22,7 @@ gen2 resolve <file>...
 gen2 check <file>
 gen2 build <file>... [-o <out>] [--opt <O>] [--test <name>] [--keep-ir]
 gen2 test [<path>] [--only <category>] [--opt <level>]...
+gen2 guide [--json|--check]
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -30,7 +31,7 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 | index | holds |
 |---|---|
 | `0` | the program, `gen2` |
-| `1` | the verb, `fmt`, `resolve`, `check`, `build` or `test` |
+| `1` | the verb, `fmt`, `resolve`, `check`, `build`, `test` or `guide` |
 | `2` … `n-1` | the paths to format, resolve or build (one or more), and `build`'s or `test`'s flags, or `test`'s one path |
 | `2` | the file to check (exactly one) |
 
@@ -69,6 +70,17 @@ usage errors above. Ids, their order, the detail sentences and the summary are
 Python's `tester.py` and `cli.py`; the trailing baseline line is W9's, so a run
 ends at the summary.
 
+`guide` is the generated manual (`guide.md`). With no flag it prints
+`docs/LOGOS.md` to stdout; `--json` prints the manifest and a newline; `--check`
+regenerates the markdown and compares it byte for byte with `docs/LOGOS.md`,
+printing `guide: docs/LOGOS.md is current` and exiting 0, or a stale report on
+stderr and exiting 1. Both modes are mutually exclusive, as `argparse`'s
+`add_mutually_exclusive_group` makes them (`cli.py:136-146`), and anything else
+is the usage error below. The two tables the manifest cannot be built without
+are read from the compiler — `types.logos`'s primitive and type-form lists,
+`harness.logos`'s categories — and the code, rule, form, arity, meaning and
+chapter-title tables live in `guide.logos` itself.
+
 **No arguments, an unknown verb, a missing file, a `build` with no file, a
 `fmt` with no path, or a `check` with an extra argument** prints the usage to
 stderr and exits 2:
@@ -78,6 +90,7 @@ usage: gen2 <fmt|check> <file>
        gen2 resolve <file>...
        gen2 build <file>... [-o <out>] [--opt <O>]
        gen2 test [<path>] [--only <category>] [--opt <level>]...
+       gen2 guide [--json|--check]
 ```
 
 The usage line still says `<file>` for `fmt` because it is a fixed string the

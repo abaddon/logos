@@ -151,6 +151,7 @@ src/logosc/fixtures/wrong/root.logos
 src/logosc/fixtures/wrong/wrong.logos
 src/logosc/fmt.logos
 src/logosc/fmt_test.logos
+src/logosc/guide.logos
 src/logosc/harness.logos
 src/logosc/harness_test.logos
 src/logosc/ir.logos
