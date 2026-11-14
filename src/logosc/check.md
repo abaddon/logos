@@ -207,11 +207,13 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   check` accepts both. The declaration-side counter (`check-instantiate`) is
   ported and pinned, but a call site does not reach it yet. One identity case
   is decided, because a result obligation cannot wait for a full unifier: when
-  the return type is a bare type variable and every parameter of that variable
-  is given the same name, the call answers that name's type and discharges it
-  if it is a result (see "Calls, containers and E0107"). A variable nested in a
-  parameter or the return, mismatched arguments, and temporaries still answer
-  unknown — `tests/regress/generic-vector.logos` is one such under-report.
+  the return type is a bare type variable, the call answers the type of the
+  argument beside that variable, read through `body-token` — a literal's or a
+  binding's own type — so `(str-len (id "abc"))` is `:str`, and a result
+  argument is discharged. When the variable occupies more than one parameter
+  every one of them must answer the same type; a disagreement, a form argument
+  and a variable nested in a parameter or the return still answer unknown —
+  `tests/regress/generic-vector.logos` is one such under-report.
   Because an argument is read without a declared type, the E0107 rule can
   still win where Python reads the argument first: `(fn id :T ((x :T)) (ret x))`
   called as `(let q (id p))` over a moved `p` reports E0107 `unused binding
@@ -245,9 +247,15 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   a payload-carrying variant are still under-reported. They are *not* E0005:
   the name resolves, and the E0005 rule only fires for an atom that names
   nothing.
-- **Test bodies.** Python checks a module's `test` bodies as well as its
-  `fn`s; the port reads only `fn` bodies. A `test` body is therefore accepted
-  unread, and any diagnostic Python raises inside one is under-reported.
+- **Test bodies, partly.** A `test` body is checked (`check-body-test`, wired
+  from `check-module-tree` after the `fn` bodies), but two shapes Python refuses
+  are skipped rather than refused. A `test`-local `fn` is passed over, so
+  Python's E0002 `test-local helper functions are not lowered yet` is
+  under-reported; a bare token in a test body is not on the tree's child chain
+  at all, so the E0002 `a test body must be a form` it earns at the `test` node
+  is under-reported too. `expect`/`expect-leak` are directives and skipped, as
+  Python skips them. A test is `:void` by construction, so no E0105 is owed and
+  none is checked.
 - **Duplicate `main` across imports.** `check-file` carries
   `_refuse_duplicate_main` and reports it when its module set has two roots
   that each define `main`. `gen2 check` has one root, so for a single-file
@@ -282,6 +290,19 @@ accepts that `gen2 check` refuses.
 against the same table a declaration's visibility built. They are threaded
 through the body helpers beside the arenas; a call reads the window from
 `bctl[2]`/`bctl[3]` and the module name from `bl[1]`.
+
+The `test` bodies follow the `fn` bodies. `check-module-tests` walks the
+module's top-level `test` forms in source order and hands each to
+`check-body-test`, which builds the same environment as `check-body-fn` with a
+`:void` return type, no parameters, and `bctl[4] = 1` — the flag that tells
+`body-walk` this walk is a test body. A test node's `first` is already past the
+head *and* the name, so the walk starts at `check-child nodes c 0`: the
+`expect` directive, which `body-walk` skips, then the statements. Starting at
+index 2 instead was the mis-walk that left a two-statement body unread and began
+a three-statement one at its third statement; index 0 is Python's
+`node.items[2:]` in the tree's numbering. `check-body-test` closes with
+`body-pending`/`body-unused` at depth 0 exactly as `check-body-fn` does, and
+because a test is `:void` by construction it owes no E0105.
 
 The walk lives in `check.logos` rather than a new `body.logos` because it needs
 the declaration pass's own material: `check-error`, `check-fail-at`,
@@ -511,6 +532,16 @@ the declaration pass records, so variant `i` of enum `e` is
 variant that holds nothing. A result's variants are `ok`/`err` and an
 optional's are `some`/`none`, spelled in `body-variant-name`; both take their
 payload types from `elem`/`extra` of the type node.
+
+An arm's payload name is bound inside that arm (`(bad-digit n)`, `(ok v)`) at
+the payload's type, and `_` binds nothing. The binding is how the arm body can
+name what the match took apart; without it every such body was E0005. When the
+scrutinee's type is unknown — a variant value such as `(let e overflow)` still
+answers unknown in value position (`body-atom-value`) — the arm is read by
+`body-pat-open` instead: a one-name form pattern binds that name at the unknown
+type, so the arm body is checked for shape without inventing a payload type or
+a diagnostic. Exhaustiveness and the duplicate-variant rule are skipped there,
+because an unknown type has no variant list to check against.
 
 E0105 is `body-any-terminates` over the body's statements: a `ret` terminates,
 an `if` terminates when both arms do, a `match` when every arm does, and
@@ -1292,7 +1323,7 @@ with the `.check` sidecar beside each fixture, prints
 `check: N fixtures, M differences`, and fails on any difference. The sidecars
 are generated by `tools/check_parity.py` from the reference implementation, so
 a reworded message or a wrong path fails the gate instead of passing on a
-matching code. Its floor is 122: a pruned list fails rather than passing over
+matching code. Its floor is 123: a pruned list fails rather than passing over
 fewer fixtures. `owner-place-read` needs the deferred `deref` form (E0402) and
 `generic-vector` a generic call site; `limit` and `unbound` need a generic
 call site; the
@@ -1312,16 +1343,26 @@ out of the under-reported set with them.
 The PR C whole-branch review's fix round adds `sibling-set` (E0300 at
 `f/4/2`, the read through `deref` after a join that emptied `p`) and
 `ref-not-mutable` (E0304 at `main/3`, a ref argument bound to an immutable
-local) to the list — 120 → 122, floor 122. Both decide exactly as Python does
-and no other sidecar changed when `tools/check_parity.py` rewrote all 122. The
-four new `body_test` cases pin the four deferred pointer forms over an emptied
-binding (`c4-uaf-deref`, `c4-uaf-ptr`, `c4-uaf-set-deref`, `c4-uaf-ptr-add`),
+local) to the list — 120 → 122. Both decide exactly as Python does and no other
+sidecar changed when `tools/check_parity.py` rewrote all 122. The four new
+`body_test` cases pin the four deferred pointer forms over an emptied binding
+(`c4-uaf-deref`, `c4-uaf-ptr`, `c4-uaf-set-deref`, `c4-uaf-ptr-add`),
 and `defer-deref-moved-e0300` — the case that used to assert the `sibling-set`
 shape was accepted — now expects the E0300 both implementations print.
 
+The test-body branch adds `tests/type/test-body-type.logos` — 122 → 123, floor
+123. Its first test, `binds`, is a valid body (a `let`, a `letmut`, a `set` and
+a read of both) and its second, `wrong-type`, is `(let y :str x)` over an
+`:i64`; Python's one line is
+`test-body-type/test/wrong-type/2: E0100: let 'y' has type :str, found :i64`.
+Because the valid test is read first, a checker that mis-walks the body (or
+does not read tests at all) cannot pass the sidecar: the unread case exits 0 and
+the mis-walked one prints the wrong test's E0005, so both directions are pinned
+by one listed fixture.
+
 ## Tests
 
-`src/logosc/body_test.logos` has 357 cases for the body pass, each run at
+`src/logosc/body_test.logos` has 361 cases for the body pass, each run at
 `-O0` and `-O2` with `(leaks 0)`, through `check-file` on a synthetic source:
 
 - literals: a width's maximum, a signed minimum, a `:u64` value beyond `:i64`,
@@ -1455,6 +1496,12 @@ shape was accepted — now expects the E0300 both implementations print.
   payload and in an enum payload inside a struct field; and `(let x (+ x 1))`
   inside a closure, which captures the outer `x` and then reports E0003
   `duplicate definition 'x'` at the `let`.
+- the test-body branch (W8 3c-1b): `match-unknown-payload-binds` — `(let e
+  overflow)` then a `match` whose arms name the payloads, accepted because an
+  unknown scrutinee still binds them; `generic-call-result-type` — `(str-len
+  (id "abc"))`, accepted because the identity call answers `:str`; and
+  `test-body-valid` / `test-body-type`, which check a `test` body (accepted)
+  and refuse one at `m/test/t/2` with E0100.
 
 `src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
@@ -1493,7 +1540,7 @@ are reached by path.
 
 ## Parity
 
-The 122 coverage fixtures match Python's code **and node path**, not just the
+The 123 coverage fixtures match Python's code **and node path**, not just the
 code, and the whole line, message included, is what
 `tools/check_parity.py` writes and the gate compares. The ten B1/B2 body cases
 pin `cast-nonnumeric/f/2/0`, `cast-same/f/2/0`, `float-mix/f/4/0`, `m/f/3`,

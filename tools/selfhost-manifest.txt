@@ -317,6 +317,7 @@ tests/type/spawn-arity.logos
 tests/type/spawn-generic.logos
 tests/type/spawn-own.logos
 tests/type/spawn-return.logos
+tests/type/test-body-type.logos
 tests/type/try-mismatch.logos
 tests/type/try-nonresult-fn.logos
 tests/type/try-nonresult.logos

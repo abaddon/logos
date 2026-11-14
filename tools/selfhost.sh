@@ -129,10 +129,12 @@ RESOLVE_FLOOR=14
 # C4 fix round's annotated-`let`/`set` capture flag, its payload constructors
 # and the closure `let`-shadowing order, and the two fixtures the PR C whole-branch
 # review found unlisted: `sibling-set` (E0300 behind a deferred `deref`) and
-# `ref-not-mutable` (E0304 at a ref argument).
-# One hundred and twenty-two today; a pruned list is a failure, not a smaller pass.
+# `ref-not-mutable` (E0304 at a ref argument), and the test-body rule W8
+# step 3c-1b re-applied: a `test` body is checked, so a type error in one is
+# the same E0100 a `fn` body earns.
+# One hundred and twenty-three today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=122
+CHECK_FLOOR=123
 
 # The lowering parity list: the files whose IR the port already reproduces.
 # Fifty-six today — the fifty-two fixtures under src/logosc/fixtures/ir-lower,

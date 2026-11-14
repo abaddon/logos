@@ -1,0 +1,17 @@
+(mod test-body-type)
+
+(test binds
+  (expect (out "7\n")
+    (code 0)
+    (leaks 0))
+  (let x :i64 5)
+  (letmut y :i64 1)
+  (set y 7)
+  (println (+ x y)))
+
+(test wrong-type
+  (expect (out "")
+    (code 0)
+    (leaks 0))
+  (let x :i64 5)
+  (let y :str x))
