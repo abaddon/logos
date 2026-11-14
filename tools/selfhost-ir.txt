@@ -214,3 +214,7 @@ src/logosc/fixtures/ir-lower/cast-float-int.logos
 src/logosc/fixtures/ir-lower/cast-zext.logos
 src/logosc/fixtures/ir-lower/cast-chain.logos
 src/logosc/fixtures/ir-lower/if-str-zero.logos
+src/logosc/fixtures/ir-lower/float-cmp-int.logos
+src/logosc/fixtures/ir-lower/float-long-literal.logos
+src/logosc/fixtures/ir-lower/float-div-zero.logos
+src/logosc/fixtures/ir-lower/float-cmp-f32.logos

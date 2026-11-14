@@ -485,6 +485,46 @@ static size_t rt_format_f64(char *out, size_t cap, double v) {
     return last;
 }
 
+/* The double a decimal literal names, read through strtod.
+ *
+ * The compiler's literal parser used to accumulate the significand in a 64-bit
+ * integer and scale it by a power of ten built by repeated multiplication.
+ * Both steps are inexact: nineteen significant digits is all a :u64 holds, and
+ * ten squared three hundred times is not the double nearest 10^300. strtod is
+ * correctly rounded, so `1e300` here is bit for bit the double Python's
+ * float() produces, and the text is read whole — `end` must reach the
+ * terminator, or the caller gets a NaN it will report rather than a number
+ * invented from a prefix.
+ *
+ * The locale is "C" for a process that has never called setlocale, so the
+ * decimal point is '.' whatever the environment says. */
+double rt_parse_f64(const unsigned char *p, size_t n) {
+    char stack[128];
+    char *buf = stack;
+    char *end = NULL;
+    double v;
+
+    if (n + 1 > sizeof stack) {
+        buf = malloc(n + 1);
+        if (buf == NULL) {
+            return __builtin_nan("");
+        }
+    }
+    memcpy(buf, p, n);
+    buf[n] = '\0';
+    v = strtod(buf, &end);
+    if (end != buf + n) {
+        /* Not a decimal the lexer should have handed over: no digits, a
+         * trailing exponent sign, or a byte strtod stopped at. A NaN cannot be
+         * mistaken for a value the language spells, so it surfaces. */
+        v = __builtin_nan("");
+    }
+    if (buf != stack) {
+        free(buf);
+    }
+    return v;
+}
+
 void rt_print_str(const unsigned char *p, size_t n) {
     if (n != 0) {
         (void)rt_write(STDOUT_FILENO, p, n);

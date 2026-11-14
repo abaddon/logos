@@ -74,6 +74,10 @@ src/logosc/fixtures/ir-lower/enumpay.logos
 src/logosc/fixtures/ir-lower/extern-str.logos
 src/logosc/fixtures/ir-lower/extern.logos
 src/logosc/fixtures/ir-lower/fieldset.logos
+src/logosc/fixtures/ir-lower/float-cmp-f32.logos
+src/logosc/fixtures/ir-lower/float-cmp-int.logos
+src/logosc/fixtures/ir-lower/float-div-zero.logos
+src/logosc/fixtures/ir-lower/float-long-literal.logos
 src/logosc/fixtures/ir-lower/float.logos
 src/logosc/fixtures/ir-lower/generic-closure.logos
 src/logosc/fixtures/ir-lower/generic-nested.logos
