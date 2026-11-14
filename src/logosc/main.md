@@ -20,7 +20,7 @@ order the Python compiler does.
 gen2 fmt <file|dir|->...
 gen2 resolve <file>...
 gen2 check <file>
-gen2 build <file>... [-o <out>] [--opt <O>] [--keep-ir]
+gen2 build <file>... [-o <out>] [--opt <O>] [--test <name>] [--keep-ir]
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -37,9 +37,19 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 allows: `-o OUT` names the binary, `--opt O` (or `--opt=O`) names the
 optimisation level and defaults to `-O2`, and `--keep-ir` is accepted and
 changes nothing, because the IR is always kept. A word that starts with `-` and
-is not one of those three is a usage error; a file whose name starts with `-`
+is not one of those four is a usage error; a file whose name starts with `-`
 would have to be written with a path. A repeated `-o` or `--opt` takes the last
 value, as `argparse` does.
+
+`--test NAME` builds one `(test …)` body of the file as the program's `main`
+instead of the module's own: the third arity above is the only shape Python has
+no `build` flag for, because the runner (`logos/driver.py`'s `run_test`) calls
+the lowering directly. Three things follow from it and none is a usage error —
+the required-`main` rule is not applied, the IR goes to
+`build/<stem>.<name>.ll` with `/` and `\` in the name replaced by `_`, and the
+link adds `-DLOGOS_DEBUG=1` first in the clang command line so the runtime's
+leak report is compiled in. A repeated `--test` takes the last value. See
+`lower.md`'s "Test mode" for what the lowering does with the name.
 
 **No arguments, an unknown verb, a missing file, a `build` with no file, a
 `fmt` with no path, or a `check` with an extra argument** prints the usage to

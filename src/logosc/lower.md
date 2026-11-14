@@ -579,6 +579,49 @@ function type appends that function's own parameters. `lo-sig-one` and
 afterwards, so a `(f : (fn (:i64) :i64))` parameter cannot push its own
 parameter list into the middle of the enclosing signature's run.
 
+## `$fnvalue`: a named function used as a value
+
+`lo-atom-value` resolves an atom that is neither a literal nor a binding: if
+`lo-fn-id` finds a signature for it, the atom is not a name to load but a
+*function value*, and `lo-fnvalue` builds one. The value is the same two words a
+closure's is — `{ i8*, i8* }`, environment then code — so a function value and
+a closure answer one ABI and a call through either is the same
+`extractvalue`/`bitcast`/`icall`.
+
+The code word cannot be the definition's own address: a direct call passes
+`(T…)` and an indirect one passes `(i8*, T…)`, and the two signatures do not
+unify. Python therefore wraps each used definition once in a `$fnvalue$N`
+helper that takes the environment it ignores and calls the definition with the
+rest; this port does the same, and the memo is the point. `lo-fnv-find` looks
+the target's symbol — `lg.<owner>.<name>`, or `main`, which is a plain source
+name — up in the `cl` vector from index 4 in pairs (`target`, `wrapper`), so the
+second use of one function answers the first wrapper instead of emitting
+another. A miss queues a site row of kind 2 carrying the target's *signature*
+id in `st[12]`, which is what lets the drain emit the wrapper after the
+parent's `ir-fn-end` without parsing the signature again.
+
+`lo-fnvalue-new` gensyms `$fnvalue$N` from the same unit-wide counter as
+`$spawn$N` and `$lambda$N`, spells the symbol `lg.<module>.<$fnvalue$N>` from
+`cl[1]`, and emits `faddr` for it. Only the real pass queues
+(`st[4] != 0`): a dry pass that is planning a body's slots must not emit a
+define, exactly as with a closure.
+
+`lo-fnvalue-fn` emits the wrapper at drain time in the shape the closure path
+established: counters zeroed, `define R @lg.<mod>.$fnvalue$N (i8* %env, T…)`,
+`entry` opened before the dry pass so the block row owns the allocas, one
+`alloca` per parameter planned and then emitted, one `load` per argument
+(`lo-fnvalue-load`), a direct call to the target, and `ret`/`ret void` chosen by
+the target's return type. The environment parameter is named `env` and is never
+read.
+
+The signature comes from the type table, not the call site. `lo-atom-node-type`
+answers `f` — the signature `lo-scan-sigs` stored for that definition — for an
+atom that is not a binding and not a variant, and `lo-node-type` answers a
+*generic* call's instantiated result type rather than the generic's own
+variable. Those two queries are what let `(let f id)` be annotated, `(apply id
+3)` type-check against `(fn (T) U)`, and the wrapper's arity and argument types
+be read from the definition instead of guessed.
+
 ## Processes, files and arguments
 
 `(run prog argv)` copies the program and every argument into NUL-terminated
@@ -649,28 +692,82 @@ it at. The instance name is a source name like any other, so the symbol is
 `lg.<module>.<copy>`; no user name can spell one because `$` is not a name
 character.
 
+## Test mode: `build --test NAME`
+
+`gen2 build --test NAME file` lowers one `(test …)` body as the entry point, so
+the harness can run a single test as an ordinary process and compare its stdout,
+stderr and exit status. It is a mode, not a form: nothing below is new grammar.
+
+`main.logos` reads `--test` into `tnames` (`main-arg`, `main-flag-next`) and
+takes the last value (`main-test-name`), so the flag may be repeated. Three
+things change in `main-built`. The required-`main` rule is skipped
+(`main-check-main` returns 0 when a test name is present) because the test body,
+not the module, supplies the entry point. The IR path gains the test name:
+`main-ir-path-of` writes `build/<stem>.<test>.ll`, `<test>` sanitized by
+`main-sanitize` — every `/` and `\` becomes `_` — which is Python's
+`test_ir_path` exactly, so two tests of one file cannot overwrite each other's
+IR and a test build never stomps the plain `build/<stem>.ll`. And the link
+passes `dbg = 1` to `main-link`, which pushes `-DLOGOS_DEBUG=1` **first**, ahead
+of the optimisation flag, matching `driver._link`'s argv order: the runtime is
+compiled with its leak accounting on, so `rt_leak_report` exists at link time
+and a leaked block is visible instead of silently passing.
+
+`lower.logos` carries the name in `tname` and in two slots of `cl`: `cl[2]` is
+the name, and `cl[3]` is `"1"` or `"0"`, the test-mode flag every `lo-*` below
+can read without threading another parameter. `lower-build` then changes three
+things per module. When lowering bodies it skips the module's `main` (a test
+build must not emit a second entry point). It runs `lo-test-sweep`, which
+replays **every** `(test …)` body of the module in a dry pass — `st[4] = 1`, so
+no instruction is written, only the type work — purely to discover the generic
+copies those bodies use: a copy a test reaches is emitted only if something
+lowers the test, and the sweep is what makes the copy existent. And it defers
+`lo-inst-drain` for module 0, because the copies the sweep queued are drained by
+the entry-point pass, in the order Python's breadth-first drain gives.
+
+`lo-test-entry` closes the mode after the module loop: it refills the node slice
+to module 0, finds the named test with `lo-test-find` (`E0002: no test named
+'…'` otherwise), sets `cl[1]` to that module's name so symbols are qualified
+correctly, drains the instantiations, builds the entry function with
+`lo-test-main`, drains the sites it queued, and rotates the entry row to the end
+of the function table so `main` prints last, as in a normal build.
+
+`lo-test-main` is the ordinary body pipeline with a different head: it opens
+`main` as `i32` and lowers the test body exactly twice, as a closure's body is
+lowered twice. The first pass plans the slots; the allocas are emitted between
+the passes; the second pass writes the code. The body is
+`(lo-child nod ntx test 2)` — path index 2, which is the first statement after
+the `test` head and the test's name — and the walk runs to the end of the
+sibling chain, because a test body's statements are siblings, not a wrapped
+block. `lo-fn-finish` then closes the block with the leak report below.
+
+The leak report has two exit paths, and both must emit the call for the IR to
+match Python. `lo-leak-report` declares `rt_leak_report` and emits a call, and
+does nothing when `cl[3]` is `"0"` — a release build's stderr belongs to the
+program. `lo-ret-main` calls it before the `ret` that returns the status, and
+`lo-fn-finish` calls it on the fall-off-the-end path (`st[5] == 1`), which is
+the one an empty or fully-terminating body takes; that path returns `0`
+immediately afterwards.
+
+Every claim above is measured on `tests/exec/closures.logos`: all seventeen
+tests lower to IR byte-identical to Python's `run_test` output — including the
+nine copies that only a test body reaches, `named-function-value`'s `$fnvalue`
+wrapper, and the debug `rt_leak_report` on both exits. The comparison is
+`gen2 build --test NAME` against `driver.run_test`, one pair of `.ll` files per
+test, so it is the same claim phase five makes for a whole unit.
+
 ## What it does not lower
 
 Still refused, each at the form's node path with `E0002: '<head>' is not
 lowered by this backend yet`:
 
-- **A named function used as a value** (`$fnvalue`). Python wraps each used
-  definition once in a `$fnvalue$N` helper that takes `(i8*, T…)` and calls it,
-  so a function pointer and a closure share one ABI. No fixture claims it.
-- **An instantiation inside a `(test …)` body.** Copies are discovered while a
-  body is lowered, and a test body is not lowered (there is no entry point for
-  it yet), so a copy that only a test reaches is never emitted —
-  `tests/exec/closures.logos` is the case in point: nine of its ten copies come
-  from `(test …)` bodies.
 - **`!=`, `<`, `<=`, `>` and `>=` on `:str`.**
-- **`build --test NAME`.** Every positive corpus file under `tests/exec`,
-  `tests/thread` and `tests/regress` is a `(test …)`, not a `main`, so
-  `gen2 build` refuses it with `no 'main' function to build` before lowering
-  starts. That is a missing *mode* (skip the module `main`, lower the test body
-  as the entry point, link `rt_leak_report`) and a gate that compares
-  `build/<stem>.<test>.ll` per test — not a missing form. It is why the parity
-  list holds fixtures and four example programs rather than the corpus the
-  other gates run on.
+
+A test build is refused in one further shape, and it is the checker rather than
+the lowering: this port's checker has no `test` branch, so `gen2 build --test`
+lowers a body the checker never read. A type error inside a test is a
+difference only Python sees, and `gen2 check` accepts a test body Python
+rejects. That is a known gap of its own (W8 step 3c-2), not a form the backend
+cannot spell.
 
 A shape with no finite layout is refused too, with a path and a code; see the
 next section.
@@ -697,7 +794,7 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — forty-four files, all byte-identical to Python's
+`tools/selfhost-ir.txt` — sixty-one files, all byte-identical to Python's
 `.ll`. The list also names four example programs (`examples/hello.logos`,
 `examples/json.logos`, `examples/wc.logos`, `examples/matrix.logos`): real
 programs, not fixtures, whose IR is claimed byte for byte. They are not a
@@ -710,14 +807,14 @@ end-to-end claim: four 18-line thunks at 135–210 of Python's
 `build/python-matrix.ll`, numbered `$spawn$1`–`$spawn$4` by the unit-wide
 counter and unpacking a six-field record, printed before `define i32 @main()`
 at 211 — which is the f-row rotation's whole job.
-`tools/selfhost.sh` holds `IR_FLOOR=48` over the whole list, so a pruned list
+`tools/selfhost.sh` holds `IR_FLOOR=65` over the whole list, so a pruned list
 fails rather than passing over fewer files. Set equality is judged on the list's
 *fixture* entries against `src/logosc/fixtures/ir-lower/*.logos`: every fixture
 on disk is listed and every listed fixture is on disk, so an addition or a
 deletion must move both names in the same commit and the count cannot be held
 still while one fixture is swapped for another. Set equality alone cannot stop
 the list and the directory shrinking together, though, so the fixture entries
-carry a floor of their own — `IR_FIXTURE_FLOOR=44` — and a fixture cannot leave
+carry a floor of their own — `IR_FIXTURE_FLOOR=61` — and a fixture cannot leave
 while a path outside the directory takes its place in the total. A path outside
 the directory is a claim of its own; it neither hides a missing fixture nor has
 to exist there.
