@@ -225,7 +225,7 @@ FORM_DOCS = (
     ("is-dir", "1", "`(is-dir p)` whether p is a directory, as `:bool`"),
     ("mkdirs", "1", "`(mkdirs p)` creates p and every missing parent; 0 when it is a directory, -1 otherwise"),
     ("path-error", "1", "`(path-error p)` why p cannot be read and written, or `\"\"` when it can"),
-    ("run", "2 or 3", "`(run prog args)` starts prog with the arguments the vector names, with an empty standard input; a third value is the child's budget in milliseconds"),
+    ("run", "2-3", "`(run prog args)` starts prog with the arguments the vector names, with an empty standard input; a third value is the child's budget in milliseconds"),
     ("run-status", "1", "`(run-status r)` the child's exit code, 128 + signal, 124 after its budget, or -1 when it could not start"),
     ("run-out", "1", "`(run-out r)` the child's standard output, as a `:str`"),
     ("run-err", "1", "`(run-err r)` the child's standard error, as a `:str`"),
