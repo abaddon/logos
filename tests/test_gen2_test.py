@@ -1,10 +1,12 @@
-"""`gen2 test` discovery, ids, the directive reader and a child's I/O.
+"""`gen2 test`: discovery, the directive reader, a child's I/O, and the report.
 
 The `test` verb is landed in seven steps (`2026-11-13-w8-harness-notes.md` §5)
-and this file judges the first three: which files a run covers, what each case
-is called and in what order, what a case's directives say, and — step 3 — that
-the case actually runs with an empty standard input, its own ten-second budget,
-and a failure reported rather than a panic.
+and this file judges the first six: which files a run covers, what each case is
+called and in what order, what a case's directives say, that the case runs with
+an empty standard input, its own ten-second budget and a failure reported
+rather than a panic (step 3), that each case runs at every level and the four
+clauses are compared (step 4), that the levels are compared with each other
+(step 5), and that the run ends with the suite's own summary line (step 6).
 
 Two oracles, both cheap:
 
@@ -18,12 +20,12 @@ Two oracles, both cheap:
   `_expectation`/`_expected_diagnostic`, before a binary would be built, so the
   oracle costs no compilation.
 
-The corpus-wide run now executes every case, so its status column is not
-asserted here: at `-O0` the port passes 107 of the 139 `exec` cases and the 32
-failures are step 4's and 5's work queue (see
-`2026-11-14-w8-harness-step3-report.md`). What this file pins is that every
-case still appears, once, in the baseline's order, and that the three child-I/O
-behaviours are the runtime's.
+The corpus-wide run executes every case at both levels, so its status column is
+not asserted here: the port still refuses 32 `exec` cases and 2 `mem` cases in
+the lowering, and those are classified in
+`2026-11-14-w8-harness-steps4-6-report.md`. What this file pins is that every
+case appears once in the baseline's order, that the summary line counts the
+lines above it, and that the child-I/O behaviours are the runtime's.
 
 The compiler under test is built once per run from the source set
 `tools/selfhost.sh` builds `gen2` from, with Python, because a compiler is the
@@ -33,6 +35,7 @@ only way to build a compiler before one exists.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -133,6 +136,18 @@ def _ids(done: subprocess.CompletedProcess) -> list[str]:
     return [line.split(" ")[1] for line in done.stdout.splitlines() if line.startswith(("PASS ", "FAIL "))]
 
 
+SUMMARY = re.compile(r"^(\d+) passed, (\d+) failed, (\d+) leaked$")
+
+
+def _totals(done: subprocess.CompletedProcess) -> tuple[int, int, int]:
+    """The run's three numbers, from the line `cli._test` prints last."""
+    match = SUMMARY.match(done.stdout.splitlines()[-1])
+    if match is None:
+        raise AssertionError(f"no summary line in {done.stdout!r}")
+    passed, failed, leaks = match.groups()
+    return int(passed), int(failed), int(leaks)
+
+
 class Gen2TestTest(unittest.TestCase):
     """The `test` verb's discovery, id and directive contract, through the binary."""
 
@@ -150,14 +165,20 @@ class Gen2TestTest(unittest.TestCase):
     # -- ids and order ----------------------------------------------------
 
     def test_the_whole_corpus_ids_and_order_match_the_baseline(self):
-        # Every case is built and run now, so the run costs a minute and may
-        # report failures; what it must still do is name each case once, in
-        # the baseline's order, and end.
+        # Every case is built and run at both levels now, so the run costs
+        # minutes and reports the port's known refusals; what it must still do
+        # is name each case once, in the baseline's order, and end with a
+        # summary whose numbers count the lines above it.
         done = _run([str(BIN), "test", "tests"], ROOT, timeout=1800)
         self.assertEqual(done.stderr, "")
         expected = _baseline_ids()
         self.assertEqual(_ids(done), expected)
-        self.assertEqual(len(done.stdout.splitlines()), len(expected))
+        lines = done.stdout.splitlines()
+        self.assertEqual(len(lines), len(expected) + 1)
+        passed, failed, _ = _totals(done)
+        self.assertEqual(passed + failed, len(expected))
+        self.assertEqual(passed, sum(1 for line in lines if line.startswith("PASS ")))
+        self.assertEqual(done.returncode, 1 if failed else 0)
 
     def test_the_category_order_is_the_suites_not_the_alphabet(self):
         expected = _baseline_ids()
@@ -173,10 +194,14 @@ class Gen2TestTest(unittest.TestCase):
         expected = [case for case in _baseline_ids() if case.startswith("mem/")]
         self.assertEqual(_ids(done), expected)
         self.assertEqual(len(expected), 7)
-        # Two of the seven do not build yet (`match` in expression position is
-        # a checker gap), so the exit status is not this test's claim; the id
-        # set and its order are.
+        # Two of the seven do not build yet (the port's lowering refuses a
+        # `match` used as a call argument), so the exit status is not this
+        # test's claim; the id set, its order and the leak total are. Python's
+        # run at both levels reports `7 passed, 0 failed, 6 leaked`.
         self.assertEqual(done.stderr, "")
+        passed, failed, leaks = _totals(done)
+        self.assertEqual(passed + failed, 7)
+        self.assertEqual(leaks, 6)
 
     def test_a_file_root_is_the_whole_set(self):
         done = _run([str(BIN), "test", "tests/exec/hello.logos"], ROOT)
@@ -191,13 +216,20 @@ class Gen2TestTest(unittest.TestCase):
         tree = self.tmp / "cases"
         tree.mkdir()
         _plant(tree, {**MALFORMED, **SIDECAR_SOURCES, **SIDECARS})
-        done = _run([str(BIN), "test", str(tree)], self.tmp)
+        # One level, because every one of these fails in the reader before a
+        # child would start: the sentences are the claim, and the summary is
+        # the oracle's own count.
+        done = _run([str(BIN), "test", str(tree), "--opt", "-O0"], self.tmp)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        # The oracle fails these in the reader, so it compiles nothing.
         summary = tester.run_suite(str(tree), opts=["-O0"])
         pins = [f"{case.status} {case.id} {case.detail}" for case in summary.cases]
-        self.assertEqual(done.stdout.splitlines(), pins)
+        lines = done.stdout.splitlines()
         self.assertEqual(len(pins), 25)
+        self.assertEqual(lines[:-1], pins)
+        self.assertEqual(
+            lines[-1],
+            f"{summary.passed} passed, {summary.failed} failed, {summary.leaks} leaked",
+        )
 
     def test_a_missing_root_is_one_line_and_exit_one(self):
         done = _run([str(BIN), "test", "nope"], self.tmp)
@@ -249,7 +281,8 @@ class ChildIoTest(unittest.TestCase):
         self.assertEqual(
             done.stdout,
             "PASS exec/read/empty-standard-input -\n"
-            "PASS exec/read/reading-is-not-a-leak -\n",
+            "PASS exec/read/reading-is-not-a-leak -\n"
+            "2 passed, 0 failed, 0 leaked\n",
         )
 
     def test_a_twenty_second_case_is_killed_at_ten(self):
@@ -260,9 +293,13 @@ class ChildIoTest(unittest.TestCase):
             [str(BIN), "test", str(self.FIXTURES / "sleep.logos")], ROOT, timeout=60
         )
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        # Both levels run, so the budget is spent twice and the detail carries
+        # one clause per level.
         self.assertEqual(
             done.stdout,
-            "FAIL exec/sleep/sleeps-past-its-budget -O0: timed out after 10s\n",
+            "FAIL exec/sleep/sleeps-past-its-budget -O0: timed out after 10s; "
+            "-O2: timed out after 10s\n"
+            "0 passed, 1 failed, 0 leaked\n",
         )
         self.assertEqual(done.stderr, "")
 
@@ -296,3 +333,135 @@ class ChildIoTest(unittest.TestCase):
         prefix = "FAIL exec/missing/cannot-be-started -O0: could not run: "
         self.assertTrue(done.stdout.startswith(prefix), done.stdout)
         self.assertIn("No such file or directory", done.stdout)
+
+
+class ReportTest(unittest.TestCase):
+    """Steps 4-6: the level loop, the cross-level comparison and the report.
+
+    Every fixture here is a scratch tree inside the repository's `build/`,
+    because a test binary is linked against `logos/runtime/rt.c` relative to the
+    working directory. The trees are small: each case is one build per level,
+    so the whole class costs a few seconds.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        BIN.parent.mkdir(parents=True, exist_ok=True)
+        done = _run([sys.executable, "-m", "logos", "build", *SOURCES, "-o", str(BIN)], ROOT)
+        if done.returncode != 0 or not BIN.is_file():
+            raise AssertionError(f"could not build gen2: {done.stdout}{done.stderr}")
+
+    def setUp(self) -> None:
+        (ROOT / "build").mkdir(exist_ok=True)
+        self.tmp = Path(tempfile.mkdtemp(prefix="gen2-report-", dir=ROOT / "build"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.rel = self.tmp.relative_to(ROOT)
+
+    def _tree(self, name: str, files: dict[str, str]) -> str:
+        root = self.tmp / name
+        _plant(root, files)
+        return str((self.rel / name))
+
+    def test_a_case_runs_at_both_levels_and_the_clauses_are_compared(self):
+        # The two cases differ only in what they print, so the failure detail
+        # is `_compare`'s sentence once per level, joined by `"; "` in the
+        # order the levels ran. A summary counts the lines above it.
+        tree = self._tree(
+            "cases",
+            {
+                "exec/levels.logos": (
+                    "(mod levels)\n\n"
+                    "(test passes\n  (expect (out \"one\\n\"))\n  (println \"one\"))\n\n"
+                    "(test fails\n  (expect (out \"two\\n\"))\n  (println \"three\"))\n"
+                )
+            },
+        )
+        done = _run([str(BIN), "test", tree], ROOT, timeout=300)
+        self.assertEqual(
+            done.stdout,
+            "PASS exec/levels/passes -\n"
+            "FAIL exec/levels/fails -O0: stdout: expected 'two\\n', got 'three\\n'; "
+            "-O2: stdout: expected 'two\\n', got 'three\\n'\n"
+            "1 passed, 1 failed, 0 leaked\n",
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(done.stderr, "")
+        # Both levels really ran, at Python's paths.
+        harness = ROOT / "build" / "harness" / "exec" / "levels"
+        self.assertTrue((harness / "00-passes.O0.bin").is_file())
+        self.assertTrue((harness / "00-passes.O2.bin").is_file())
+
+    def test_opt_selects_the_levels(self):
+        tree = self._tree(
+            "only",
+            {
+                "exec/only.logos": (
+                    "(mod only)\n\n(test solo\n  (expect (out \"a\\n\"))\n  (println \"a\"))\n"
+                )
+            },
+        )
+        done = _run([str(BIN), "test", tree, "--opt", "-O0"], ROOT, timeout=300)
+        self.assertEqual(
+            done.stdout,
+            "PASS exec/only/solo -\n1 passed, 0 failed, 0 leaked\n",
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        harness = ROOT / "build" / "harness" / "exec" / "only"
+        self.assertTrue((harness / "00-solo.O0.bin").is_file())
+        self.assertFalse((harness / "00-solo.O2.bin").is_file())
+        # `--opt=-O0` is argparse's other spelling of the same flag, and the
+        # level it names is the level that runs.
+        attached = _run([str(BIN), "test", tree, "--opt=-O0"], ROOT, timeout=300)
+        self.assertEqual(attached.stdout, done.stdout)
+        self.assertEqual(attached.returncode, 0, attached.stdout + attached.stderr)
+
+    def test_two_levels_that_agree_are_not_a_disagreement(self):
+        # The same level twice is two observations with nothing between them:
+        # the comparison must stay silent rather than invent a difference.
+        tree = self._tree(
+            "same",
+            {
+                "exec/same.logos": (
+                    "(mod same)\n\n(test twice\n  (expect (out \"a\\n\"))\n  (println \"a\"))\n"
+                )
+            },
+        )
+        done = _run([str(BIN), "test", tree, "--opt", "-O0", "-O0"], ROOT, timeout=300)
+        self.assertEqual(
+            done.stdout,
+            "PASS exec/same/twice -\n1 passed, 0 failed, 0 leaked\n",
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_a_file_outside_the_categories_is_skipped_and_fails_the_run(self):
+        tree = self._tree(
+            "skip",
+            {
+                "exec/skip.logos": (
+                    "(mod skip)\n\n(test one\n  (expect (out \"a\\n\"))\n  (println \"a\"))\n"
+                ),
+                "stray.logos": "(mod stray)\n",
+            },
+        )
+        done = _run([str(BIN), "test", tree], ROOT, timeout=300)
+        self.assertEqual(
+            done.stdout,
+            "PASS exec/skip/one -\n"
+            f"SKIP {tree}/stray.logos\n"
+            "1 passed, 0 failed, 0 leaked\n",
+        )
+        self.assertEqual(
+            done.stderr,
+            "logos: test: 1 file(s) outside the known categories were skipped\n",
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+
+    def test_an_empty_run_says_so_and_fails(self):
+        tree = self._tree("empty", {"exec/none.logos": "(mod none)\n"})
+        done = _run([str(BIN), "test", tree], ROOT, timeout=120)
+        self.assertEqual(
+            done.stdout,
+            f"0 passed, 0 failed, 0 leaked\ntest: no cases found in {tree}\n",
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(done.stderr, "")

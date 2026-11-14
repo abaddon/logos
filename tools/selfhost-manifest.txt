@@ -127,6 +127,7 @@ src/logosc/fixtures/wrong/wrong.logos
 src/logosc/fmt.logos
 src/logosc/fmt_test.logos
 src/logosc/harness.logos
+src/logosc/harness_test.logos
 src/logosc/ir.logos
 src/logosc/lex.logos
 src/logosc/lex_test.logos

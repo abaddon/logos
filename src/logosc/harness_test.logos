@@ -1,0 +1,66 @@
+(mod harness-test)
+
+(use harness)
+
+(test level-and-safe-name
+  (expect (out "O0\nOfast\nO0\na_b_c.logos\n")
+    (code 0)
+    (leaks 0))
+  (println (h-level "-O0"))
+  (println (h-level "-Ofast"))
+  (println (h-level "-"))
+  (println (h-safe-name "a b/c.logos")))
+
+(test leaks-count-line-starts
+  (expect (out "2\n0\n1\n")
+    (code 0)
+    (leaks 0))
+  (println (h-leaks "LEAK 4 bytes\nok\nLEAK 8 bytes\n"))
+  (println (h-leaks "x LEAK 4 bytes\n"))
+  (println (h-leaks "LEAK 1 bytes")))
+
+(test summary-counts
+  (expect (out "1 passed, 2 failed, 3 leaked\n")
+    (code 0)
+    (leaks 0))
+  (letmut totals
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push totals 1)
+  (vec-push totals 2)
+  (vec-push totals 3)
+  (h-summary totals)
+  (vec-free totals))
+
+(test disagreement-names-the-fields-that-differ
+  (expect (out "-O0 and -O2 disagree: stdout 'a' vs 'b', exit code 0 vs 1, stderr 'w' vs 'x'\n-O0 and -O2 disagree: stderr 'w' vs 'x'\n")
+    (code 0)
+    (leaks 0))
+  (letmut opts
+    (vec :str)
+    (make (vec :str)))
+  (vec-push opts "-O0")
+  (vec-push opts "-O2")
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (vec-push out "a")
+  (vec-push out "b")
+  (letmut err
+    (vec :str)
+    (make (vec :str)))
+  (vec-push err "w")
+  (vec-push err "x")
+  (letmut code
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push code 0)
+  (vec-push code 1)
+  (println (h-disagree-one opts out err code 1))
+  (vec-set out 1 "a")
+  (vec-set code 1 0)
+  (println (h-disagree-one opts out err code 1))
+  (vec-free opts)
+  (vec-free out)
+  (vec-free err)
+  (vec-free code))

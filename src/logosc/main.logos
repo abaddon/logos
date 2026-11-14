@@ -1082,12 +1082,17 @@
     (set j (+ j 1)))
   (ret ok))
 
-(fn main-test-opts :i64 ((a (ref (vec :str))) (i :i64) (n :i64))
+(fn main-test-opts :i64 ((a (ref (vec :str))) (i :i64) (n :i64) (levels (ref (vec :str))))
   (letmut j :i64 i)
   (while (and (< j n)
            (main-test-level (vec-get a j)))
+    (vec-push levels (vec-get a j))
     (set j (+ j 1)))
   (ret (if (= j i) -1 j)))
+
+(fn main-test-opt-eq :i64 ((s :str) (next :i64) (levels (ref (vec :str))))
+  (vec-push levels (str-slice s 6 (str-len s)))
+  (ret next))
 
 (fn main-test-update :i64 ((flags (ref (vec :i64))) (next :i64))
   (vec-set flags 2 1)
@@ -1101,7 +1106,7 @@
   (vec-set flags 0 1)
   (ret next))
 
-(fn main-test-arg :i64 ((a (ref (vec :str))) (i :i64) (n :i64) (path (ref (vec :str))) (only (ref (vec :str))) (flags (ref (vec :i64))))
+(fn main-test-arg :i64 ((a (ref (vec :str))) (i :i64) (n :i64) (path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))))
   (let s :str (vec-get a i))
   (ret (if (str-eq s "--only")
          (if (< (+ i 1) n)
@@ -1112,10 +1117,10 @@
            (main-test-only (str-slice s 7 (str-len s))
              (+ i 1) only)
            (if (str-eq s "--opt")
-             (main-test-opts a (+ i 1) n)
+             (main-test-opts a (+ i 1) n levels)
              (if (and (> (str-len s) 6)
                    (str-eq (str-slice s 0 6) "--opt="))
-               (+ i 1)
+               (main-test-opt-eq s (+ i 1) levels)
                (if (str-eq s "--update-baseline")
                  (main-test-update flags (+ i 1))
                  (if (and (> (str-len s) 0)
@@ -1130,7 +1135,7 @@
   (fmt-emit 2 "logos: test: --update-baseline is not implemented yet\n")
   (ret 2))
 
-(fn main-test-run :i64 ((path (ref (vec :str))) (only (ref (vec :str))) (flags (ref (vec :i64))))
+(fn main-test-run :i64 ((path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))))
   (let name :str (vec-get only 0))
   (if (and (not (str-eq name ""))
         (not (h-known-category name)))
@@ -1139,8 +1144,7 @@
   (if (= (vec-get flags 2) 1)
     (ret (main-test-no-baseline))
     (main-nothing))
-  (let failures :i64 (h-run (vec-get path 0) name))
-  (ret (if (not (= failures 0)) 1 0)))
+  (ret (h-run (vec-get path 0) name levels)))
 
 (fn main-test :i64 ((a (ref (vec :str))) (n :i64))
   (letmut path
@@ -1151,6 +1155,9 @@
     (vec :str)
     (make (vec :str)))
   (vec-push only "")
+  (letmut levels
+    (vec :str)
+    (make (vec :str)))
   (letmut flags
     (vec :i64)
     (make (vec :i64)))
@@ -1160,15 +1167,16 @@
   (letmut i :i64 2)
   (while (and (= (vec-get flags 1) 0)
            (< i n))
-    (set i (main-test-arg a i n path only flags))
+    (set i (main-test-arg a i n path only levels flags))
     (vec-set flags 1 (if (< i 0) 1
                        (vec-get flags 1))))
   (letmut status :i64 0)
   (if (= (vec-get flags 1) 1)
     (set status (main-usage))
-    (set status (main-test-run path only flags)))
+    (set status (main-test-run path only levels flags)))
   (vec-free path)
   (vec-free only)
+  (vec-free levels)
   (vec-free flags)
   (ret status))
 
