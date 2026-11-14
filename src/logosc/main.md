@@ -10,9 +10,9 @@ produce a native binary. The modules before it return values; this one is a prog
 process boundary — the command line, the exit status and the two output
 streams — and nothing else.
 
-Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md`, `check.md`, `lower.md` and
-`emit.md` first. This file adds no language surface: it calls the modules in the
-order the Python compiler does.
+Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md`, `check.md`, `lower.md`,
+`emit.md` and `harness.md` first. This file adds no language surface: it calls
+the modules in the order the Python compiler does.
 
 ## The command line
 
@@ -21,6 +21,7 @@ gen2 fmt <file|dir|->...
 gen2 resolve <file>...
 gen2 check <file>
 gen2 build <file>... [-o <out>] [--opt <O>] [--test <name>] [--keep-ir]
+gen2 test [<path>] [--only <category>] [--opt <level>]...
 ```
 
 `(args)` returns the whole command line including the program name, as the
@@ -29,8 +30,8 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 | index | holds |
 |---|---|
 | `0` | the program, `gen2` |
-| `1` | the verb, `fmt`, `resolve`, `check` or `build` |
-| `2` … `n-1` | the paths to format, resolve or build (one or more), and `build`'s flags |
+| `1` | the verb, `fmt`, `resolve`, `check`, `build` or `test` |
+| `2` … `n-1` | the paths to format, resolve or build (one or more), and `build`'s or `test`'s flags, or `test`'s one path |
 | `2` | the file to check (exactly one) |
 
 `build`'s flags may appear anywhere among its files, as Python's `argparse`
@@ -51,6 +52,18 @@ link adds `-DLOGOS_DEBUG=1` first in the clang command line so the runtime's
 leak report is compiled in. A repeated `--test` takes the last value. See
 `lower.md`'s "Test mode" for what the lowering does with the name.
 
+`test` is the corpus runner. `PATH` defaults to `tests` (`nargs="?"` in
+`cli.py`), `--only CAT` filters by category and must name one of the eight, and
+`--opt` is consumed the way `argparse` reads it after `cli._normalize_argv`:
+one flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two
+levels. A second positional argument, and any other word starting with `-`, is
+a usage error; `--update-baseline` is parsed and refused with exit 2 until W9.
+The runner is landed through two of its seven steps (see `harness.md`): it
+walks the tree, derives every case id and reads that case's directives, but it
+builds and runs nothing yet, so each enumerated case prints `PASS <id> -` and
+only a malformed directive prints `FAIL <id> <detail>`. Ids, their order and
+the detail sentences are Python's `tester.py`.
+
 **No arguments, an unknown verb, a missing file, a `build` with no file, a
 `fmt` with no path, or a `check` with an extra argument** prints the usage to
 stderr and exits 2:
@@ -59,6 +72,7 @@ stderr and exits 2:
 usage: gen2 <fmt|check> <file>
        gen2 resolve <file>...
        gen2 build <file>... [-o <out>] [--opt <O>]
+       gen2 test [<path>] [--only <category>] [--opt <level>]...
 ```
 
 The usage line still says `<file>` for `fmt` because it is a fixed string the
@@ -294,6 +308,17 @@ leaves nothing behind that could be mistaken for a success.
 | `main-fmt-diag path code line col msg` | `:i64` | print one diagnostic and return 1 |
 | `main-fmt-bad path msg` | `:i64` | print `logos: <path>: <msg>` and return 1 |
 | `main-fmt-twice` | `:i64` | print the repeated-`-` line and return 2 |
+| `main-test a n` | `:i64` | read `test`'s path and flags, then run the harness or print the usage |
+| `main-test-arg a i n path only flags` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
+| `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
+| `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
+| `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
+| `main-test-opts a i n` | `:i64` | consume the levels after `--opt`; -1 when there is none |
+| `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
+| `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
+| `main-test-run path only flags` | `:i64` | validate `--only`, refuse the baseline, call `h-run` |
+| `main-test-unknown name` | `:i64` | print the unknown-category line and return 2 |
+| `main-test-no-baseline` | `:i64` | print the deferred-baseline line and return 2 |
 | `main-sort names` | `:void` | sort entry names byte-wise, in place |
 | `main-str-less a b` | `:bool` | byte-wise `a < b` |
 | `main-join dir name` | `:str` | `dir/name`, without a doubled slash |
@@ -459,10 +484,13 @@ one-file program, where it also compares the binary with Python's.
 - **No flag parsing.** `fmt`'s arguments are all paths or `-`; a path that
   begins with `-` is read as a path, where `argparse` would call it an unknown
   flag. The verb has no flags to confuse it with.
-- **No `--test NAME`.** Python's `test` verb builds one `(test …)` body as a
-  debug `main` (`driver.py:197-222`); `build` here has one mode, the release
-  build of a module set. That, and the harness around it, is the `test` step of
-  the cutover.
+- **No child process from `test`.** The runner is landed two steps at a time:
+  discovery and the directive reader are in, and the verb stops there. It
+  builds no case and starts no process, so every case it enumerates prints
+  `PASS <id> -`; a case whose directive is malformed prints `FAIL <id>
+  <detail>` and nothing else. `harness.md` names what the remaining steps owe —
+  a child with stdin `/dev/null`, a 10 s bound with a kill, the level loop and
+  its cross-level comparison, the summary line and the baseline.
 - **No front-end exit-1.** A lexer, tree, resolver or checker refusal is the
   port's own diagnostic line with exit 2, where Python's `build` prints
   `error.render()` and exits 1 (`cli.py:311-327`). The link failures do follow
