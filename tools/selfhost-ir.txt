@@ -207,3 +207,10 @@ src/logosc/fixtures/ir-lower/match-let-init.logos
 src/logosc/fixtures/ir-lower/match-ret-operand.logos
 src/logosc/fixtures/ir-lower/match-arith-operand.logos
 src/logosc/fixtures/ir-lower/match-arm-depths.logos
+src/logosc/fixtures/ir-lower/cast-trunc.logos
+src/logosc/fixtures/ir-lower/cast-widen.logos
+src/logosc/fixtures/ir-lower/cast-int-float.logos
+src/logosc/fixtures/ir-lower/cast-float-int.logos
+src/logosc/fixtures/ir-lower/cast-zext.logos
+src/logosc/fixtures/ir-lower/cast-chain.logos
+src/logosc/fixtures/ir-lower/if-str-zero.logos

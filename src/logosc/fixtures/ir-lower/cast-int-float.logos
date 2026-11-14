@@ -1,0 +1,6 @@
+(mod cast-int-float)
+
+(fn main :i64 ()
+  (let n :i64 4294967297)
+  (println (cast :f64 n))
+  (ret 0))

@@ -323,6 +323,43 @@ what the language means — a count of 64 on an `:i64` is a count of 0.
 `lo-node-type` returns the operand's type for a shift, as it does for
 arithmetic, so `(let x (shl a 2))` gets `a`'s width.
 
+## Casts
+
+`lo-cast` lowers `(cast T e)` for every pair of numeric primitives, and the pair
+decides the instruction: `trunc` to a narrower integer, `zext`/`sext` to a wider
+one (the *source*'s sign decides which), and nothing at all between two
+spellings of one width, because the bits already mean the target's value.
+`sitofp`/`uitofp` to a float, `fpext`/`fptrunc` between two floats, and
+`fptosi`/`fptoui` from a float to an integer.
+
+The float-to-integer pair needs a range test in front of it: `fptosi` outside the
+target's range is undefined, so `lo-float-to-int` compares the operand with the
+target's two bounds — `[0, 2^w)` unsigned, `[-2^(w-1), 2^(w-1))` signed — using
+`fcmp oge` and `fcmp olt` joined by `and`, branches to a `bad` block that panics
+`R0003` with the cast's own node path, and emits the conversion only in the `ok`
+block. A NaN fails both comparisons and takes the same path, which is the one
+answer that does not invent an integer. The bounds are powers of two and exact
+at both widths; `lo-float-at` spells each one at the *source*'s width — rounded
+to single when the operand is an `:f32` — which is the rule Python's
+`_float_operand` applies, and the one that keeps `cast-float-int`
+byte-identical.
+
+A decimal literal's mantissa is accumulated in a `:u64`, not an `:i64`: a
+19-digit significand (`9223372036854774784.0`, the largest `:i64` below `2^63`)
+does not fit a signed 64-bit accumulator, and the wrap used to spell the literal
+as a different number entirely. Digits past the accumulator's reach keep the
+exponent right instead of corrupting the value: a dropped *integer* digit adds
+one to `10^extra`, a dropped *fractional* digit is not counted in `frac`, so
+`9223372036854775808.0` and `9223372036854774784.0` are the two doubles the
+corpus's range-boundary case names.
+
+Every caller-supplied type id in this file is tested with `>= 0`, never `> 0`:
+type id `0` is a real type — `str` in a unit whose first declaration returns
+`:str` — and `> 0` reads it as "the caller named no type". `lo-if`,
+`lo-node-type`'s literal/`if`/`match` arms, `lo-operand-type`, `lo-ctor-type`,
+the result and optional readers and `args`/`read-dir` all share the test;
+`if-str-zero` pins the shape.
+
 ## `print` and `println`
 
 `lo-print` types its one argument and picks the runtime entry point that already
@@ -821,7 +858,7 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — sixty-six files, all byte-identical to Python's
+`tools/selfhost-ir.txt` — eighty-two paths, all byte-identical to Python's
 `.ll`. The list also names four example programs (`examples/hello.logos`,
 `examples/json.logos`, `examples/wc.logos`, `examples/matrix.logos`): real
 programs, not fixtures, whose IR is claimed byte for byte. They are not a
@@ -834,14 +871,14 @@ end-to-end claim: four 18-line thunks at 135–210 of Python's
 `build/python-matrix.ll`, numbered `$spawn$1`–`$spawn$4` by the unit-wide
 counter and unpacking a six-field record, printed before `define i32 @main()`
 at 211 — which is the f-row rotation's whole job.
-`tools/selfhost.sh` holds `IR_FLOOR=65` over the whole list, so a pruned list
+`tools/selfhost.sh` holds `IR_FLOOR=82` over the whole list, so a pruned list
 fails rather than passing over fewer files. Set equality is judged on the list's
 *fixture* entries against `src/logosc/fixtures/ir-lower/*.logos`: every fixture
 on disk is listed and every listed fixture is on disk, so an addition or a
 deletion must move both names in the same commit and the count cannot be held
 still while one fixture is swapped for another. Set equality alone cannot stop
 the list and the directory shrinking together, though, so the fixture entries
-carry a floor of their own — `IR_FIXTURE_FLOOR=61` — and a fixture cannot leave
+carry a floor of their own — `IR_FIXTURE_FLOOR=78` — and a fixture cannot leave
 while a path outside the directory takes its place in the total. A path outside
 the directory is a claim of its own; it neither hides a missing fixture nor has
 to exist there.
