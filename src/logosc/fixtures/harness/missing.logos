@@ -1,0 +1,5 @@
+(mod missing)
+
+(test cannot-be-started
+  (expect (out "started\n"))
+  (println "started"))

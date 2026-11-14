@@ -3185,7 +3185,7 @@ class _Checker:
         return Prim("str")
 
     def _run(self, node: Node, env: _Env) -> Ty:
-        """``(run prog args)``: start a child and hand back its ``:run`` handle.
+        """``(run prog args [ms])``: start a child and hand back its ``:run``.
 
         The program is a ``:str``; the arguments are a **name** of type
         ``(vec :str)``, and the call moves it. The runtime copies every string
@@ -3193,16 +3193,22 @@ class _Checker:
         itself — a second use of the name is E0300, and there is no way to
         spell a temporary the form could not release.
 
-        Nothing here can fail at check time except the shapes above: whether
-        the program exists is the running process's question, and a program it
-        cannot start panics R0006 at this node.
+        The optional third argument is the child's budget in milliseconds: an
+        ``:i64`` expression, 0 for the runtime's default 90 seconds. The timed
+        form exists for a supervisor — a harness that knows one test case may
+        take ten seconds while a build may take ninety — and it owns a child it
+        could not start: that failure is ``(run-status r)`` -1, not a panic.
+
+        Nothing else here can fail at check time: whether the program exists is
+        the running process's question, and the two-argument form panics R0006
+        at this node when it cannot start one.
         """
         items = node.items
-        if len(items) != 3:
+        if len(items) not in (3, 4):
             raise diag(
                 WRONG_ARITY,
                 node.path,
-                "'run' takes a program and an argument vector",
+                "'run' takes a program, an argument vector, and an optional budget",
             )
         self._exact_operand(items[1], env, node, Prim("str"), "run")
         arguments = items[2]
@@ -3223,6 +3229,15 @@ class _Checker:
                 _at(arguments, node),
                 f"'run' takes a (vec :str) of arguments, found {given}",
             )
+        if len(items) == 4:
+            budget = self._value(items[3], env, None, node.path)
+            if not (isinstance(budget, Prim) and budget.name == "i64"):
+                hint = "; cast it to :i64 first" if _integer(budget) else ""
+                raise diag(
+                    TYPE_MISMATCH,
+                    _at(items[3], node),
+                    f"'run' takes its budget as an :i64, found {budget}{hint}",
+                )
         # The call takes the vector: the runtime copies the strings and the
         # lowerer releases the buffer, so the caller may not touch it again.
         self._consume(arguments, env, node.path)

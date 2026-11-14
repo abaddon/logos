@@ -7,8 +7,10 @@ reference is `logos/tester.py`; Python is the oracle for every sentence here.
 
 `h-run` is the entry point: `(h-run ROOT ONLY)` prints one line per case and
 returns the number of failures, or `-1` when `ROOT` does not exist. `main`
-turns a non-zero count into exit 1 and an unknown `--only` into exit 2. Nothing
-here spawns a process, and nothing here writes a file.
+turns a non-zero count into exit 1 and an unknown `--only` into exit 2. A case
+is now built and run: `h-execute` spawns the compiler to build one test binary
+and then the binary itself, and the four clauses are compared. Nothing here
+writes a report file; the summary line and the baseline are steps 5–6.
 
 ## Discovery
 
@@ -107,17 +109,50 @@ language has no tuple return. `h-directive` folds the whole top-level chain in
 one loop: each node produces a `(code, problem)` pair and the loop stops
 consuming at the first problem, which is exactly Python's early `return`.
 
+## Child I/O — `_execute`
+
+`h-execute` mirrors `tester._execute` (`556-583`), and the three things it took
+from Python are the three it had to add to the language:
+
+| what | Python | here |
+|---|---|---|
+| standard input | `stdin=subprocess.DEVNULL` (`567`) | the runtime opens `/dev/null` for every `run` child, so `read-all` sees end of file |
+| a case's budget | `timeout=10.0` (`96`, `574-575`) | `(run out rargs 10000)`; a kill reports 124 and the detail is `-O0: timed out after 10s` |
+| a child that cannot start | `could not run: …` (`576-577`) | the timed form's handle carries status `-1` and the reason in `(run-err r)`; the detail is `-O0: could not run: <prog>: <reason>` |
+| a build's budget | none: clang is only bounded by the runtime | `(run self bargs 0)` — 0 means `RT_RUN_TIMEOUT_MS`, the same 90 s guard as before |
+
+The two waits are deliberately different values with different owners: 90 s
+protects a build (clang spends 27 s on the compiler's 18 MB unit), 10 s is one
+test case's budget, and sharing one constant would make either a build that
+dies too early or a hanging test that occupies the suite for a minute and a
+half. `h-build-budget` returns 0 so the build cannot drift from the runtime's
+own constant; `h-case-budget` returns Python's 10 000 ms.
+
+The build is one child: `(run SELF ["build" PATH "--test" NAME "--opt" LEVEL
+"-o" OUT] 0)`, where `SELF` is `(args)`'s first word — the compiler builds its
+own test binaries. A non-zero status becomes `-O0: build failed: <first line>`,
+which is Python's shape with the diagnostic's first line in place of
+`_message`'s render. The binary then runs with no arguments and a 10 s budget.
+
+The comparison is `_compare` (`614-637`) in directive order: stdout, exit
+code, leaks, `err-contains`, joined by `"; "` and prefixed with the level, so a
+case with two unmet clauses prints both. `h-leaks` counts `LEAK ` at the start
+of a line, as `_execute` does (`579`). `h-repr` is Python's `repr` for the
+characters that occur in practice — single quotes, and `\\`, `\'`, `\n`, `\r`,
+`\t` escaped — so a detail is readable and equivalence-grade rather than
+byte-identical for non-ASCII or control bytes.
+
+Only `-O0` runs. `--opt` is still parsed by `main` and ignored here: the level
+loop and the cross-level comparison are step 5.
+
 ## What it does not do yet
 
 The harness is seven steps (`2026-11-13-w8-harness-notes.md` §5) and this
-module is steps 1–2. Deferred, with the Python it belongs to:
+module is steps 1–3. Deferred, with the Python it belongs to:
 
-- **Running a case.** `_execute` (`556-583`) builds `--test NAME --opt LEVEL`,
-  runs the binary with stdin `/dev/null`, a 10 s bound and a kill, and compares
-  the four clauses. Until then a case whose directive is well formed prints
-  `PASS <id> -` without proving anything, which is why the id column is the
-  acceptance and not the status.
-- **A negative fixture's judgement.** `_run_negative` (`456-482`) runs the
+- **Both levels and the cross-level comparison.** `_run_case`'s `opts` loop and
+  `_disagreement` (`516-530`, `586-611`). Every case now runs once, at `-O0`.
+- **The negative fixtures' judgement.** `_run_negative` (`456-482`) runs the
   checker over the file and its reachable set, and compares the code. This verb
   enumerates the case and prints `PASS`; the code is not checked yet.
 - **`_run_unparsable`** (`348-389`) and the raw-text `EXPECT_ERROR` scan
@@ -131,16 +166,16 @@ module is steps 1–2. Deferred, with the Python it belongs to:
   keeps the claimed files only, so a stray fixture would vanish instead of
   failing. `tests/` holds none; the skip set belongs to the whole-suite step
   (6), which owns the exit status.
-- **The level loop, the summary line, the baseline** — steps 5–7. `main` parses
-  `--opt` and refuses `--update-baseline` with exit 2 rather than pretending.
+- **The summary line, the leak total, the baseline** — steps 5–6. `main`
+  refuses `--update-baseline` with exit 2 rather than pretending.
 
 ## Evidence
 
-- **Ids.** `gen2 test tests` prints 308 `PASS <id> -` lines; their id column
-  equals `cut -d' ' -f2 tests/summary.txt` (after its `LEAKS`/`OPTS` header)
-  line for line, in order. `tests/summary.txt` at this commit holds 308 `PASS`
-  lines, not the 307 the harness notes record — one fixture landed with W8
-  step 3c-1b, and the baseline is that run's output.
+- **Ids.** `gen2 test tests` prints one line per case (308 today); their id
+  column equals `cut -d' ' -f2 tests/summary.txt` (after its `LEAKS`/`OPTS`
+  header) line for line, in order. `tests/summary.txt` at this commit holds 308
+  `PASS` lines, not the 307 the harness notes record — one fixture landed with
+  W8 step 3c-1b, and the baseline is that run's output.
 - **`--only`.** `gen2 test tests --only mem` prints the same 7 ids as
   `python3 -m logos test tests --only mem`.
 - **Malformed directives.** 26 fixtures under a scratch tree, one variant per
@@ -150,3 +185,18 @@ module is steps 1–2. Deferred, with the Python it belongs to:
   (`E0002 test needs a name`), a divergence step 4 owns.
 - **Exit status.** A missing root prints Python's line and exits 1; an unknown
   `--only` exits 2 with Python's sentence.
+- **Standard input.** `gen2 test tests/exec/read.logos` builds and runs both
+  cases, prints two `PASS` lines and returns 0 in about a second. Before the
+  redirect it hung: `read-all` in the child inherited the harness's terminal.
+- **The case budget.** `src/logosc/fixtures/harness/sleep.logos` sleeps 20 s;
+  `gen2 test` on it takes 10 s, prints `FAIL exec/sleep/sleeps-past-its-budget
+  -O0: timed out after 10s` and exits 1 — Python's sentence, not a 90 s wait.
+- **A child that cannot start.** `src/logosc/fixtures/harness/missing.logos`
+  builds normally; when the compiler wrapper in
+  `tests/test_gen2_test.py` removes the binary, the run reports `FAIL
+  exec/missing/cannot-be-started -O0: could not run: <path>: No such file or
+  directory` and exits 1 with empty stderr. Panicking R0006 would exit 2.
+- **The exec corpus.** `gen2 test tests --only exec` reports 107 of 139 cases
+  passing at `-O0`; the 32 failures are classified in
+  `2026-11-14-w8-harness-step3-report.md` and are the work queue for the level
+  loop and the port gaps it exposes.

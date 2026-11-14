@@ -158,10 +158,35 @@ class RunCheckTest(unittest.TestCase):
         )
         self.assertEqual(error.code, "E0300")
 
-    def test_run_takes_two_arguments(self):
+    def test_run_takes_two_or_three_arguments(self):
         error = fail_on('(mod m)(fn f :run () (ret (run "sh")))')
         self.assertEqual(error.code, "E0102")
-        self.assertEqual(error.message, "'run' takes a program and an argument vector")
+        self.assertEqual(
+            error.message,
+            "'run' takes a program, an argument vector, and an optional budget",
+        )
+
+    def test_the_budget_is_an_i64(self):
+        error = fail_on(
+            f'(mod m)(fn f :run () {VECTOR} (ret (run "sh" a "1000")))'
+        )
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(
+            error.message, "'run' takes its budget as an :i64, found :str"
+        )
+
+    def test_a_narrow_budget_says_how_to_widen_it(self):
+        # The runtime takes a `long long` and does not widen: a u32 would
+        # arrive as a bit pattern it cannot read as the number the program
+        # meant, so the diagnostic names the cast.
+        error = fail_on(
+            f'(mod m)(fn f :run () {VECTOR} (ret (run "sh" a (cast :u32 10))))'
+        )
+        self.assertEqual(error.code, "E0100")
+        self.assertEqual(
+            error.message,
+            "'run' takes its budget as an :i64, found :u32; cast it to :i64 first",
+        )
 
 
 class RunReadersCheckTest(unittest.TestCase):
@@ -243,6 +268,25 @@ class RunLoweringTest(unittest.TestCase):
         params, ret = declares(module)["rt_run_start"]
         self.assertEqual(len(params), 6)
         self.assertEqual(ret, Ptr(Prim("u8")))
+
+    def test_a_named_budget_calls_the_timed_runtime(self):
+        source = (
+            '(mod m)(fn main :void () (letmut a (vec :str) (make (vec :str)))'
+            ' (let r (run "sh" a 10000)) (println (run-status r)))'
+        )
+        module = lowered(source)
+        names = call_names(main_of(module))
+        self.assertIn("rt_run_start_timed", names)
+        self.assertNotIn("rt_run_start", names)
+        params, ret = declares(module)["rt_run_start_timed"]
+        self.assertEqual(len(params), 7)
+        self.assertEqual(ret, Ptr(Prim("u8")))
+
+    def test_the_two_argument_form_still_calls_the_guarded_runtime(self):
+        module = lowered(self.SOURCE)
+        names = call_names(main_of(module))
+        self.assertIn("rt_run_start", names)
+        self.assertNotIn("rt_run_start_timed", names)
 
     def test_the_two_arrays_are_gathered_and_all_three_buffers_freed_after(self):
         fn = main_of(lowered(self.SOURCE))
@@ -378,6 +422,65 @@ class RunExecTest(unittest.TestCase):
                 # The location is the `run` node, not the runtime: the path is
                 # the one the lowerer emitted for the call.
                 self.assertIn(b"spawn/main/3/1: R0006", done.stderr)
+
+    def programme(self, stem: str, body: str) -> str:
+        """Build one inline `main` at -O0 and return the binary's path."""
+        source = BUILD / f"{stem}.logos"
+        BUILD.mkdir(parents=True, exist_ok=True)
+        source.write_text("(mod t)\n" + body, encoding="utf-8")
+        return driver.build(str(source), str(BUILD / f"{stem}-O0"), opt="-O0")
+
+    def test_a_named_budget_bounds_a_child_and_reports_124(self):
+        # The budget is the case's, not the toolchain's: five seconds of sleep
+        # against 200 milliseconds is a kill, and a kill is status 124.
+        binary = self.programme(
+            "run-budget",
+            "(fn main :void ()\n"
+            "  (letmut a (vec :str) (make (vec :str)))\n"
+            '  (vec-push a "-c")\n'
+            '  (vec-push a "sleep 5")\n'
+            '  (let r (run "sh" a 200))\n'
+            "  (println (run-status r)))\n",
+        )
+        done = subprocess.run([binary], capture_output=True, timeout=20)
+        self.assertEqual(done.stdout, b"124\n", done.stderr)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_child_never_inherits_standard_input(self):
+        # `cat` copies its standard input to its output. With `/dev/null` it
+        # reads end of file at once, prints nothing and exits 0; inheriting
+        # the runner's input would block here or copy those bytes through.
+        binary = self.programme(
+            "run-stdin",
+            "(fn main :void ()\n"
+            "  (letmut a (vec :str) (make (vec :str)))\n"
+            '  (vec-push a "-c")\n'
+            '  (vec-push a "cat")\n'
+            '  (let r (run "sh" a 10000))\n'
+            "  (println (run-status r))\n"
+            "  (print (run-out r)))\n",
+        )
+        done = subprocess.run([binary], capture_output=True, timeout=20)
+        self.assertEqual(done.stdout, b"0\n", done.stderr)
+
+    def test_a_named_budget_reports_a_child_it_could_not_start(self):
+        # The timed form owns the failure: status -1 and the reason on the
+        # handle, so a supervisor prints it instead of dying of R0006.
+        binary = self.programme(
+            "run-missing",
+            "(fn main :void ()\n"
+            "  (letmut a (vec :str) (make (vec :str)))\n"
+            '  (let r (run "definitely-not-a-program-xyz" a 10000))\n'
+            "  (println (run-status r))\n"
+            "  (print (run-err r)))\n",
+        )
+        done = subprocess.run([binary], capture_output=True, timeout=20)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith(b"-1\n"), done.stdout)
+        self.assertIn(
+            b"could not run: definitely-not-a-program-xyz", done.stdout
+        )
+        self.assertNotIn(b"R0006", done.stderr)
 
     def test_a_nonzero_and_a_signalled_status_are_reported(self):
         # Both are the child's status, not the test process's: only pinning

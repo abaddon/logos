@@ -1094,7 +1094,8 @@ struct rt_run {
     size_t err_cap;
 };
 
-/* How long a child may run before it is killed. A constant, not a parameter:
+/* How long a child may run before it is killed when the caller names no
+ * budget: `run`'s default and the build's cap. A constant, not a parameter:
  * a test that hangs is a bug in the program, and 124 is the shell's code for a
  * command that timed out. The guard lets the timeout probe build a short
  * budget.
@@ -1105,7 +1106,12 @@ struct rt_run {
  * at 124 on a busy host, which the driver can only report as a clang failure.
  * Three minutes would buy more room still; ninety is the largest budget that
  * is still obviously a hang guard rather than a wait, and clang is the only
- * child in the repository that comes close to it. */
+ * child in the repository that comes close to it.
+ *
+ * A harness has a different wait to enforce: one test case's budget, which is
+ * ten seconds and belongs to the case, not to the toolchain. `(run prog args
+ * ms)` names that budget per call (rt_run_start_timed); this constant stays
+ * the default for `(run prog args)` and for every build. */
 #ifndef RT_RUN_TIMEOUT_MS
 #define RT_RUN_TIMEOUT_MS 90000
 #endif
@@ -1120,6 +1126,35 @@ static long long rt_monotonic_ms(void) {
         return 0;
     }
     return (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+}
+
+/* The handle a supervised child gets when it could not be started: status -1,
+ * which no exit code and no `128 + signal` can produce, and the reason in the
+ * error stream so a caller reports it instead of dying with it. */
+static rt_run *rt_run_spawn_failed(rt_run *r, int err, const char *prog) {
+    static const char prefix[] = "could not run: ";
+    static const char colon[] = ": ";
+    size_t plen = sizeof prefix - 1;
+    size_t clen = sizeof colon - 1;
+    const char *why = strerror(err);
+    size_t n = strlen(prog);
+    size_t wn = strlen(why);
+    char *msg = malloc(plen + n + clen + wn + 1);
+
+    r->status = -1;
+    if (msg == NULL) {
+        r->err = NULL;
+        r->err_len = 0;
+        return r;
+    }
+    memcpy(msg, prefix, plen);
+    memcpy(msg + plen, prog, n);
+    memcpy(msg + plen + n, colon, clen);
+    memcpy(msg + plen + n + clen, why, wn + 1);
+    r->err = (unsigned char *)msg;
+    r->err_len = plen + n + clen + wn;
+    r->err_cap = plen + n + clen + wn;
+    return r;
 }
 
 /* R0006 for a child that could not be started, naming the program and located
@@ -1140,11 +1175,22 @@ static _Noreturn void rt_run_spawn_panic(const char *prog,
     rt_panic(rt_node_path(call_path), "R0006", msg);
 }
 
-/* Add a close action for fd unless the descriptor is one of the two the child
- * keeps open; a pipe that landed on 1 or 2 must not be closed after the dup. */
+/* The one place a spawn failure is answered: a supervised child's failure is
+ * data the caller prints, an unsupervised one is the R0006 panic. */
+static rt_run *rt_run_failure(rt_run *r, const char *prog, int err,
+                              int tolerant, const char *call_path) {
+    if (tolerant) {
+        return rt_run_spawn_failed(r, err, prog);
+    }
+    rt_run_spawn_panic(prog, call_path);
+}
+
+/* Add a close action for fd unless the descriptor is one the child keeps:
+ * standard input is always `/dev/null` after the dup above, and a pipe that
+ * landed on 1 or 2 must not be closed after the dup. */
 static int rt_spawn_close(posix_spawn_file_actions_t *actions, int fd,
                           int keep_a, int keep_b) {
-    if (fd == keep_a || fd == keep_b) {
+    if (fd == STDIN_FILENO || fd == keep_a || fd == keep_b) {
         return 0;
     }
     return posix_spawn_file_actions_addclose(actions, fd);
@@ -1183,14 +1229,20 @@ static void rt_append(unsigned char **buf, size_t *len, size_t *cap,
     }
 }
 
-rt_run *rt_run_start(const unsigned char *prog, size_t pn,
-                     const unsigned char **argv, const size_t *argn,
-                     size_t argc, const char *call_path) {
+/* One spawn, with the caller's budget and the caller's answer to a child that
+ * could not be started. `tolerant` is the timed form's rule: a supervised
+ * child's failure belongs to the supervisor, so it is returned on the handle
+ * (status -1, the reason in the error stream) instead of panicking. */
+static rt_run *rt_run_launch(const unsigned char *prog, size_t pn,
+                             const unsigned char **argv, const size_t *argn,
+                             size_t argc, long long timeout_ms, int tolerant,
+                             const char *call_path) {
     char *cprog = rt_cstr(prog, pn);
     char **cargv;
     rt_run *r;
     int out_pipe[2];
     int err_pipe[2];
+    int empty_in;
     posix_spawn_file_actions_t actions;
     pid_t pid;
     size_t i;
@@ -1227,16 +1279,47 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     r->err_len = 0;
     r->err_cap = 0;
 
-    if (pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
-        rt_run_spawn_panic(cprog, call_path);
+    if (pipe(out_pipe) != 0) {
+        return rt_run_failure(r, cprog, errno, tolerant, call_path);
     }
-    if (posix_spawn_file_actions_init(&actions) != 0) {
-        rt_run_spawn_panic(cprog, call_path);
+    if (pipe(err_pipe) != 0) {
+        int why = errno;
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        return rt_run_failure(r, cprog, why, tolerant, call_path);
     }
-    rc = posix_spawn_file_actions_adddup2(&actions, out_pipe[1], STDOUT_FILENO);
+    /* The child's standard input is the empty stream, never whatever the
+     * caller inherited: a program that reads until end of file must see one,
+     * and a run from a terminal must not wait for a person. */
+    empty_in = open("/dev/null", O_RDONLY);
+    if (empty_in < 0) {
+        int why = errno;
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        return rt_run_failure(r, cprog, why, tolerant, call_path);
+    }
+    rc = posix_spawn_file_actions_init(&actions);
+    if (rc != 0) {
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        close(empty_in);
+        return rt_run_failure(r, cprog, rc, tolerant, call_path);
+    }
+    rc = posix_spawn_file_actions_adddup2(&actions, empty_in, STDIN_FILENO);
+    if (rc == 0) {
+        rc = posix_spawn_file_actions_adddup2(&actions, out_pipe[1],
+                                              STDOUT_FILENO);
+    }
     if (rc == 0) {
         rc = posix_spawn_file_actions_adddup2(&actions, err_pipe[1],
                                               STDERR_FILENO);
+    }
+    if (rc == 0) {
+        rc = rt_spawn_close(&actions, empty_in, STDOUT_FILENO, STDERR_FILENO);
     }
     if (rc == 0) {
         rc = rt_spawn_close(&actions, out_pipe[0], STDOUT_FILENO, STDERR_FILENO);
@@ -1252,14 +1335,24 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     }
     if (rc != 0) {
         posix_spawn_file_actions_destroy(&actions);
-        rt_run_spawn_panic(cprog, call_path);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        close(empty_in);
+        return rt_run_failure(r, cprog, rc, tolerant, call_path);
     }
     /* posix_spawnp, not posix_spawn: the program is named the way a shell
      * names it, and the corpus runs `sh` and `false` without a path. */
     rc = posix_spawnp(&pid, cprog, &actions, NULL, cargv, environ);
     posix_spawn_file_actions_destroy(&actions);
+    close(empty_in);
     if (rc != 0) {
-        rt_run_spawn_panic(cprog, call_path);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        return rt_run_failure(r, cprog, rc, tolerant, call_path);
     }
     /* The child holds the write ends now. Keeping ours would make the read
      * ends never see EOF, which is exactly the deadlock this loop avoids. */
@@ -1269,7 +1362,7 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     {
         struct pollfd fds[2];
         int open_count = 2;
-        long long deadline = rt_monotonic_ms() + RT_RUN_TIMEOUT_MS;
+        long long deadline = rt_monotonic_ms() + timeout_ms;
         int timed_out = 0;
 
         fds[0].fd = out_pipe[0];
@@ -1409,6 +1502,23 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
     }
 
     return r;
+}
+
+rt_run *rt_run_start(const unsigned char *prog, size_t pn,
+                     const unsigned char **argv, const size_t *argn,
+                     size_t argc, const char *call_path) {
+    return rt_run_launch(prog, pn, argv, argn, argc, RT_RUN_TIMEOUT_MS, 0,
+                         call_path);
+}
+
+rt_run *rt_run_start_timed(const unsigned char *prog, size_t pn,
+                           const unsigned char **argv, const size_t *argn,
+                           size_t argc, long long timeout_ms,
+                           const char *call_path) {
+    if (timeout_ms <= 0) {
+        timeout_ms = RT_RUN_TIMEOUT_MS;
+    }
+    return rt_run_launch(prog, pn, argv, argn, argc, timeout_ms, 1, call_path);
 }
 
 long rt_run_status(rt_run *r) {

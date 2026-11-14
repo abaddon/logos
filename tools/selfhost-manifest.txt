@@ -40,6 +40,8 @@ src/logosc/fixtures/diamond/base.logos
 src/logosc/fixtures/diamond/left.logos
 src/logosc/fixtures/diamond/right.logos
 src/logosc/fixtures/diamond/root.logos
+src/logosc/fixtures/harness/missing.logos
+src/logosc/fixtures/harness/sleep.logos
 src/logosc/fixtures/ir-lower/argv.logos
 src/logosc/fixtures/ir-lower/arith.logos
 src/logosc/fixtures/ir-lower/array.logos

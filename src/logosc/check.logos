@@ -5965,8 +5965,10 @@
     (make (vec :i64)))
   (vec-push one -1)
   (letmut err check-error (check-pass))
-  (if (not (= (check-count nodes id) 2))
-    (set err (check-fail-at nodes ntexts id 102 "'run' takes a program and an argument vector"))
+  (let argc :i64 (check-count nodes id))
+  (if (not (or (= argc 2)
+             (= argc 3)))
+    (set err (check-fail-at nodes ntexts id 102 "'run' takes a program, an argument vector, and an optional budget"))
     (check-nothing))
   (if (check-ok err)
     (set err (body-exact nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex (check-child nodes id 0) id want "run" one))
@@ -5985,6 +5987,20 @@
     (set err (check-fail-at nodes ntexts
                (body-at nodes argv id) 100
                (str-concat "'run' takes a (vec :str) of arguments, found " (body-type-text tags names elem extra pbase ptypes (vec-get one 0)))))
+    (check-nothing))
+  (let budget :i64 (check-child nodes id 2))
+  (if (and (check-ok err)
+        (= argc 3))
+    (set err (body-value nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname bn bt bm bv bu bd br bl bk bvl bsl bctl ents vindex budget (body-unknown) id one))
+    (check-nothing))
+  (if (and (check-ok err)
+        (and (= argc 3)
+          (not (= (vec-get one 0)
+                 (body-prim-ty tags names elem extra pbase powner "i64")))))
+    (set err (check-fail-at nodes ntexts
+               (body-at nodes budget id) 100
+               (str-concat "'run' takes its budget as an :i64, found " (str-concat (body-type-text tags names elem extra pbase ptypes (vec-get one 0))
+                                                                         (if (body-int-ty? tags names (vec-get one 0)) "; cast it to :i64 first" "")))))
     (check-nothing))
   (if (check-ok err)
     (set err (body-move-out nodes ntexts tags elem extra pbase pchild bt bv bm bd bk bvl bsl bctl argv 0 id))

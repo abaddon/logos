@@ -1,0 +1,7 @@
+(mod sleep)
+
+(extern fn sleep :i64 ((secs :i64)))
+
+(test sleeps-past-its-budget
+  (expect (out ""))
+  (sleep 20))

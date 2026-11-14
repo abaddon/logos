@@ -283,7 +283,10 @@ typedef struct rt_run rt_run;
  * is `prog`. Those copies live for the process lifetime and are untracked; the
  * caller's arguments are only read.
  *
- * The child's stdout and stderr are captured into the handle. Returns once the
+ * The child's standard output and standard error are captured into the handle,
+ * and its standard input is `/dev/null`: a program that reads until end of file
+ * sees an empty stream instead of inheriting the caller's terminal or pipe.
+ * Returns once the
  * child has exited and both streams have reached end of file, so a child that
  * talks a lot on both cannot deadlock against a full pipe. A child still
  * running after 90 seconds is killed, and its status is then 124; otherwise
@@ -301,7 +304,23 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
                      const unsigned char **argv, const size_t *argn,
                      size_t argc, const char *call_path);
 
-/* The status: an exit code, 128 + signal, or 124 after the timeout. Panics
+/* The same run with the caller's own budget, for a supervisor that knows how
+ * long its child may take — `(run prog args ms)`, where a harness gives one
+ * test case ten seconds and a build the default. `timeout_ms` of 0 means the
+ * default 90 seconds.
+ *
+ * It differs from rt_run_start in its answer to a child that could not be
+ * started: the supervisor owns the failure, so it is returned on the handle
+ * rather than panicking. The status is then -1 — a value no exit code and no
+ * `128 + signal` can produce — and rt_run_err holds `could not run: <prog>:
+ * <reason>`, so the caller can report the case instead of dying with it. */
+rt_run *rt_run_start_timed(const unsigned char *prog, size_t pn,
+                           const unsigned char **argv, const size_t *argn,
+                           size_t argc, long long timeout_ms,
+                           const char *call_path);
+
+/* The status: an exit code, 128 + signal, 124 after the timeout, or -1 for a
+ * child rt_run_start_timed could not start. Panics
  * R0005 on a NULL handle, like the two readers below. */
 long rt_run_status(rt_run *r);
 

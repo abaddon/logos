@@ -613,6 +613,26 @@ _RT_RUN_START = IrDecl(
     _VOID_PTR,
 )
 
+#: ``rt_run *rt_run_start_timed(const unsigned char *prog, size_t pn,
+#: const unsigned char **argv, const size_t *argn, size_t argc,
+#: long long timeout_ms, const char *call_path)``. The same run with the
+#: caller's budget, for `(run prog args ms)`. A child it could not start is a
+#: handle with status -1 and the reason in its error stream, not a panic: a
+#: supervisor that named the budget owns that failure.
+_RT_RUN_START_TIMED = IrDecl(
+    "rt_run_start_timed",
+    (
+        _VOID_PTR,
+        Prim("i64"),
+        Ptr(_VOID_PTR),
+        Ptr(Prim("i64")),
+        Prim("i64"),
+        Prim("i64"),
+        _VOID_PTR,
+    ),
+    _VOID_PTR,
+)
+
 #: ``long rt_run_status(rt_run *r)``: the exit code, 128 + signal, or 124.
 _RT_RUN_STATUS = IrDecl("rt_run_status", (_VOID_PTR,), Prim("i64"))
 
@@ -2741,7 +2761,7 @@ class _Fn:
         return dest
 
     def run(self, node: Node) -> str:
-        """``(run prog args)``: gather the vector, start the child, release it.
+        """``(run prog args [ms])``: gather the vector, start the child, release.
 
         The runtime takes two arrays — one pointer per argument and one length
         per argument — so the vector's sixteen-byte elements are split into a
@@ -2754,6 +2774,12 @@ class _Fn:
         freeing it first would hand the runtime a pointer into freed memory.
         The slot is then zeroed the way ``vec-free`` zeroes it, so the frame
         holds no second name for the released buffer.
+
+        A third argument is the child's budget in milliseconds, and it selects
+        ``rt_run_start_timed``: the same call, one more word, and a spawn
+        failure reported on the handle instead of raised. `(run prog args)`
+        keeps the runtime's own 90-second guard and its R0006 panic, so the
+        arithmetic of a program that named nothing does not change.
         """
         ty = self.type_of(node)
         if not (isinstance(ty, Prim) and ty.name == "run"):
@@ -2763,11 +2789,11 @@ class _Fn:
                 f"'run' did not produce a :run, found {ty}",
             )
         items = node.items
-        if len(items) != 3:
+        if len(items) not in (3, 4):
             raise diag(
                 WRONG_ARITY,
                 node.path,
-                "'run' takes a program and an argument vector",
+                "'run' takes a program, an argument vector, and an optional budget",
             )
         arguments = items[2]
         if not isinstance(arguments, Token):
@@ -2851,16 +2877,38 @@ class _Fn:
         self.block.term = ("br", head)
 
         self.new_block(gathered)
-        self.lowering.declare(_RT_RUN_START)
-        handle = self.temp()
-        self.emit(
-            (
-                "call",
-                handle,
-                "rt_run_start",
-                (program, program_len, pointers, lengths, length, path),
+        if len(items) == 4:
+            budget = self.value(items[3], node.path)
+            self.lowering.use_type(Prim("i64"), node.path)
+            self.lowering.declare(_RT_RUN_START_TIMED)
+            handle = self.temp()
+            self.emit(
+                (
+                    "call",
+                    handle,
+                    "rt_run_start_timed",
+                    (
+                        program,
+                        program_len,
+                        pointers,
+                        lengths,
+                        length,
+                        budget,
+                        path,
+                    ),
+                )
             )
-        )
+        else:
+            self.lowering.declare(_RT_RUN_START)
+            handle = self.temp()
+            self.emit(
+                (
+                    "call",
+                    handle,
+                    "rt_run_start",
+                    (program, program_len, pointers, lengths, length, path),
+                )
+            )
         # Not until the runtime has copied every string: the descriptor's
         # buffer is still the only owner of the argument bytes until then.
         self.lowering.declare(_RT_FREE)
