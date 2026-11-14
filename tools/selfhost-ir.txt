@@ -189,3 +189,21 @@ src/logosc/fixtures/ir-lower/enum-in-struct-ref.logos
 src/logosc/fixtures/ir-lower/enum-pad.logos
 src/logosc/fixtures/ir-lower/enum-two-shapes.logos
 src/logosc/fixtures/ir-lower/struct-in-enum.logos
+
+# W8's five match-in-expression fixtures pin a value-position `match`: a `match`
+# used where a value is expected rather than as a statement. `lo-match` used to
+# read "the caller passed no expected type" as "this match is void" and lower
+# every arm body's last item as a statement, which refused `(println (match …))`
+# whenever the printed value was a `:str` — the str printer lowers its argument
+# with no expected type. The second half is the id: the guard asked whether the
+# type id was above zero, and `str` is id `0` in a unit whose first declaration
+# is a `:str` function, so the call-argument fixture declares one before it
+# prints. The five shapes are a call argument, a `let`
+# initialiser, a `ret` operand, an operand of `+`, and arms whose bodies differ
+# in block depth (one ends in an `if`, one is a literal, one is two `let`s and a
+# name) so an accidental ordering of the arm stores cannot pass for agreement.
+src/logosc/fixtures/ir-lower/match-call-arg.logos
+src/logosc/fixtures/ir-lower/match-let-init.logos
+src/logosc/fixtures/ir-lower/match-ret-operand.logos
+src/logosc/fixtures/ir-lower/match-arith-operand.logos
+src/logosc/fixtures/ir-lower/match-arm-depths.logos

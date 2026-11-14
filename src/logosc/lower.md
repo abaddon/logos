@@ -282,6 +282,29 @@ what terminated `entry`. Enum arms are compared by variant *index*: the arm's
 head names the variant, and `lo-enum-test` looks it up in the enum the
 scrutinee's type points at.
 
+A `match` is a value wherever a value is expected, and Python types it from its
+own record for the node, not from what the caller hoped for: `ty =
+self.type_of(node)` (`lower.py:4295`), then `slot = None if _is_void(ty)` and
+`arm_value(..., statement=slot is None)` (`4358`, `4397`) — the match's *own*
+type decides whether an arm is a value or a statement. The port has no
+per-node type table, so `lo-match` asks in two steps: the caller's `expected`
+when it has one, otherwise `lo-match-type`, which is the query `lo-node-type`
+already answers for a `match` with no context (the scrutinee's payload when an
+arm body is the payload binding, the last item's type otherwise). The resolved
+type is the slot's, the arms' and the final `load`'s, and the match is void only
+when that type is void — never merely because the caller passed no expected
+type. That conflation was the bug: `lo-str-parts` lowers its operand with
+`lo-value … -2`, so any `(println (match …))` whose arms produced strings was
+read as a statement match and refused the string operand with `E0002: a
+statement must be a form`.
+
+The "no type" sentinel here is `-1`, never `0`: a type id of zero is a real
+type — `str` is id `0` in a unit whose first declaration is a `:str` function —
+so both halves of the resolution test `>= 0`. `lo-if` already used `< 0` for the
+same reason (`lower.logos:2498-2505`); the first version of this fix wrote `> 0`
+and `str`-as-id-`0` still refused, which is the same "a legitimate id is not a
+sentinel" class as the enum fix below.
+
 An enum arm binds its payload only when the arm *reads* it. `((a _) 1)` binds
 nothing — Python's `pattern_variant` answers `None` for `_` and the arm body
 never sees a name — while `((a n) n)` binds at the payload's declared type. The

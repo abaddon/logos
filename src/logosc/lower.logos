@@ -2605,12 +2605,15 @@
   (if isenum
     (lo-w-store ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st stype value memory)
     (lo-nothing))
-  (let void :bool (or (< expected 0)
-                    (lo-void? tags tnames expected)))
+  (let mt :i64 (if (>= expected 0) expected
+                 (lo-match-type mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr insn ivd ivn ivt ivb ivc curn curt node)))
+  (let ty :i64 (if (>= mt 0) mt expected))
+  (let void :bool (or (< ty 0)
+                    (lo-void? tags tnames ty)))
   (letmut slot :str "")
   (if void
     (lo-nothing)
-    (set slot (lo-slot plan planty st expected "")))
+    (set slot (lo-slot plan planty st ty "")))
   (let wild :bool (lo-has-wildcard nod ntx node))
   (let lbl :i64 (lo-label st))
   (let tag :str (str-concat "match" (str-from-i64 lbl)))
@@ -2684,7 +2687,7 @@
     (let arm :str (lo-arm mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx tnk tnv tnl fnk fnv fnl enk env enl vnk vnv vni vnp bindn bindt binds binda plan planty st loopx looph esc cl berr insn ivd ivn ivt ivb ivc curn curt c2 void expected))
     (if (and (not void)
           (not (str-eq arm "")))
-      (lo-w-store ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st expected arm slot)
+      (lo-w-store ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st ty arm slot)
       (lo-nothing))
     (lo-close-scope binda base)
     (if (lo-closed st)
@@ -2699,11 +2702,11 @@
   (if fell
     (lo-nothing)
     (lo-w-unreachable blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st))
-  (if (or void (< expected 0))
+  (if (or void (< ty 0))
     (ret "")
     (lo-nothing))
   (let dest :str (lo-temp st))
-  (lo-w-load ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st dest expected slot)
+  (lo-w-load ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals cl st dest ty slot)
   (ret dest))
 
 (fn lo-enum-test :str ((mtriple (ref (vec :str))) (mqual (ref (vec :i64))) (snames (ref (vec :str))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (enames (ref (vec :str))) (ewords (ref (vec :i64))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (pnames (ref (vec :str))) (ptys (ref (vec :i64))) (blabels (ref (vec :str))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (ops (ref (vec :i64))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (svals (ref (vec :str))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (tnames (ref (vec :str))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (tnk (ref (vec :str))) (tnv (ref (vec :i64))) (tnl (ref (vec :i64))) (fnk (ref (vec :str))) (fnv (ref (vec :i64))) (fnl (ref (vec :i64))) (enk (ref (vec :str))) (env (ref (vec :i64))) (enl (ref (vec :i64))) (vnk (ref (vec :str))) (vnv (ref (vec :i64))) (vni (ref (vec :i64))) (vnp (ref (vec :i64))) (bindn (ref (vec :str))) (bindt (ref (vec :i64))) (binds (ref (vec :str))) (binda (ref (vec :i64))) (plan (ref (vec :str))) (planty (ref (vec :i64))) (st (ref (vec :i64))) (loopx (ref (vec :str))) (looph (ref (vec :str))) (esc (ref (vec :str))) (cl (ref (vec :str))) (berr (ref (vec lower-error))) (insn (ref (vec :str))) (ivd (ref (vec :i64))) (ivn (ref (vec :str))) (ivt (ref (vec :i64))) (ivb (ref (vec :i64))) (ivc (ref (vec :i64))) (curn (ref (vec :str))) (curt (ref (vec :i64))) (p :i64) (pname :str) (stype :i64) (tagval :str))

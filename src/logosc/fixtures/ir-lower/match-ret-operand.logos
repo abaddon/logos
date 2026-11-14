@@ -1,0 +1,7 @@
+(mod match-ret-operand)
+
+(fn pick :i64 ((n :i64))
+  (ret (match n (0 10) (1 11) (_ 12))))
+
+(fn main :i64 ()
+  (ret (pick 1)))

@@ -75,6 +75,11 @@ src/logosc/fixtures/ir-lower/generic-one.logos
 src/logosc/fixtures/ir-lower/generic-struct.logos
 src/logosc/fixtures/ir-lower/generic-two.logos
 src/logosc/fixtures/ir-lower/heap.logos
+src/logosc/fixtures/ir-lower/match-arith-operand.logos
+src/logosc/fixtures/ir-lower/match-arm-depths.logos
+src/logosc/fixtures/ir-lower/match-call-arg.logos
+src/logosc/fixtures/ir-lower/match-let-init.logos
+src/logosc/fixtures/ir-lower/match-ret-operand.logos
 src/logosc/fixtures/ir-lower/match.logos
 src/logosc/fixtures/ir-lower/memory.logos
 src/logosc/fixtures/ir-lower/optval.logos

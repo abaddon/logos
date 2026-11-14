@@ -137,17 +137,17 @@ CHECK_LIST="$ROOT/tools/selfhost-check.txt"
 CHECK_FLOOR=123
 
 # The lowering parity list: the files whose IR the port already reproduces.
-# Sixty-one today — the fifty-seven fixtures under src/logosc/fixtures/ir-lower,
+# Seventy-five today — the seventy-one fixtures under src/logosc/fixtures/ir-lower,
 # in the order B2, its fix round, B3, B4 and W8 proved them, plus the four
 # example programs. A pruned list is a failure, not a smaller pass; the fixture
 # entries must equal the fixture directory exactly (see the check below), while
 # a path outside it is a claim of its own and is only counted.
 IR_LIST="$ROOT/tools/selfhost-ir.txt"
-IR_FLOOR=70
+IR_FLOOR=75
 # The fixture entries alone, so an outside path cannot pad the total while a
-# fixture leaves the directory. Sixty-six today; lowering this number is a
+# fixture leaves the directory. Seventy-one today; lowering this number is a
 # deliberate act, not a side effect of a pruned fixture set.
-IR_FIXTURE_FLOOR=66
+IR_FIXTURE_FLOOR=71
 # The lowering's refusal fixtures: each pairs a `.logos` with a `.refuse`
 # sidecar naming the exact diagnostic line `gen2 build` must print. One today:
 # a struct that contains itself by value. The generic refusal that used to sit
