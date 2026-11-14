@@ -780,6 +780,10 @@ inside `%struct.node`. `lo-reaches` walks the by-value edges (a pointer, `own`,
 `vec`, `ref` or function value stops the walk) and `lo-struct-body` refuses the
 declaration with `E0002: struct '<name>' contains itself by value` at the
 struct body's node path; `lo-enum-body` refuses the payload case the same way.
+`lo-reaches` answers `false` for a negative type id before it reads the arena,
+the same guard `lo-var-reach` opens with: a payload-less variant's `pchild` row
+is `-1`, Python's `None`, and a walk that treated it as an index read one row
+before `tags` and panicked `R0003`.
 Python refuses the same program with the same words, but at the *first use* of
 the type rather than at its declaration, because `use_type` is its only funnel
 and the backend has none. The difference shows only in a module that declares
@@ -794,7 +798,7 @@ stderr, and phase two runs it beside the parity list. A signal, a silent exit
 or another line is a difference.
 
 Every fixture under `src/logosc/fixtures/ir-lower` is in
-`tools/selfhost-ir.txt` — sixty-one files, all byte-identical to Python's
+`tools/selfhost-ir.txt` — sixty-six files, all byte-identical to Python's
 `.ll`. The list also names four example programs (`examples/hello.logos`,
 `examples/json.logos`, `examples/wc.logos`, `examples/matrix.logos`): real
 programs, not fixtures, whose IR is claimed byte for byte. They are not a

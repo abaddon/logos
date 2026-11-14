@@ -1,0 +1,10 @@
+(mod enum-in-struct)
+
+(type e (enum (a :i64) (b)))
+
+(type s (struct (x e)))
+
+(fn main :i64 ()
+  (let v s (make s (a 3)))
+  (let c e (get v x))
+  (match c ((a n) (ret n)) (b (ret 0))))

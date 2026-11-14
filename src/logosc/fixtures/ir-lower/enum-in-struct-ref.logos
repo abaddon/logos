@@ -1,0 +1,28 @@
+(mod enum-in-struct-ref)
+
+(type e (enum (a :i64) (b)))
+
+(type s (struct (x e)))
+
+(fn read-one :i64 ((v (ref (vec e))) (i :i64))
+  (match (vec-get v i) ((a n) (ret n))
+    (b (ret 0))))
+
+(fn read-held :i64 ((v (ref (vec s))))
+  (match (get (vec-get v 0) x) ((a n) (ret n))
+    (b (ret 0))))
+
+(fn main :i64 ()
+  (letmut ev
+    (vec e)
+    (make (vec e)))
+  (vec-push ev (a 9))
+  (letmut sv
+    (vec s)
+    (make (vec s)))
+  (vec-push sv (make s (a 4)))
+  (let r :i64 (+ (read-one ev 0)
+                (read-held sv)))
+  (vec-free ev)
+  (vec-free sv)
+  (ret r))

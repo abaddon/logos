@@ -59,6 +59,10 @@ src/logosc/fixtures/ir-lower/closure-widths.logos
 src/logosc/fixtures/ir-lower/concurrency.logos
 src/logosc/fixtures/ir-lower/control.logos
 src/logosc/fixtures/ir-lower/dirs.logos
+src/logosc/fixtures/ir-lower/enum-in-struct-ref.logos
+src/logosc/fixtures/ir-lower/enum-in-struct.logos
+src/logosc/fixtures/ir-lower/enum-pad.logos
+src/logosc/fixtures/ir-lower/enum-two-shapes.logos
 src/logosc/fixtures/ir-lower/enumfwd.logos
 src/logosc/fixtures/ir-lower/enumpay.logos
 src/logosc/fixtures/ir-lower/extern-str.logos
@@ -88,6 +92,7 @@ src/logosc/fixtures/ir-lower/strfrom.logos
 src/logosc/fixtures/ir-lower/string.logos
 src/logosc/fixtures/ir-lower/strs.logos
 src/logosc/fixtures/ir-lower/struct-eq.logos
+src/logosc/fixtures/ir-lower/struct-in-enum.logos
 src/logosc/fixtures/ir-lower/struct-pad.logos
 src/logosc/fixtures/ir-lower/struct.logos
 src/logosc/fixtures/ir-lower/structs-eq.logos

@@ -81,6 +81,13 @@
 # Beyond the fixtures: four example programs, the first real programs rather
 # than fixtures whose IR is claimed byte-identical. The fourth, `matrix`, is
 # B4's end-to-end spawn claim; the first three are hello, json and wc.
+#
+# W8's five enum-in-struct fixtures pin the by-value walk at the one answer it
+# used to get wrong: a variant with no payload has payload id `-1`, which is
+# "no type", not an arena index. The shapes are a struct holding one enum, a
+# struct holding two enums of different shapes, an enum after an `:i64` field
+# (so the enum never sits at offset zero), a struct inside an enum, and those
+# shapes behind a `(ref …)` parameter.
 src/logosc/fixtures/ir-lower/void-main.logos
 src/logosc/fixtures/ir-lower/arith.logos
 src/logosc/fixtures/ir-lower/struct.logos
@@ -177,3 +184,8 @@ src/logosc/fixtures/ir-lower/generic-two.logos
 src/logosc/fixtures/ir-lower/generic-struct.logos
 src/logosc/fixtures/ir-lower/generic-nested.logos
 src/logosc/fixtures/ir-lower/generic-closure.logos
+src/logosc/fixtures/ir-lower/enum-in-struct.logos
+src/logosc/fixtures/ir-lower/enum-in-struct-ref.logos
+src/logosc/fixtures/ir-lower/enum-pad.logos
+src/logosc/fixtures/ir-lower/enum-two-shapes.logos
+src/logosc/fixtures/ir-lower/struct-in-enum.logos

@@ -437,6 +437,9 @@
   (ret found))
 
 (fn lo-reaches :bool ((tags (ref (vec :i64))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (pchild (ref (vec :i64))) (ty :i64) (target :i64) (seen (ref (vec :i64))))
+  (if (< ty 0)
+    (ret false)
+    (lo-nothing))
   (if (= ty target)
     (ret true)
     (lo-nothing))
