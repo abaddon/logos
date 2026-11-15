@@ -52,6 +52,7 @@ PR_GATE = ROOT / "tools" / "pr_gate.sh"
 DCO_SCRIPT = ROOT / "tools" / "check_dco.sh"
 SELFHOST_SCRIPT = ROOT / "tools" / "selfhost.sh"
 SELFHOST_MANIFEST = ROOT / "tools" / "selfhost-manifest.txt"
+SELFHOST_CHECK = ROOT / "tools" / "selfhost-check.txt"
 README = ROOT / "README.md"
 
 
@@ -144,6 +145,17 @@ class ContributorFilesTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         tracked = sorted(result.stdout.split())
         self.assertEqual(listed, tracked, "the manifest and git disagree on the file set")
+
+    def test_every_check_sidecar_has_a_listed_fixture(self):
+        """A .check sidecar the gate never reads is an expectation nobody judges."""
+        listed = set(stripped_lines(SELFHOST_CHECK))
+        for sidecar in sorted((ROOT / "tests").rglob("*.check")):
+            fixture = sidecar.with_suffix(".logos")
+            if not fixture.exists():
+                continue
+            rel = str(fixture.relative_to(ROOT))
+            with self.subTest(fixture=rel):
+                self.assertIn(rel, listed, f"{rel}: .check written but absent from tools/selfhost-check.txt")
 
 
 class GateListAgreementTest(unittest.TestCase):

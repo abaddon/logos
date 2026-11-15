@@ -1,0 +1,6 @@
+(mod float-leading-zeros)
+
+(test leading-zeros-do-not-shift-the-exponent
+  (expect (out "1e+308\n100\n"))
+  (println 0.0001e312)
+  (println 0.001e5))

@@ -1,0 +1,7 @@
+(mod float-finite)
+
+(test large-but-finite-literals-are-accepted
+  (expect (out "1e+308\n1.7976931348623157e+308\n-1e+308\n"))
+  (println 1e308)
+  (println 1.7976931348623157e308)
+  (println -1e308))

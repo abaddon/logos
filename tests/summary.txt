@@ -284,7 +284,11 @@ PASS regress/closure-escape -
 PASS regress/div-zero/division-by-zero-panics -
 PASS regress/enum-payload-struct/program/program -
 PASS regress/extern-rt/program/runtime-file -
+PASS regress/float-finite/large-but-finite-literals-are-accepted -
+PASS regress/float-leading-zeros/leading-zeros-do-not-shift-the-exponent -
 PASS regress/float-literal-compare/all-literal-comparisons-are-float -
+PASS regress/float-range-f32 -
+PASS regress/float-range -
 PASS regress/generic-vector -
 PASS regress/int-overflow/int-min-divided-by-minus-one-wraps -
 PASS regress/libc-interposition/a-user-write-does-not-take-over-printing -
