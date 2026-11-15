@@ -87,10 +87,24 @@ cp build/logosc bootstrap/logosc
 ( cd bootstrap && sha256sum logosc > logosc.sha256 )
 ```
 
-The commit that changes the compiler carries the new binary and its hash, and
-`bash tools/selfhost.sh` proves the pair is a fixed point. A pull request that
-changes `src/` and leaves the old bootstrap behind fails the sign-off of the
-fixed point, which is the intended outcome.
+The commit that changes the compiler carries the new binary and its hash.
+`bash tools/selfhost.sh` then requires the stage-0 to be **what this source
+produces**: it builds `gen2` with the stage-0 and fails unless the two are byte
+identical, so a pull request that changes `src/` and leaves the old bootstrap
+behind fails that gate by name.
+
+That check exists because the fixed point alone cannot see a stale stage-0.
+`gen2` is whatever the stage-0 produces from the source, and `gen3` is `gen2`'s
+output for the same source, so any stage-0 that can still compile the source
+reaches the same `gen2 == gen3` equality while lagging behind it. What that
+equality cannot notice is a defect in the stage-0: it can compile the source
+into a `gen2` that carries the same defect, and both sides stay green while
+both are wrong. Comparing the stage-0 with the binary it just produced closes
+that window, because a stage-0 built from this source reproduces itself byte
+for byte.
+
+Equality proves the compiler reproduces itself. It does not prove which
+compiler built it, and those are two different claims.
 
 ## Adding a language feature
 
