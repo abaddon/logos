@@ -50,6 +50,20 @@ jobs:
       - name: prepare main for the changed-file format gate
         run: |
           git rev-parse --verify --quiet main > /dev/null || git branch main origin/main
+      - name: bootstrap diagnostic
+        run: |
+          set -u
+          env | grep -E '^(LANG|LC_|TMPDIR|PATH|LIBRARY_PATH|CFLAGS|SOURCE_DATE_EPOCH)' | sort
+          clang --version | head -n 1
+          ld --version | head -n 1
+          ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos \
+            -o build/diag-gen2 > build/diag.log 2>&1 || echo "diag build failed"
+          ls -l bootstrap/logosc build/diag-gen2
+          sha256sum bootstrap/logosc build/diag-gen2
+          sha256sum build/body_test.ll 2>/dev/null || echo "no IR"
+          readelf -p .comment bootstrap/logosc | tail -n 2
+          readelf -p .comment build/diag-gen2 | tail -n 2
+          cmp -l bootstrap/logosc build/diag-gen2 2>&1 | head -n 5
       # Precondition, not a gate: it runs before any gate and stops the job when
       # a commit is unsigned. Only for a pull request -- a push to main has no
       # base to compare against and must not re-litigate commits already merged.
