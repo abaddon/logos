@@ -197,9 +197,9 @@ of them, so a reader of the output and the summary cannot disagree. A run with
 no case prints `test: no cases found in <path>`; a run with skipped files
 prints `logos: test: <n> file(s) outside the known categories were skipped` on
 stderr. Both, and any failed case, make the exit status 1, and that status is
-`h-run`'s return value. A run without `--update-baseline` prints nothing after
-the summary, where Python prints `baseline <path>: n regression(s)`; comparing
-a run against the file is W9.
+`h-run`'s return value. After the summary the run prints its baseline verdict —
+`baseline <path>: <n> regression(s)` — or `baseline: none` when the root owns no
+file; both are below.
 
 ## The baseline
 
@@ -256,12 +256,79 @@ this module is called.
 `guide.logos` because this module is now the first one below `main` that writes
 a file, and both `main` and `guide` reach them through `(use harness)`.
 
+## Comparing a run with its baseline
+
+`compare_baseline` (`tester.py:913-976`) is the last piece of the `test` verb,
+and `cli.py:255-277` is the order it is printed in. It is split so the algebra
+can be tested without a file: `h-baseline-parse` turns the text into records and
+the two headers, `h-baseline-problems` turns those records plus the run into
+`(id, sentence)` problems, and `h-baseline-lines` turns "the file exists" plus
+the parsed baseline plus the run into the exact lines to print. All three are
+pure — their tests are string literals in `harness_test.logos` — and
+`h-baseline-compare` is the thin edge that stats, reads, prints and returns 1
+when there is a problem.
+
+Three things are a regression, in `compare_baseline`'s order:
+
+1. **A new case.** A case in the run the baseline does not record prints
+   `new case has no baseline result`. It is not a complaint about the case; it
+   is the rule that a new test must have a recorded result before the suite is
+   green.
+2. **A recorded pass that now fails.** `regression: passed in baseline, now
+   fails: <detail>`, with the run's detail.
+3. **A recorded pass the run no longer contains.**
+   `regression: passed in baseline, missing from this run`. A full run reports
+   the case even when its whole category directory was deleted; a filtered run —
+   `--only`, or a root inside one category — is responsible only for the
+   categories it ran (`h-in-scope`), because it never saw the others.
+
+A `FAIL` at both ends is not a problem: the summary already counts it and the
+baseline already knew.
+
+A **full** run whose leak total exceeds the recorded `LEAKS` is a fourth. Its
+case id is `suite/leaks` and the sentence is
+`regression: leak total <n> exceeds baseline <m>`. The totals compare only when
+the file's `OPTS` and the run's levels are the same list (`h-opts-same`), because
+one level runs half the executions two run and its total is a different number
+for an identical suite. A filtered run never compares them: it does not see the
+suite's whole leak count.
+
+A baseline with no `OPTS` header cannot be judged at all, so it is refused
+rather than left ungated — an old file must not be able to switch the leak total
+off by lacking a line:
+
+```
+logos: test: <path>: baseline has no OPTS header, so its leak total cannot be compared with this run; regenerate it with --update-baseline
+```
+
+A line the parser cannot read is refused the same way, naming the line: a
+status that is not `PASS`/`FAIL`, a `LEAKS` line without a number, or an `OPTS`
+line that is not a list of `-O<digits>` levels. Every refusal exits 1 with the
+sentence on stderr and prints no `baseline …: n regression(s)` line: the cases
+have run and been reported, but their verdict is unknown.
+
+Problems are sorted by case id, then detail (`h-sort-problems`), and printed one
+`BASELINE <id> <detail>` line each before the count. The id is the record's,
+percent-**decoded** (`h-decode`, the inverse of `h-encode`), because Python
+prints `case.id` and not its encoded spelling; the two are the same for every id
+the corpus holds. `h-decode` can rebuild bytes 32–126, tab, newline and carriage
+return; a byte outside that range keeps its `%XX` spelling, the one difference
+from Python's print, and `main.md` records it. The detail is the run record's,
+which is already one line — Python prints `case.detail` raw, so a detail holding
+a newline would print across lines there and not here.
+
+A root that is a single file has no baseline (`baseline_path` is `None`), and a
+directory with no `summary.txt` has nothing to compare: both print
+`baseline: none` and exit on the cases alone. The verdict is 1 when any case
+failed **or** any problem was found, so a leak that no case's `(leaks N)` clause
+names cannot keep the suite green.
+
 ## What it does not do yet
 
 The harness is seven steps (`2026-11-13-w8-harness-notes.md` §5) and this
-module is steps 1–6: discovery, the directive reader, the child's I/O, one
-level, both levels with their comparison, and the whole suite's report. What is
-left, with the Python it belongs to:
+module is all seven: discovery, the directive reader, the child's I/O, one
+level, both levels with their comparison, the whole suite's report, and the
+baseline's comparison. What is left, with the Python it belongs to:
 
 - **The negative fixtures' judgement.** `_run_negative` (`456-482`) runs the
   checker over the file and its reachable set, and compares the code. This verb
@@ -274,18 +341,6 @@ left, with the Python it belongs to:
   to match. No tracked fixture fails to parse (the ones that must stay as
   `.logos.txt`, which discovery never sees), so the branch is unreachable in the
   corpus and is deferred rather than guessed.
-- **The baseline's comparison** — `compare_baseline` (`760-976`): a
-  regression, a case the run no longer contains, a new case with no recorded
-  result, and a full run whose leak total exceeds the recorded one. Writing and
-  merging are here ("The baseline"); judging a run against the file is W9. The
-  run therefore ends at the summary line where Python prints
-  `baseline …: n regression(s)`.
-- **A malformed baseline.** `_read_baseline` raises a `SuiteError` naming the
-  file and line for a status that is not `PASS`/`FAIL`, a `LEAKS` line without
-  a number, or an `OPTS` line of non-levels. The merge here reads the headers
-  it understands and treats every other line as a case line, so a corrupted
-  file is rewritten rather than refused. No tracked baseline is malformed, and
-  W9's comparison is where the diagnosis belongs.
 
 ## Evidence
 
@@ -307,8 +362,8 @@ left, with the Python it belongs to:
   `--only` exits 2 with Python's sentence; a suite tree holding a `.logos` file
   outside every category prints `SKIP <path>` and the stderr sentence and exits
   1; a tree with no case prints `test: no cases found in <path>` after its
-  summary and exits 1. All four match `./tools/logosc.sh test` on the same tree,
-  except that Python's run ends with a baseline line.
+  summary and exits 1. All four match `./tools/logosc.sh test` on the same tree;
+  each also ends with `baseline: none`, the tree having no `summary.txt`.
 - **Standard input.** `gen2 test tests/exec/read.logos` builds and runs both
   cases, prints two `PASS` lines and returns 0 in about a second. Before the
   redirect it hung: `read-all` in the child inherited the harness's terminal.
@@ -326,12 +381,10 @@ left, with the Python it belongs to:
   `2026-11-14-w8-harness-steps4-6-report.md` §6, and every other line is
   Python's byte for byte.
 - **The whole suite.** `gen2 test tests` prints 308 case lines and
-  `273 passed, 35 failed, 10 leaked`; Python prints the same 308 lines,
-  `308 passed, 0 failed, 10 leaked`, and then a baseline line. The 35 are the
-  exec 32, the two `mem` cases of the same `match`-as-an-argument gap, and one
-  `regress` case whose float comparison emits an integer compare over float
-  constants. None of the three sets is a comparison the harness could have
-  avoided: each case does not build.
+  `308 passed, 0 failed, 10 leaked`, then
+  `baseline tests/summary.txt: 0 regression(s)`, and exits 0; the 35 failures
+  W8 recorded (the exec 32, the two `mem` cases of the `match`-as-an-argument
+  gap, and one `regress` float comparison) were closed after that report.
 - **The level loop and the levels' agreement.** `src/logosc/harness_test.logos`
   calls `h-level`, `h-safe-name`, `h-leaks`, `h-summary` and `h-disagree-one`
   directly; both implementations print `4 passed, 0 failed, 0 leaked` for it,
@@ -340,3 +393,20 @@ left, with the Python it belongs to:
   the binary: both levels by their binaries, `--opt` (and `--opt=-O0`)
   selecting a level, two agreeing levels staying silent, the skip line and the
   empty run.
+- **The baseline's comparison.** A full run over `tests`, whose recorded file is
+  308 `PASS` lines with `LEAKS 10` and `OPTS -O0 -O2`, prints
+  `baseline tests/summary.txt: 0 regression(s)` and exits 0, leaving
+  `git diff tests/summary.txt` empty. A scratch suite under `build/` whose
+  recorded case is then made to fail prints `BASELINE exec/one/works
+  regression: passed in baseline, now fails: …` and exits 1; the same suite with
+  `LEAKS 0` recorded and a leaking case prints `BASELINE suite/leaks
+  regression: leak total 2 exceeds baseline 0` and exits 1, while the same run
+  at `--opt -O0` does not compare the totals and exits 0; a baseline with no
+  `OPTS` line is refused with the sentence above and exits 1. `--only mem`
+  prints `baseline tests/summary.txt: 0 regression(s)` over its 7 cases.
+- **The comparison's own cases.** `src/logosc/harness_test.logos` pins the
+  behaviour above as pure cases — a matching baseline, a pass that now fails
+  (its percent-encoded id decoded in the line), a new case, a missing case in a
+  full run against a filtered one, the leak total with matching and different
+  `OPTS`, the no-`OPTS` refusal, a malformed status, an absent file and the id
+  round-trip: 12 cases, 0 failed, 0 leaked at `-O0`.

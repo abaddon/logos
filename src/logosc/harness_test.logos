@@ -64,3 +64,106 @@
   (vec-free out)
   (vec-free err)
   (vec-free code))
+
+(fn bt-print :void ((lines (ref (vec :str))))
+  (letmut i :i64 0)
+  (while (< i (vec-len lines))
+    (println (vec-get lines i))
+    (set i (+ i 1)))
+  (ret))
+
+(fn bt-check :void ((baseline :str) (run-text :str) (leaks :i64) (opts :str) (full :i64) (scope-text :str))
+  (letmut run
+    (vec :str)
+    (make (vec :str)))
+  (h-lines run-text run)
+  (letmut scope
+    (vec :str)
+    (make (vec :str)))
+  (h-tokens scope-text scope)
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut err
+    (vec :str)
+    (make (vec :str)))
+  (h-baseline-lines 1 "tests/summary.txt" baseline run leaks opts full scope out err)
+  (bt-print out)
+  (bt-print err)
+  (vec-free run)
+  (vec-free scope)
+  (vec-free out)
+  (vec-free err)
+  (ret))
+
+(fn bt-absent :void ()
+  (letmut run
+    (vec :str)
+    (make (vec :str)))
+  (letmut scope
+    (vec :str)
+    (make (vec :str)))
+  (letmut out
+    (vec :str)
+    (make (vec :str)))
+  (letmut err
+    (vec :str)
+    (make (vec :str)))
+  (h-baseline-lines 0 "tests/summary.txt" "" run 0 "-O0 -O2" 1 scope out err)
+  (bt-print out)
+  (bt-print err)
+  (vec-free run)
+  (vec-free scope)
+  (vec-free out)
+  (vec-free err)
+  (ret))
+
+(test baseline-matches
+  (expect (out "baseline tests/summary.txt: 0 regression(s)\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nPASS exec/a -\nPASS type/b -\n" "PASS exec/a -\nPASS type/b -\n" 10 "-O0 -O2" 1 ""))
+
+(test baseline-fail-and-new-case-sorted
+  (expect (out "BASELINE exec/a b regression: passed in baseline, now fails: boom\nBASELINE type/new new case has no baseline result\nbaseline tests/summary.txt: 2 regression(s)\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nPASS exec/a%20b -\nPASS type/z -\n" "FAIL exec/a%20b boom\nPASS type/new -\nPASS type/z -\n" 10 "-O0 -O2" 1 ""))
+
+(test baseline-missing-in-full-run-and-filtered
+  (expect (out "BASELINE type/b regression: passed in baseline, missing from this run\nbaseline tests/summary.txt: 1 regression(s)\nbaseline tests/summary.txt: 0 regression(s)\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nPASS exec/a -\nPASS type/b -\n" "PASS exec/a -\n" 10 "-O0 -O2" 1 "")
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nPASS exec/a -\nPASS type/b -\n" "PASS exec/a -\n" 10 "-O0 -O2" 0 "exec"))
+
+(test baseline-leak-total-compares-only-at-the-same-options
+  (expect (out "BASELINE suite/leaks regression: leak total 12 exceeds baseline 10\nbaseline tests/summary.txt: 1 regression(s)\nbaseline tests/summary.txt: 0 regression(s)\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nPASS exec/a -\n" "PASS exec/a -\n" 12 "-O0 -O2" 1 "")
+  (bt-check "LEAKS 10\nOPTS -O0\nPASS exec/a -\n" "PASS exec/a -\n" 12 "-O0 -O2" 1 ""))
+
+(test baseline-refuses-a-file-without-options
+  (expect (out "logos: test: tests/summary.txt: baseline has no OPTS header, so its leak total cannot be compared with this run; regenerate it with --update-baseline\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nPASS exec/a -\n" "PASS exec/a -\n" 10 "-O0 -O2" 1 ""))
+
+(test baseline-refuses-an-unreadable-status
+  (expect (out "logos: test: tests/summary.txt:3: baseline status must be PASS or FAIL, found 'MAYBE'\n")
+    (code 0)
+    (leaks 0))
+  (bt-check "LEAKS 10\nOPTS -O0 -O2\nMAYBE exec/a -\n" "PASS exec/a -\n" 10 "-O0 -O2" 1 ""))
+
+(test baseline-absent-is-not-a-regression
+  (expect (out "baseline: none\n")
+    (code 0)
+    (leaks 0))
+  (bt-absent))
+
+(test baseline-id-round-trip
+  (expect (out "exec/a b/c%odd.logos\n")
+    (code 0)
+    (leaks 0))
+  (println (h-decode (h-encode "exec/a b/c%odd.logos"))))
