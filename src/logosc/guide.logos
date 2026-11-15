@@ -12,12 +12,6 @@
 
 (use check)
 
-(extern fn rt_create :i64 ((path :str)))
-
-(extern fn close :i32 ((fd :i64)))
-
-(extern fn unlink :i32 ((path :str)))
-
 (fn g-codes :void ((out (ref (vec :str))))
   (vec-push out "E0001")
   (vec-push out "unbalanced parentheses")

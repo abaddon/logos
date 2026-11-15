@@ -7,12 +7,13 @@ prints. The reference is `logos/tester.py` and `logos/cli.py`; Python is the
 oracle for every sentence here. `main.md` owns the command line; this module
 owns the corpus.
 
-`h-run` is the entry point: `(h-run ROOT ONLY LEVELS)` prints one line per
-case, at every level, then the skipped files, then the summary line, and
-returns the run's exit status. `main` turns an unknown `--only` into exit 2.
-A case is built once per level and run, the four clauses are compared, and the
-levels are compared with each other. Nothing here writes a report file: the
-baseline belongs to W9.
+`h-run` is the entry point: `(h-run ROOT ONLY LEVELS UPDATE)` prints one line
+per case, at every level, then the skipped files, then the summary line, and
+returns the run's exit status. `main` turns an unknown `--only` into exit 2 and
+checks the baseline root before the run. A case is built once per level and run,
+the four clauses are compared, and the levels are compared with each other.
+`UPDATE` is `--update-baseline`: at the end of such a run every case line is
+recorded in `<root>/summary.txt` ("The baseline" below).
 
 ## Discovery
 
@@ -194,8 +195,64 @@ of them, so a reader of the output and the summary cannot disagree. A run with
 no case prints `test: no cases found in <path>`; a run with skipped files
 prints `logos: test: <n> file(s) outside the known categories were skipped` on
 stderr. Both, and any failed case, make the exit status 1, and that status is
-`h-run`'s return value. The baseline line is W9's: this run prints nothing
-after the summary.
+`h-run`'s return value. A run without `--update-baseline` prints nothing after
+the summary, where Python prints `baseline <path>: n regression(s)`; comparing
+a run against the file is W9.
+
+## The baseline
+
+`--update-baseline` rewrites `<root>/summary.txt` (`tester.write_baseline`,
+`760-830`). It is the only way that file is ever written, and once Python is
+deleted it is the only way it can be: the file is the suite's memory, so its
+bytes are Python's.
+
+The format is two headers and one line per case, in **run order** — category
+order, each category's files sorted, each file's tests in source order — never
+sorted by id:
+
+```
+LEAKS 10
+OPTS -O0 -O2
+PASS parse/duplicate-fn -
+```
+
+A `PASS` line's detail is `-`; a `FAIL` line's is the run's detail with `\r`,
+`\n` and `\t` escaped and the result cut to 240 bytes (`_one_line`, `745`).
+The id is percent-encoded so a name holding a space cannot split the line:
+`h-encode` keeps `[A-Za-z0-9]` and `/._-~` and writes every other byte as
+`%XX`, which is `urllib.parse.quote(s, safe="/._-")` on UTF-8 — the same
+spelling, so the same bytes.
+
+A **full run** (no `--only`, a directory) replaces the file: headers, then every
+case it ran. That is what drops a case whose fixture was deleted, and it is what
+records the leak total and the levels it came from.
+
+A **filtered run** merges (`h-baseline-merge`, `h-merged`). Each line already in
+the file is rewritten if the run has that case, kept untouched if it does not,
+and dropped when its category is the one the run covered in full and the case
+did not come back — the filter's own ground, which a deleted fixture would
+otherwise leave behind as a false regression on the next full run. Cases the
+file does not know are appended in run order. The headers are the *previous*
+file's `LEAKS` and `OPTS`, not the run's: a filtered run does not see the whole
+suite, so its leak total is not the suite's. A run with no file to merge into
+writes no headers at all — same lines, no total.
+
+The write is unconditional: Python rewrites the file even when a run changes
+nothing (`path.write_text` at `830`), and so does this. The run then prints
+`baseline <root>/summary.txt: <n> cases` and exits 1 when any case failed,
+Python's `cli.py:263-265`. The path is spelled as the root argument spells it,
+because the language has no `cwd` (`main.md` records why); a `test` run's root
+is normally the relative `tests`, which is exactly what Python prints.
+
+Nothing is written when the run found no case or skipped a file: Python returns
+1 before the write in both cases, and the merge would otherwise record a
+truncated view as if it were a run. A refused root is `main`'s check, before
+this module is called.
+
+`h-write-text` is `rt_create` + `fmt-emit` + `close`, the same three calls
+`main`'s `main-spit` makes; the three externs are declared here rather than in
+`guide.logos` because this module is now the first one below `main` that writes
+a file, and both `main` and `guide` reach them through `(use harness)`.
 
 ## What it does not do yet
 
@@ -215,13 +272,18 @@ left, with the Python it belongs to:
   to match. No tracked fixture fails to parse (the ones that must stay as
   `.logos.txt`, which discovery never sees), so the branch is unreachable in the
   corpus and is deferred rather than guessed.
-- **The baseline** — write, merge and compare (`760-976`), with its
-  percent-encoded ids. W9. `main` refuses `--update-baseline` with exit 2
-  rather than pretending, and the run ends at the summary line where Python
-  prints `baseline …: n regression(s)`.
-- **`_one_line`'s truncation and `repr`'s escapes** (`745-750`, `604`), as
-  before: a pathological detail could be longer or spelled differently than
-  Python's. No current fixture needs either.
+- **The baseline's comparison** — `compare_baseline` (`760-976`): a
+  regression, a case the run no longer contains, a new case with no recorded
+  result, and a full run whose leak total exceeds the recorded one. Writing and
+  merging are here ("The baseline"); judging a run against the file is W9. The
+  run therefore ends at the summary line where Python prints
+  `baseline …: n regression(s)`.
+- **A malformed baseline.** `_read_baseline` raises a `SuiteError` naming the
+  file and line for a status that is not `PASS`/`FAIL`, a `LEAKS` line without
+  a number, or an `OPTS` line of non-levels. The merge here reads the headers
+  it understands and treats every other line as a case line, so a corrupted
+  file is rewritten rather than refused. No tracked baseline is malformed, and
+  W9's comparison is where the diagnosis belongs.
 
 ## Evidence
 

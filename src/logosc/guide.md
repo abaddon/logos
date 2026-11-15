@@ -96,10 +96,11 @@ chapters taken so far, not the directory position.
 `rt_create`, `close` and `unlink` are declared once in the unit, and a
 declaration is only visible to a module the declaring one is processed before —
 so a second declaration is `E0003` and a use without one is `E0103`. They live
-here, and `main.logos`'s `main-spit` uses them through `(use guide)`: `main` is
-the only module that depends on this one, so this module is always processed
-first, and `main` already depended on it for the verb. That is the same shape
-`fmt.logos` uses for `rt_write`, with the dependency in the other direction.
+in `harness.logos`, which this module uses: `harness` is processed before both
+`guide` and `main` (the unit is built in source-name order), and the baseline
+writer was the first module below `main` that needed to open a file. `main`'s
+`main-spit` and this module's markdown renderer reach them through
+`(use harness)`.
 
 ## The markdown
 
