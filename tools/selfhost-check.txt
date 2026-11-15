@@ -121,3 +121,4 @@ tests/type/closure-enum-capture.logos
 tests/type/closure-enum-capture-field.logos
 tests/type/closure-let-shadow.logos
 tests/type/test-body-type.logos
+tests/regress/arity-in-import/program.logos

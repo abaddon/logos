@@ -1,0 +1,6 @@
+(mod program)
+
+(use helper)
+
+(fn main :i64 ()
+  (ret (helper-length 7)))
