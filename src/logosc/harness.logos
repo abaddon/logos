@@ -1370,8 +1370,8 @@
 
 (fn h-level-token :bool ((s :str))
   (let n :i64 (str-len s))
-  (ret (and (>= n 3)
-         (str-eq (str-slice s 0 2) "-O")
+  (ret (and (and (>= n 3)
+              (str-eq (str-slice s 0 2) "-O"))
          (>= (h-digits (str-slice s 2 n)) 0))))
 
 (fn h-tokens :void ((s :str) (out (ref (vec :str))))

@@ -140,7 +140,7 @@ RESOLVE_FLOOR=14
 # the same E0100 a `fn` body earns.
 # One hundred and twenty-three today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=123
+CHECK_FLOOR=124
 
 # The lowering parity list: the files whose IR the port already reproduces.
 # Ninety today — the eighty-six fixtures under src/logosc/fixtures/ir-lower,

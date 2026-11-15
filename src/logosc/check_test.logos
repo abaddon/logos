@@ -893,3 +893,9 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void () (let p (alloc :i64 1)) (let q p))"))
+
+(test imported-body-arity
+  (expect (out "E0102\nhelper/helper-length/2/0/0\nstr-concat takes two strings\n")
+    (code 0)
+    (leaks 0))
+  (dump-file "tests/regress/arity-in-import/program.logos"))

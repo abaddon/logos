@@ -15,9 +15,9 @@ LOGOS_SUITES = src/logosc/body_test.logos src/logosc/check_test.logos \
 .PHONY: test contract suites suites-all fmt clean
 
 # The compiler's own suites restate what the deleted white-box tests covered:
-# 361 body cases, 80 checker cases and 38 resolver cases. They run at `-O0` in
+# 361 body cases, 81 checker cases and 38 resolver cases. They run at `-O0` in
 # the gate because every case lowers and links its whole module, which makes two
-# levels a ninety-minute gate; the corpus already runs all 308 language cases at
+# levels a ninety-minute gate; the corpus already runs all 309 language cases at
 # both levels, and `make suites-all` is the two-level form. Measure a level
 # difference here when you change lowering or the emitter.
 test: contract suites

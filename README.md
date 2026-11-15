@@ -42,12 +42,12 @@ and the test harness are built, reviewed, and green.
 
 Verified by execution on this machine:
 
-- `./tools/logosc.sh test tests` runs 308 cases across eight categories at
+- `./tools/logosc.sh test tests` runs 309 cases across eight categories at
   `-O0` and `-O2` and compares the two optimisation levels with each other, not
   only with the expected output. 0 failures, 10 deliberate leaks, 0 baseline
   regressions.
 - The compiler's own suites run through the same binary: 361 `body_test` cases,
-  80 `check_test` cases and 38 `resolve_test` cases, each at both levels.
+  81 `check_test` cases and 38 `resolve_test` cases, each at both levels.
 - `bash tools/accept.sh` runs seven sections and all pass: the harness, a
   differential oracle against gcc, three example programs whose output matches
   `wc`, `jq` and a C reference byte for byte, formatter idempotency over every

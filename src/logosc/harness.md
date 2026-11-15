@@ -344,11 +344,10 @@ baseline's comparison. What is left, with the Python it belongs to:
 
 ## Evidence
 
-- **Ids.** `gen2 test tests` prints one line per case (308 today); their id
+- **Ids.** `gen2 test tests` prints one line per case (309 today); their id
   column equals `cut -d' ' -f2 tests/summary.txt` (after its `LEAKS`/`OPTS`
-  header) line for line, in order. `tests/summary.txt` at this commit holds 308
-  `PASS` lines, not the 307 the harness notes record — one fixture landed with
-  W8 step 3c-1b, and the baseline is that run's output.
+  header) line for line, in order. `tests/summary.txt` holds 309 `PASS` lines,
+  and the baseline is the `--update-baseline` run's output.
 - **`--only`.** `gen2 test tests --only mem` prints the same 7 ids, in the same
   order, as `./tools/logosc.sh test tests --only mem`, and the same leak total
   (`6`) after the same summary shape. Two of the seven do not build in the
@@ -380,8 +379,8 @@ baseline's comparison. What is left, with the Python it belongs to:
   0 failed, 4 leaked`. The 32 failures are classified in
   `2026-11-14-w8-harness-steps4-6-report.md` §6, and every other line is
   Python's byte for byte.
-- **The whole suite.** `gen2 test tests` prints 308 case lines and
-  `308 passed, 0 failed, 10 leaked`, then
+- **The whole suite.** `gen2 test tests` prints 309 case lines and
+  `309 passed, 0 failed, 10 leaked`, then
   `baseline tests/summary.txt: 0 regression(s)`, and exits 0; the 35 failures
   W8 recorded (the exec 32, the two `mem` cases of the `match`-as-an-argument
   gap, and one `regress` float comparison) were closed after that report.
@@ -394,7 +393,7 @@ baseline's comparison. What is left, with the Python it belongs to:
   selecting a level, two agreeing levels staying silent, the skip line and the
   empty run.
 - **The baseline's comparison.** A full run over `tests`, whose recorded file is
-  308 `PASS` lines with `LEAKS 10` and `OPTS -O0 -O2`, prints
+  309 `PASS` lines with `LEAKS 10` and `OPTS -O0 -O2`, prints
   `baseline tests/summary.txt: 0 regression(s)` and exits 0, leaving
   `git diff tests/summary.txt` empty. A scratch suite under `build/` whose
   recorded case is then made to fail prints `BASELINE exec/one/works

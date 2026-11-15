@@ -276,14 +276,20 @@ them — and `check-module-fn-bodies` walks that list from `check-module-tree`
 once every declaration of the module is in, externs included. That is Python's
 order: `run()` builds `_visible(module)` first, so every declaration error
 precedes every body error, and the bodies are then read in declaration order.
-Bodies are read for the **root module only** and only when the signature has no
-type variables. Python's `check_module` checks the root's bodies and leaves an
-import's bodies to the module that owns them; a generic body has no single type
-and is checked per instantiation, which a call site does not fix yet (see
-above). `gen2 check <file>` therefore rejects bodies while every earlier
-accepted program — every module Python's checker accepts — stays accepted: a
-whole-tree sweep over all 201 tracked and new sources found no program Python
-accepts that `gen2 check` refuses.
+Bodies are read for **every module in the set**, not only for the root, and only
+when the signature has no type variables. Python's `check_module` read the
+root's bodies and left an import's to the module that owns them, so a build
+whose root imported a module never checked that module's body at all: the
+lowering still ran, and a form given one operand too many had the extra one
+dropped — a program accepted and then doing something other than what it says.
+`check-module` already visits every module once, so the record is taken for each
+of them and the price is one body pass over the set, not a second visit. A
+generic body has no single type and is checked per instantiation, which a call
+site does not fix yet (see above). `gen2 check <file>` therefore rejects the
+root's and its imports' bodies alike. The one thing this costs is Python
+parity: a program Python's checker accepted with a wrong-arity call in an
+imported body is now refused by both `check` and `build` — which is the point,
+since the lowering would have dropped the operand.
 
 `check-module-fn-bodies` carries the visible window (`ents`, `vindex`,
 `vis-s`, `vis-e`) and the module's own name, because a call resolves its callee
@@ -1056,14 +1062,14 @@ definitions. Inside a module the order is Python's:
 3. every own type name checked against `reserved_name`;
 4. every struct/enum body read, in source order;
 5. every own enum tested with `enum_contains_itself`;
-6. every own `fn`: `rt_`, reserved name, signature — and, for the root module's
-   non-generic functions, a record of the node and its type id for step 8;
+6. every own `fn`: `rt_`, reserved name, signature — and, for every non-generic
+   function, a record of the node and its type id for step 8;
 7. every own `extern fn`: reserved name, signature, C-boundary walk;
 8. every recorded body, in declaration order, once the whole module is declared.
 
 Steps 7 and 8 are in Python's order: `run()` reads every declaration of a module
-first and only then the root's bodies, so a declaration error in a module beats
-a body error in the same module.
+first and only then its bodies, so a declaration error in a module beats a body
+error in the same module.
 
 Only the first failure is reported. A module is checked once (`state` 2); a
 module already being checked is not re-entered, which is what makes a diamond
@@ -1503,7 +1509,7 @@ by one listed fixture.
   `test-body-valid` / `test-body-type`, which check a `test` body (accepted)
   and refuse one at `m/test/t/2` with E0100.
 
-`src/logosc/check_test.logos` has 80 cases, each run at `-O0` and `-O2` with
+`src/logosc/check_test.logos` has 81 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 - one per declaration rule above, through `check-file` on a synthetic source —

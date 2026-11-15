@@ -279,6 +279,7 @@ PASS generics/unbound -
 PASS regress/alloc-enum-in-struct -
 PASS regress/alloc-enum -
 PASS regress/alloc-fn -
+PASS regress/arity-in-import/program -
 PASS regress/closure-escape -
 PASS regress/div-zero/division-by-zero-panics -
 PASS regress/enum-payload-struct/program/program -

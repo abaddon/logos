@@ -219,6 +219,8 @@ tests/parse/use-two-names.logos
 tests/regress/alloc-enum-in-struct.logos
 tests/regress/alloc-enum.logos
 tests/regress/alloc-fn.logos
+tests/regress/arity-in-import/helper.logos
+tests/regress/arity-in-import/program.logos
 tests/regress/closure-escape.logos
 tests/regress/div-zero.logos
 tests/regress/enum-payload-struct/program.logos
