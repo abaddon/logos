@@ -81,11 +81,12 @@ logos: test: --update-baseline needs the suite root, a directory holding a categ
 The run is `harness.logos`'s (`h-run`), and this file gives it the levels and
 turns its status into the process's: every case is built and run at each level,
 its four clauses and its levels are compared, and the report ends with
-`<passed> passed, <failed> failed, <leaks> leaked`. Exit 1 when a case failed,
-when a file sat outside the known categories, or when nothing ran; 2 on the two
-usage errors above. Ids, their order, the detail sentences and the summary are
-Python's `tester.py` and `cli.py`; the trailing baseline line is W9's, so a run
-ends at the summary.
+`<passed> passed, <failed> failed, <leaks> leaked` and then the baseline line —
+`baseline <root>/summary.txt: <n> regression(s)`, or `baseline: none` when the
+root owns no file. Exit 1 when a case failed, when a file sat outside the known
+categories, when nothing ran, or when the baseline reports a problem; 2 on the
+two usage errors above. Ids, their order, the detail sentences, the summary and
+the baseline's problems are Python's `tester.py` and `cli.py`.
 
 `guide` is the generated manual (`guide.md`). With no flag it prints
 `docs/LOGOS.md` to stdout; `--json` prints the manifest and a newline; `--check`
@@ -630,12 +631,14 @@ one-file program, where it also compares the binary with Python's.
   yield a *directory* named `x.logos` and then fail to read it; this verb
   descends into it and formats what is inside. No tree in the repository has
   one, and the difference is a directory named like a source file.
-- **No baseline comparison.** `--update-baseline` writes the file
-  (`harness.md`), but a run without the flag still ends at the summary, where
-  Python prints `baseline tests/summary.txt: n regression(s)` or
-  `baseline: none` (`cli.py:271-276`). Comparing a run against the baseline —
-  a regression, a missing case, a new case with no result, a leak total above
-  the recorded one — is W9.
+- **A case id outside printable ASCII.** A `BASELINE <id> <detail>` line prints
+  the id percent-decoded, as Python prints it. Decoding covers bytes 32–126 and
+  tab, newline and carriage return; any other byte keeps its `%XX` spelling,
+  because the language cannot build a one-byte string that is not a source
+  literal. The comparison itself is unaffected: both the baseline's id and the
+  run's are decoded the same way before they are matched, so ids with such a
+  byte still compare equal — only the printed spelling differs from Python's.
+  No case id in the corpus holds one.
 - **No `cwd`.** The baseline line names the file as the root argument spells it
   (`tests/summary.txt` for `test`, or `build/x/summary.txt`), which is what
   Python's `_display` prints for a relative root. Python additionally shortens
