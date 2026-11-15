@@ -244,6 +244,17 @@ fi
 # and both sides stay green while both are wrong.
 if ! cmp -s "$BOOT" "$BIN"; then
     echo "selfhost: bootstrap/logosc is not what this source produces; rebuild it:" >&2
+    # Two causes print the same byte difference, and only one of them is fixed
+    # by rebuilding. When the host's clang is not the one recorded in
+    # bootstrap/toolchain.txt, the mismatch is the toolchain: the new stage-0
+    # would carry the same difference, so name it instead of sending the reader
+    # round the loop.
+    if [[ -x "$ROOT/tools/toolchain.sh" ]] &&
+       ! bash "$ROOT/tools/toolchain.sh" --check > "$OUT/toolchain.txt" 2>&1; then
+        echo "selfhost: this host's toolchain is not the recorded one, which alone" >&2
+        echo "selfhost: changes the bytes: see bootstrap/toolchain.txt." >&2
+        sed -n '/^clang: /p;/^ld: /p' "$OUT/toolchain.txt" | sed 's/^/    /' >&2
+    fi
     echo "    ./tools/logosc.sh version" >&2
     echo "    cp build/logosc bootstrap/logosc" >&2
     echo "    ( cd bootstrap && sha256sum logosc > logosc.sha256 )" >&2

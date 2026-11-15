@@ -12,7 +12,7 @@ CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_selfhost
 LOGOS_SUITES = src/logosc/body_test.logos src/logosc/check_test.logos \
 	src/logosc/resolve_test.logos
 
-.PHONY: test contract suites suites-all fmt clean
+.PHONY: test contract suites suites-all fmt dist verify-install release publish clean
 
 # The compiler's own suites restate what the deleted white-box tests covered:
 # 361 body cases, 81 checker cases and 38 resolver cases. They run at `-O0` in
@@ -37,6 +37,23 @@ suites-all:
 
 fmt:
 	$(LOGOSC) fmt .
+
+# Shipping. `dist` assembles the tarball from a compiler built out of src/,
+# `verify-install` proves that tarball installs and compiles with nothing but
+# itself, and `release` rehearses the whole publish without publishing. The
+# version comes from the compiler (`logosc version`), never from this file:
+# one string in src/logosc/main.logos is what a release is named after.
+dist:
+	bash tools/dist.sh
+
+verify-install:
+	bash tools/verify_install.sh $$(ls -t dist/logos-*-x86_64-linux.tar.gz | head -n 1)
+
+release:
+	bash tools/release.sh
+
+publish:
+	bash tools/release.sh --publish
 
 clean:
 	rm -rf build dist *.egg-info

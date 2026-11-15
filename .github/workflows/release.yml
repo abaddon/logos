@@ -1,0 +1,162 @@
+name: release
+
+# A tag is the release's identity. Pushing `v<version>` — where `<version>` is
+# the string `logosc version` prints — runs the six gates on that commit, builds
+# the tarball, rebuilds it on a second runner and requires the two SHA-256 sums
+# to agree, then publishes the artifact with the notes.
+#
+# The gate runs in full rather than a subset: this is the one job whose output
+# other people install, and the cost is one hour per tag against a handful of
+# tags a year. Everything after it is minutes.
+#
+# `bash tools/release.sh` rehearses exactly these steps locally, minus the
+# publish — see docs/release.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          # The formatting gate diffs against main, and the notes diff against
+          # the previous tag.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: install toolchain
+        run: |
+          bash tools/toolchain.sh --install
+          bash tools/toolchain.sh --check
+      # The six gates, one PASS or FAIL line each: the same script a contributor
+      # runs before opening the pull request, so a release cannot ship a commit
+      # the pull request gate would have refused.
+      - name: six gates
+        run: bash tools/pr_gate.sh
+
+  build:
+    name: build
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: install toolchain
+        run: |
+          bash tools/toolchain.sh --install
+          bash tools/toolchain.sh --check
+      - name: build the tarball
+        run: bash tools/dist.sh
+      - name: prove it installs
+        run: bash tools/verify_install.sh dist/logos-*-x86_64-linux.tar.gz
+      - name: keep the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logos-dist
+          path: |
+            dist/logos-*-x86_64-linux.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  reproduce:
+    name: reproduce
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: install toolchain
+        run: |
+          bash tools/toolchain.sh --install
+          bash tools/toolchain.sh --check
+      - name: build the tarball again, on a fresh runner
+        run: bash tools/dist.sh
+      - name: fetch the artifact the build job produced
+        uses: actions/download-artifact@v4
+        with:
+          name: logos-dist
+          path: reference
+      # The claim is byte identity between two runners, not "it built". A
+      # timestamp that leaks into the tarball, an unordered file list, or a
+      # binary that depends on the host shows up here as a different digest.
+      - name: compare the two digests
+        run: |
+          built=$(sha256sum dist/logos-*-x86_64-linux.tar.gz | cut -d' ' -f1)
+          published=$(sha256sum reference/logos-*-x86_64-linux.tar.gz | cut -d' ' -f1)
+          echo "built:     $built"
+          echo "published: $published"
+          if [[ "$built" != "$published" ]]; then
+            echo "::error::the tarball is not reproducible across runners"
+            exit 1
+          fi
+
+  publish:
+    name: publish
+    needs: [build, reproduce]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: install toolchain
+        run: bash tools/toolchain.sh --install
+      - name: fetch the verified artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: logos-dist
+          path: dist
+      - name: read the version and write the notes
+        id: version
+        run: |
+          version=$(./tools/logosc.sh version | awk '{ print $2 }')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          notes=dist/release-notes.md
+          if [[ -f CHANGELOG.md ]] && grep -qE "^## .*${version//./\\.}" CHANGELOG.md; then
+            awk -v v="$version" '
+                $0 ~ "^## .*" v { on = 1; print; next }
+                on && /^## / { exit }
+                on { print }' CHANGELOG.md > "$notes"
+          else
+            { printf '## Logos %s\n\nChanges since %s:\n\n' "$version" "$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo the previous release)"
+              git log --no-merges --format='- %s' "$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo HEAD~1)".."$GITHUB_REF_NAME" 2>/dev/null; } > "$notes"
+          fi
+          cat "$notes" >> "$GITHUB_STEP_SUMMARY"
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${{ steps.version.outputs.version }}
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the compiler's version v$version"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/logos-$version-x86_64-linux.tar.gz" dist/SHA256SUMS \
+            --title "Logos $version" --notes-file dist/release-notes.md --verify-tag
+          # Read it back: a release that lists no asset is a failure the upload
+          # exit code does not always report.
+          gh release view "$GITHUB_REF_NAME" --json url,assets \
+            --jq '"release \(.url): \(.assets | length) assets", .assets[].name'

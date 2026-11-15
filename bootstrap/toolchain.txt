@@ -1,0 +1,13 @@
+# The toolchain that reproduces bootstrap/logosc byte for byte.
+#
+# clang writes its own version into every binary it produces (`readelf -p
+# .comment`) and its codegen changes between releases, so "the compiler built
+# from src/ equals the committed stage-0" is only measurable with the toolchain
+# recorded here. `tools/toolchain.sh --check` compares this file with the
+# toolchain in use; the pull request gate runs it before the six gates, and the
+# self-hosting gate names a mismatch instead of reporting it as a stale stage-0.
+#
+# Changing either line is a release decision, not a side effect: rebuild the
+# bootstrap with the new toolchain and record it in the same commit.
+clang: Ubuntu clang version 14.0.0-1ubuntu1.1
+ld: GNU ld (GNU Binutils for Ubuntu) 2.38

@@ -31,10 +31,22 @@ jobs:
       # are the differential oracles in tools/accept.sh. Python is present only
       # because the surviving contract tests are written in it — no gate runs a
       # compiler written in Python.
+      #
+      # clang is pinned rather than taken from PATH. The image ships several
+      # LLVM releases, `bootstrap/logosc` carries the clang that built it in
+      # `.comment`, and the self-hosting gate requires the compiler built from
+      # this source to equal that binary byte for byte — a claim only clang 14
+      # can make, because codegen changes between releases. `tools/toolchain.sh`
+      # holds the pin and the record, so this file and a contributor's machine
+      # cannot disagree about it.
       - name: install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld gcc jq python3
+          sudo apt-get install -y --no-install-recommends clang-14 lld-14 gcc jq python3
+          bash tools/toolchain.sh --install
+      - name: toolchain provenance
+        run: |
+          bash tools/toolchain.sh --check
       - name: prepare main for the changed-file format gate
         run: |
           git rev-parse --verify --quiet main > /dev/null || git branch main origin/main
