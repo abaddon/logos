@@ -351,6 +351,12 @@ section
     echo '  (println total)'
     echo '  (free flag))'
 } > "$OUT/speed.logos"
+# This window covers the compiler's own lowering *and* clang's -O2 build and
+# link, so it measures the machine as much as the compiler. Measured on this
+# host: 805 ms and 953 ms when quiet, 8,393 ms while the agent runtime held a
+# core and a quarter — the same program, same tree. The floor is a guard against
+# a real regression (a quadratic blowup at 200 functions takes minutes), so it
+# stays at five seconds; when it trips, time the case alone before believing it.
 SPEED_START=$(date +%s%N)
 if "$LOGOSC" build "$OUT/speed.logos" -o "$OUT/speed" --opt -O2 \
         > "$OUT/speed-build.log" 2>&1; then
