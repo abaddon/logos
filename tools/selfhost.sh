@@ -242,12 +242,59 @@ fi
 # byte. What the fixed point cannot see is the reason the check exists: a defect
 # in the stage-0 can compile the source into a gen2 that carries the same defect,
 # and both sides stay green while both are wrong.
-if ! cmp -s "$BOOT" "$BIN"; then
+#
+# The comparison is over the compiler, not over the host's packaging. Measured
+# across two Ubuntu 22.04 hosts with the same clang 14.0.0-1ubuntu1.1, the same
+# GNU ld 2.38 and byte-identical IR, the two binaries differ in exactly 24
+# bytes: 20 inside `.note.gnu.build-id` and 4 inside `.comment`, where ld merges
+# the version of the GCC that built the distribution's crt objects
+# ("11.4.0-1ubuntu1~22.04.3" against "...22.04.4"). The build-id is a hash over
+# the output, so it inherits that string. Neither byte was emitted by this
+# compiler, and neither can be: a stage-0 rebuilt on the other host would carry
+# the same difference, which is why a byte comparison of the raw files reports a
+# correct compiler as stale.
+#
+# So both sides are stripped of those two sections with objcopy and the rest —
+# code, data, read-only data, symbols, strings, every other section — must be
+# identical byte for byte. A change in anything the compiler emits still fails
+# here. `tools/toolchain.sh` prints the crt string beside the recorded one, so a
+# different host stays visible without being fatal.
+sanitize() {
+    objcopy --remove-section .comment --remove-section .note.gnu.build-id "$1" "$2"
+}
+
+SANITIZED=0
+if command -v objcopy > /dev/null 2>&1 &&
+   sanitize "$BOOT" "$OUT/stage0.sane" && sanitize "$BIN" "$OUT/gen2.sane"; then
+    SANITIZED=1
+fi
+if (( SANITIZED == 0 )); then
+    echo "selfhost: objcopy is missing or failed; cannot compare the two compilers" >&2
+    exit 2
+fi
+if ! cmp -s "$OUT/stage0.sane" "$OUT/gen2.sane"; then
     echo "selfhost: bootstrap/logosc is not what this source produces; rebuild it:" >&2
+    # Two causes print the same byte difference, and only one of them is fixed
+    # by rebuilding. When the host's clang is not the one recorded in
+    # bootstrap/toolchain.txt, the mismatch is the toolchain: the new stage-0
+    # would carry the same difference, so name it instead of sending the reader
+    # round the loop.
+    if [[ -x "$ROOT/tools/toolchain.sh" ]] &&
+       ! bash "$ROOT/tools/toolchain.sh" --check > "$OUT/toolchain.txt" 2>&1; then
+        echo "selfhost: this host's toolchain is not the recorded one, which alone" >&2
+        echo "selfhost: changes the bytes: see bootstrap/toolchain.txt." >&2
+        sed -n '/^clang: /p;/^ld: /p;/^gcc: /p' "$OUT/toolchain.txt" | sed 's/^/    /' >&2
+    fi
     echo "    ./tools/logosc.sh version" >&2
     echo "    cp build/logosc bootstrap/logosc" >&2
     echo "    ( cd bootstrap && sha256sum logosc > logosc.sha256 )" >&2
     exit 2
+fi
+# Say it out loud when the raw bytes differ only in the packaging: a reader who
+# runs `cmp` besides this gate must not conclude the gate passed over a
+# difference it did not look at.
+if ! cmp -s "$BOOT" "$BIN"; then
+    printf 'selfhost: stage-0 matches this source; raw bytes differ only in .comment and the build-id\n'
 fi
 
 DIFFS=0
