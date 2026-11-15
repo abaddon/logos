@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ai-language-program/logos/schemas/version-v1.schema.json",
+  "title": "logosc version --json, schema_version 1",
+  "description": "Printed on stdout by `logosc version --json` (and by `--version --json`). Exit 0.",
+  "type": "object",
+  "required": ["schema_version", "name", "version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {
+      "type": "string",
+      "const": "logos",
+      "description": "The product name; the artifact and the release tag carry it."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The semantic version of the compiler. It matches the text form `logos <version>` and the release tag `v<version>`."
+    }
+  }
+}

@@ -7,7 +7,8 @@ LOGOSC ?= ./tools/logosc.sh
 # the deleted suites imported `logos` (or ran it as an oracle) and discovery
 # would fail on them. Everything else that judged the compiler is a Logos suite
 # below, or the corpus.
-CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_selfhost
+CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_selfhost \
+	tests.test_cli
 
 LOGOS_SUITES = src/logosc/body_test.logos src/logosc/check_test.logos \
 	src/logosc/resolve_test.logos

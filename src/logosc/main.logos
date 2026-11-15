@@ -30,6 +30,71 @@
   (main-write "\n")
   (ret 1))
 
+(fn main-unreadable-free :i64 ((paths (ref (vec :str))) (bad :str))
+  (let why :str (path-error bad))
+  (vec-free paths)
+  (ret (main-fmt-bad bad why)))
+
+(fn main-hex2 :str ((n :i64))
+  (let digits :str "0123456789abcdef")
+  (ret (str-concat (str-slice digits
+                     (/ n 16)
+                     (+ (/ n 16) 1))
+         (str-slice digits
+           (% n 16)
+           (+ (% n 16) 1)))))
+
+(fn main-json-str :str ((s :str))
+  (letmut out :str "\"")
+  (letmut i :i64 0)
+  (while (< i (str-len s))
+    (let b :i64 (cast :i64 (str-byte s i)))
+    (if (= b 34)
+      (set out (str-concat out "\\\""))
+      (if (= b 92)
+        (set out (str-concat out "\\\\"))
+        (if (= b 10)
+          (set out (str-concat out "\\n"))
+          (if (= b 9)
+            (set out (str-concat out "\\t"))
+            (if (= b 13)
+              (set out (str-concat out "\\r"))
+              (if (< b 32)
+                (set out (str-concat out (str-concat "\\u00" (main-hex2 b))))
+                (set out (str-concat out (str-slice s i (+ i 1))))))))))
+    (set i (+ i 1)))
+  (ret (str-concat out "\"")))
+
+(fn main-json-mode :bool ()
+  (letmut a
+    (vec :str)
+    (args))
+  (letmut i :i64 0)
+  (letmut found :bool false)
+  (while (< i (vec-len a))
+    (if (str-eq (vec-get a i) "--json")
+      (set found true)
+      (main-nothing))
+    (set i (+ i 1)))
+  (vec-free a)
+  (ret found))
+
+(fn main-diag-json :void ((file :str) (at :str) (code :str) (line :i64) (col :i64) (msg :str))
+  (letmut out :str "{\"schema_version\":1,\"diagnostics\":[{\"severity\":\"error\",\"code\":")
+  (set out (str-concat out (main-json-str code)))
+  (set out (str-concat out ",\"message\":"))
+  (set out (str-concat out (main-json-str msg)))
+  (set out (str-concat out ",\"node_path\":"))
+  (set out (str-concat out (main-json-str at)))
+  (set out (str-concat out ",\"file\":"))
+  (set out (str-concat out (main-json-str file)))
+  (set out (str-concat out ",\"line\":"))
+  (set out (str-concat out (str-from-i64 line)))
+  (set out (str-concat out ",\"col\":"))
+  (set out (str-concat out (str-from-i64 col)))
+  (main-write (str-concat out "}]}\n"))
+  (ret))
+
 (fn main-base :str ((s :str))
   (letmut i :i64 0)
   (letmut start :i64 0)
@@ -45,7 +110,7 @@
          (main-base (vec-get a 0)) "logosc")))
 
 (fn main-help :i64 ((prog :str))
-  (fmt-emit 1 (str-concat "usage: " (str-concat prog " [-h] command ...\n\nCompiler for Logos, a prefix-form language for AI readers.\n\npositional arguments:\n  command\n    build     compile Logos source files to a native binary\n    test      compile and run the (test ...) nodes in a file\n    fmt       rewrite Logos source in canonical form\n    show      print one node of a Logos file\n    version   print the compiler version\n    guide     print the generated Logos manual or its manifest\n\noptions:\n  -h, --help  show this help message and exit\n")))
+  (fmt-emit 1 (str-concat "usage: " (str-concat prog " [-h] [--version] [--json] command ...\n\nCompiler for Logos, a prefix-form language for AI readers.\n\npositional arguments:\n  command\n    build     compile Logos source files to a native binary\n    check     type-check one file and print nothing on success\n    fmt       rewrite Logos source in canonical form\n    guide     print the generated Logos manual or its manifest\n    resolve   resolve the names of one or more files\n    show      print one node of a Logos file\n    test      compile and run the (test ...) nodes in a file\n    version   print the compiler version\n\noptions:\n  -h, --help     show this help message and exit\n  --version      print the compiler version and exit\n  --json         emit diagnostics and reports as JSON\n\nEvery verb accepts -h for its own flags, and --json anywhere on the\ncommand line. Exit codes: 0 success, 2 source or usage error, 1 I/O or\ntoolchain failure.\n")))
   (ret 0))
 
 (fn main-verb-usage :str ((verb :str))
@@ -53,10 +118,20 @@
          (if (str-eq verb "test") " test [-h] [--only CAT] [--opt O] [--update-baseline] [PATH]"
            (if (str-eq verb "fmt") " fmt [-h] FILE [FILE ...]"
              (if (str-eq verb "show") " show [-h] FILE PATH"
-               (if (str-eq verb "version") " version [-h]"
+               (if (str-eq verb "version") " version [-h] [--json]"
                  (if (str-eq verb "guide") " guide [-h] [--json | --check]"
-                   (if (str-eq verb "resolve") " resolve <file>..."
-                     (if (str-eq verb "check") " check <file>" " [-h] command ..."))))))))))
+                   (if (str-eq verb "resolve") " resolve [-h] FILE [FILE ...]"
+                     (if (str-eq verb "check") " check [-h] FILE" " [-h] command ..."))))))))))
+
+(fn main-verb-about :str ((verb :str))
+  (ret (if (str-eq verb "build") "compile Logos source files to a native binary\n\npositional arguments:\n  FILE            one or more .logos files; the first is the entry module\n\noptions:\n  -h, --help      show this help message and exit\n  -o OUT          write the binary to OUT (default build/<stem>)\n  --opt O         optimisation level given to clang (default -O0)\n  --keep-ir       keep the generated IR beside the binary\n  --json          emit diagnostics as JSON on stderr\n"
+         (if (str-eq verb "test") "compile and run the (test ...) nodes in a file, then compare them to\nthe baseline\n\npositional arguments:\n  PATH            a file or a directory of cases (default: the whole corpus)\n\noptions:\n  -h, --help      show this help message and exit\n  --only CAT      run only the cases in one category\n  --opt O         optimisation level (default -O0; repeat for both)\n  --update-baseline  rewrite tests/summary.txt from this run\n"
+           (if (str-eq verb "fmt") "rewrite Logos source in canonical form, in place\n\npositional arguments:\n  FILE            one or more .logos files, or - for stdin\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
+             (if (str-eq verb "show") "print one node of a Logos file, selected by its node path\n\npositional arguments:\n  FILE            the source file\n  PATH            a node path such as main/2/0\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
+               (if (str-eq verb "version") "print the compiler version\n\noptions:\n  -h, --help      show this help message and exit\n  --json          print {\"schema_version\":1,\"name\":\"logos\",\"version\":...}\n"
+                 (if (str-eq verb "guide") "print the generated Logos manual or its manifest\n\noptions:\n  -h, --help      show this help message and exit\n  --json          print the machine-readable manifest (schema_version 1)\n  --check         fail unless docs/LOGOS.md matches this compiler\n"
+                   (if (str-eq verb "resolve") "resolve the names of one or more files and print the module table\n\npositional arguments:\n  FILE            one or more .logos files\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
+                     (if (str-eq verb "check") "type-check one file and print nothing on success\n\npositional arguments:\n  FILE            the source file\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n" ""))))))))))
 
 (fn main-verb-label :str ((verb :str))
   (ret (if (str-eq verb "") ""
@@ -75,7 +150,16 @@
   (ret (main-cli-error prog "" (str-concat "unrecognized arguments: " rest))))
 
 (fn main-invalid :i64 ((prog :str) (verb :str))
-  (ret (main-cli-error prog "" (str-concat "argument command: invalid choice: '" (str-concat verb "' (choose from 'build', 'test', 'fmt', 'show', 'version', 'guide')")))))
+  (ret (main-cli-error prog "" (str-concat "argument command: invalid choice: '" (str-concat verb "' (choose from 'build', 'check', 'fmt', 'guide', 'resolve', 'show', 'test', 'version')")))))
+
+(fn main-semver :str ()
+  (ret "0.1.0"))
+
+(fn main-version-print :i64 ()
+  (if (main-json-mode)
+    (fmt-emit 1 (str-concat "{\"schema_version\":1,\"name\":\"logos\",\"version\":" (str-concat (main-json-str (main-semver)) "}\n")))
+    (fmt-emit 1 (str-concat "logos " (str-concat (main-semver) "\n"))))
+  (ret 0))
 
 (fn main-join-args :str ((a (ref (vec :str))) (i :i64) (n :i64))
   (letmut text :str "")
@@ -93,8 +177,7 @@
   (if (> n 2)
     (ret (main-unrecognized prog (main-join-args a 2 n)))
     (main-nothing))
-  (fmt-emit 1 "logos 0.1.0\n")
-  (ret 0))
+  (ret (main-version-print)))
 
 (fn main-prefix :bool ((p :str) (path :str))
   (ret (if (>= (str-len path)
@@ -172,7 +255,7 @@
   (ret 0))
 
 (fn main-show-file :i64 ((path :str) (target :str))
-  (let why :str (path-error path))
+  (let why :str (main-file-why path))
   (if (> (str-len why) 0)
     (ret (main-fmt-bad path why))
     (main-nothing))
@@ -216,7 +299,7 @@
   (ret (main-show-file (vec-get a 2)
          (vec-get a 3))))
 
-(fn main-diag-text :void ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
+(fn main-diag-plain :void ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
   (main-write path)
   (main-write ":")
   (main-write (str-from-i64 line))
@@ -229,6 +312,12 @@
   (main-write "\n")
   (ret))
 
+(fn main-diag-text :void ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
+  (if (main-json-mode)
+    (main-diag-json path "" code line col msg)
+    (main-diag-plain path code line col msg))
+  (ret))
+
 (fn main-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
   (main-diag-text path code line col msg)
   (ret 2))
@@ -239,7 +328,7 @@
            (str-concat file (str-concat ":" (str-concat (str-from-i64 line)
                                               (str-concat ":" (str-from-i64 col))))) fallback))))
 
-(fn main-resolve-diag :i64 ((file :str) (e resolve-error))
+(fn main-resolve-plain :i64 ((file :str) (e resolve-error))
   (main-write (main-at (get e path)
                 (get e file)
                 (get e line)
@@ -251,6 +340,23 @@
   (main-write "\n")
   (ret 2))
 
+(fn main-diag-file :str ((file :str) (at :str))
+  (ret (if (not (str-eq file "")) file at)))
+
+(fn main-diag-json-2 :i64 ((file :str) (at :str) (code :str) (line :i64) (col :i64) (msg :str))
+  (main-diag-json file at code line col msg)
+  (ret 2))
+
+(fn main-resolve-diag :i64 ((file :str) (e resolve-error))
+  (ret (if (main-json-mode)
+         (main-diag-json-2 (main-diag-file (get e file) file)
+           (get e path)
+           (resolve-code (get e code))
+           (get e line)
+           (get e col)
+           (get e message))
+         (main-resolve-plain file e))))
+
 (fn main-resolved :i64 ((file :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let e resolve-error (resolve-file nodes ntexts file))
   (ret (if (resolve-ok e) 0
@@ -260,7 +366,7 @@
   (fmt 1 nodes ntexts)
   (ret 0))
 
-(fn main-check-diag :i64 ((file :str) (e check-error))
+(fn main-check-plain :i64 ((file :str) (e check-error))
   (let at :str (get e path))
   (main-write (if (str-eq at "") file at))
   (main-write ": ")
@@ -269,6 +375,14 @@
   (main-write (get e message))
   (main-write "\n")
   (ret 2))
+
+(fn main-check-diag :i64 ((file :str) (e check-error))
+  (ret (if (main-json-mode)
+         (main-diag-json-2 file
+           (get e path)
+           (check-code (get e code)) 0 0
+           (get e message))
+         (main-check-plain file e))))
 
 (fn main-checked-run :i64 ((file :str) (mods (ref (vec resolve-mod))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let e check-error (check-file mods nodes ntexts))
@@ -294,7 +408,7 @@
 (fn main-nothing :void ()
   (ret))
 
-(fn main-lower-diag :i64 ((file :str) (e lower-error))
+(fn main-lower-plain :i64 ((file :str) (e lower-error))
   (let at :str (get e path))
   (main-write (if (str-eq at "") file at))
   (main-write ": ")
@@ -304,13 +418,26 @@
   (main-write "\n")
   (ret 2))
 
-(fn main-ir-diag :i64 ((file :str) (nod (ref (vec node))) (ntx (ref (vec :str))) (e ir-error))
-  (let at :str (tree-path nod ntx 0 0))
+(fn main-lower-diag :i64 ((file :str) (e lower-error))
+  (ret (if (main-json-mode)
+         (main-diag-json-2 file
+           (get e path)
+           (lower-code (get e code)) 0 0
+           (get e message))
+         (main-lower-plain file e))))
+
+(fn main-ir-plain :i64 ((file :str) (at :str) (msg :str))
   (main-write (if (str-eq at "") file at))
   (main-write ": E0002: ")
-  (main-write (get e text))
+  (main-write msg)
   (main-write "\n")
   (ret 2))
+
+(fn main-ir-diag :i64 ((file :str) (nod (ref (vec node))) (ntx (ref (vec :str))) (e ir-error))
+  (let at :str (tree-path nod ntx 0 0))
+  (ret (if (main-json-mode)
+         (main-diag-json-2 file at "E0002" 0 0 (get e text))
+         (main-ir-plain file at (get e text)))))
 
 (fn main-spit-bad :i64 ((path :str))
   (ret (main-fail (str-concat "cannot write " path))))
@@ -382,7 +509,20 @@
            (str-slice path 0 slash)))))
 
 (fn main-runtime :str ()
-  (ret "logos/runtime/rt.c"))
+  (letmut cands
+    (vec :str)
+    (make (vec :str)))
+  (let root :str (h-exe-root))
+  (if (not (str-eq root ""))
+    (vec-push cands (str-concat root "/share/logos/runtime/rt.c"))
+    (main-nothing))
+  (if (not (str-eq root ""))
+    (vec-push cands (str-concat root "/logos/runtime/rt.c"))
+    (main-nothing))
+  (vec-push cands "logos/runtime/rt.c")
+  (let found :str (h-first-file cands "logos/runtime/rt.c"))
+  (vec-free cands)
+  (ret found))
 
 (fn main-exists :bool ((path :str))
   (letmut argv
@@ -392,6 +532,11 @@
   (vec-push argv path)
   (let r :run (run "test" argv))
   (ret (= (run-status r) 0)))
+
+(fn main-file-why :str ((path :str))
+  (let why :str (path-error path))
+  (ret (if (> (str-len why) 0) why
+         (if (main-exists path) "" "not a regular file"))))
 
 (fn main-mkdir :void ((dir :str))
   (if (str-eq dir "")
@@ -686,7 +831,7 @@
   (letmut found :str "")
   (while (and (str-eq found "")
            (< i (vec-len paths)))
-    (if (> (str-len (path-error (vec-get paths i))) 0)
+    (if (> (str-len (main-file-why (vec-get paths i))) 0)
       (set found (vec-get paths i))
       (main-nothing))
     (set i (+ i 1)))
@@ -999,6 +1144,10 @@
            (get t msg)))))
 
 (fn main-source :i64 ((verb :str) (path :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let why :str (main-file-why path))
+  (if (> (str-len why) 0)
+    (ret (main-fmt-bad path why))
+    (main-nothing))
   (let src :str (read-file path))
   (let e lex-error (lex src kinds texts lines cols))
   (ret (if (lex-ok e)
@@ -1048,6 +1197,10 @@
     (vec :str)
     (make (vec :str)))
   (main-paths a first count paths)
+  (let bad :str (main-unreadable paths))
+  (if (not (str-eq bad ""))
+    (ret (main-unreadable-free paths bad))
+    (main-nothing))
   (letmut defs
     (vec resolve-def)
     (make (vec resolve-def)))
@@ -1107,8 +1260,7 @@
          (str-eq (str-slice name (- n 6) n) ".logos"))))
 
 (fn main-or :i64 ((a :i64) (b :i64))
-  (ret (if (or (= a 1)
-             (= b 1)) 1 0)))
+  (ret (if (= a 0) b a)))
 
 (fn main-fmt-bad :i64 ((path :str) (msg :str))
   (main-write "logos: ")
@@ -1120,7 +1272,7 @@
 
 (fn main-fmt-diag :i64 ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
   (main-diag-text path code line col msg)
-  (ret 1))
+  (ret 2))
 
 (fn main-fmt-loaded :i64 ((path :str) (src :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
   (let e lex-error (lex src kinds texts lines cols))
@@ -1151,7 +1303,7 @@
   (ret (main-fmt-bad path (if (> (str-len why) 0) why "cannot write"))))
 
 (fn main-fmt-file :i64 ((path :str))
-  (let why :str (path-error path))
+  (let why :str (main-file-why path))
   (if (> (str-len why) 0)
     (ret (main-fmt-bad path why))
     (main-nothing))
@@ -1459,36 +1611,22 @@
   (letmut i :i64 2)
   (while (< i n)
     (let s :str (vec-get a i))
-    (if (str-eq s "--json")
-      (vec-set flags 0 1)
-      (if (str-eq s "--check")
-        (vec-set flags 1 1)
+    (if (str-eq s "--check")
+      (vec-set flags 1 1)
+      (if (str-eq s "--json")
+        (vec-set flags 0 1)
         (vec-push extra s)))
     (set i (+ i 1)))
   (ret))
 
-(fn main-guide-mutex :str ((a (ref (vec :str))) (n :i64))
-  (letmut seen :str "")
-  (letmut msg :str "")
-  (letmut i :i64 2)
-  (while (< i n)
-    (let s :str (vec-get a i))
-    (if (or (str-eq s "--json")
-          (str-eq s "--check"))
-      (if (str-eq seen "")
-        (set seen s)
-        (if (str-eq msg "")
-          (set msg (str-concat "argument " (str-concat s (str-concat ": not allowed with argument " seen))))
-          (main-nothing)))
-      (main-nothing))
-    (set i (+ i 1)))
-  (ret msg))
+(fn main-guide-mutex :str ()
+  (ret "argument --json: not allowed with argument --check"))
 
 (fn main-guide :i64 ((a (ref (vec :str))) (n :i64) (prog :str))
   (letmut flags
     (vec :i64)
     (make (vec :i64)))
-  (vec-push flags 0)
+  (vec-push flags (if (main-json-mode) 1 0))
   (vec-push flags 0)
   (letmut extra
     (vec :str)
@@ -1496,7 +1634,7 @@
   (main-guide-flags a n flags extra)
   (if (and (= (vec-get flags 0) 1)
         (= (vec-get flags 1) 1))
-    (ret (main-cli-error prog "guide" (main-guide-mutex a n)))
+    (ret (main-cli-error prog "guide" (main-guide-mutex)))
     (main-nothing))
   (if (> (vec-len extra) 0)
     (ret (main-unrecognized prog (main-join-vec extra)))
@@ -1572,8 +1710,28 @@
   (fmt-emit 2 (str-concat "usage: " (str-concat prog (str-concat (main-verb-usage verb) "\n"))))
   (ret 2))
 
+(fn main-help-flag :bool ((a (ref (vec :str))) (n :i64))
+  (letmut i :i64 2)
+  (letmut found :bool false)
+  (while (< i n)
+    (let s :str (vec-get a i))
+    (if (or (str-eq s "-h")
+          (str-eq s "--help"))
+      (set found true)
+      (main-nothing))
+    (set i (+ i 1)))
+  (ret found))
+
+(fn main-verb-help :i64 ((verb :str) (prog :str))
+  (fmt-emit 1 (str-concat "usage: " (str-concat prog (str-concat (main-verb-usage verb)
+                                                       (str-concat "\n\n" (main-verb-about verb))))))
+  (ret 0))
+
 (fn main-verb :i64 ((a (ref (vec :str))) (n :i64) (prog :str))
   (let verb :str (vec-get a 1))
+  (if (main-help-flag a n)
+    (ret (main-verb-help verb prog))
+    (main-nothing))
   (if (str-eq verb "version")
     (ret (main-version a n prog))
     (main-nothing))
@@ -1605,10 +1763,29 @@
   (let prog :str (main-prog a))
   (ret (if (< n 2)
          (main-help prog)
-         (main-verb a n prog))))
+         (if (or (str-eq (vec-get a 1) "-h")
+               (str-eq (vec-get a 1) "--help"))
+           (main-help prog)
+           (if (str-eq (vec-get a 1) "--version")
+             (if (> n 2)
+               (main-unrecognized prog (main-join-args a 2 n))
+               (main-version-print))
+             (main-verb a n prog))))))
 
 (fn main :i64 ()
-  (letmut a (args))
-  (letmut status :i64 (main-args a))
+  (letmut a
+    (vec :str)
+    (args))
+  (letmut rest
+    (vec :str)
+    (make (vec :str)))
+  (letmut i :i64 0)
+  (while (< i (vec-len a))
+    (if (str-eq (vec-get a i) "--json")
+      (main-nothing)
+      (vec-push rest (vec-get a i)))
+    (set i (+ i 1)))
+  (letmut status :i64 (main-args rest))
+  (vec-free rest)
   (vec-free a)
   (ret status))

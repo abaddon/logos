@@ -137,10 +137,11 @@ RESOLVE_FLOOR=14
 # review found unlisted: `sibling-set` (E0300 behind a deferred `deref`) and
 # `ref-not-mutable` (E0304 at a ref argument), and the test-body rule W8
 # step 3c-1b re-applied: a `test` body is checked, so a type error in one is
-# the same E0100 a `fn` body earns.
-# One hundred and twenty-three today; a pruned list is a failure, not a smaller pass.
+# the same E0100 a `fn` body earns, and the two float-range fixtures (`1e999`
+# for :f64, `1e39` for :f32) the A3 fix refuses with E0106.
+# One hundred and twenty-six today; a pruned list is a failure, not a smaller pass.
 CHECK_LIST="$ROOT/tools/selfhost-check.txt"
-CHECK_FLOOR=124
+CHECK_FLOOR=126
 
 # The lowering parity list: the files whose IR the port already reproduces.
 # Ninety today — the eighty-six fixtures under src/logosc/fixtures/ir-lower,

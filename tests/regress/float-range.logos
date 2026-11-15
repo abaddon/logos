@@ -1,0 +1,5 @@
+(mod float-range)
+
+(fn main :i64 ()
+  (println 1e999)
+  (ret 0))
