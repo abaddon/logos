@@ -1,0 +1,15 @@
+(mod runprog)
+
+(fn report :void ((r :run))
+  (println (run-status r)))
+
+(fn main :i64 ()
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (vec-push a "-c")
+  (let r (run "sh" a))
+  (println (run-status r))
+  (print (run-out r))
+  (print (run-err r))
+  (ret 0))

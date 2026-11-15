@@ -1,0 +1,8 @@
+(mod shifts)
+
+(fn main :i64 ()
+  (let a :i64 5)
+  (let b :i64 2)
+  (ret (+ (shl a b)
+         (+ (shr a b)
+           (shr-u a b)))))

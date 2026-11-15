@@ -1,0 +1,24 @@
+(mod vecgetref)
+
+(type node (struct (next :i64)))
+
+(fn first :i64 ((v (ref (vec :i64))))
+  (ret (if (< (vec-get v 0) 10) 1 0)))
+
+(fn step :i64 ((nodes (ref (vec node))))
+  (ret (get (vec-get nodes 0) next)))
+
+(fn main :i64 ()
+  (letmut a
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push a 3)
+  (letmut ns
+    (vec node)
+    (make (vec node)))
+  (vec-push ns (make node 7))
+  (let x :i64 (first a))
+  (let y :i64 (step ns))
+  (vec-free a)
+  (vec-free ns)
+  (ret (+ x y)))

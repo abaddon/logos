@@ -1,0 +1,12 @@
+(mod enum-two-shapes)
+
+(type small (enum (one) (two)))
+
+(type wide (enum (num :i64) (text :str) (empty)))
+
+(type pair (struct (a small) (b wide)))
+
+(fn main :i64 ()
+  (let p pair (make pair one (num 4)))
+  (match (get p b) ((num n) (ret n)) ((text _) (ret 0))
+    (empty (ret 1))))

@@ -1,0 +1,11 @@
+(mod enumfwd)
+
+(type col (struct (a :i8) (b color)))
+
+(type color (enum (red) (blue)))
+
+(fn take :i8 ((c col))
+  (ret (get c a)))
+
+(fn main :i64 ()
+  (ret 0))

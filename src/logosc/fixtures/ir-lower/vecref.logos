@@ -1,0 +1,21 @@
+(mod vecref)
+
+(fn add :i64 ((v (ref (vec :i64))) (x :i64))
+  (vec-push v x)
+  (ret (vec-len v)))
+
+(fn swap :void ((v (ref (vec :i64))) (i :i64) (x :i64))
+  (vec-set v i x)
+  (ret))
+
+(fn main :i64 ()
+  (letmut a
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push a 1)
+  (let n :i64 (add a 2))
+  (swap a 0 9)
+  (let g :i64 (vec-get a 1))
+  (let l :i64 (vec-len a))
+  (vec-free a)
+  (ret (+ n (+ g l))))

@@ -1,0 +1,8 @@
+(mod match-let-init)
+
+(type e (enum (low :i64) (high)))
+
+(fn main :i64 ()
+  (let v (match (low 4) ((low n) (+ n 1))
+           (high 0)))
+  (ret v))

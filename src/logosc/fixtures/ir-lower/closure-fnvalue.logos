@@ -1,0 +1,25 @@
+(mod closure-fnvalue)
+
+(fn make-doubler :
+  (fn (:i64) :i64) ()
+  (let f (fn :i64 ((n :i64))
+           (ret (* n 2))))
+  (ret f))
+
+(fn offset-with :i64 ((k :i64))
+  (let f (fn :i64 ((n :i64))
+           (ret (+ n k))))
+  (ret (f 3)))
+
+(fn add-with :T ((x :T) (f : (fn (:T) :T)))
+  (let g (fn :T ((y :T))
+           (ret (f (+ y x)))))
+  (ret (g x)))
+
+(fn go :i64 ()
+  (let d (make-doubler))
+  (ret (add-with 4 d)))
+
+(fn main :i64 ()
+  (println (go))
+  (ret 0))

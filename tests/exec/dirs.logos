@@ -1,0 +1,21 @@
+(mod dirs)
+
+(test dirs
+  (expect (out "true\nfalse\nfalse\n0\n0\n1\nonly\n25\nNo such file or directory\n0\n")
+    (code 0)
+    (leaks 0))
+  (println (is-dir "tests/exec"))
+  (println (is-dir "tests/exec/dirs.logos"))
+  (println (is-dir "tests/exec/no-such-entry"))
+  (println (mkdirs "build/dirs-test/only"))
+  (println (mkdirs "build/dirs-test/only"))
+  (letmut names
+    (vec :str)
+    (read-dir "build/dirs-test"))
+  (println (vec-len names))
+  (println (vec-get names 0))
+  (vec-free names)
+  (let missing :str (path-error "build/dirs-test/no-such-entry"))
+  (println (str-len missing))
+  (println missing)
+  (println (str-len (path-error "build/dirs-test/only"))))

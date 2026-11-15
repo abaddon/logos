@@ -1,0 +1,16 @@
+(mod resok)
+
+(type e (enum (bad :i64) (over)))
+
+(fn f :
+  (res :i64 e) ()
+  (ret (ok 3)))
+
+(fn g :
+  (res :i64 e) ()
+  (ret (err (bad 2))))
+
+(fn main :i64 ()
+  (let a (match (f) ((ok v) v) ((err _) 0)))
+  (let b (match (g) ((ok v) v) ((err x) (match x ((bad n) n) (over 7)))))
+  (ret (+ a b)))

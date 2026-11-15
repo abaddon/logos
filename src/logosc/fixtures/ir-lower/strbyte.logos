@@ -1,0 +1,6 @@
+(mod strbyte)
+
+(fn main :i64 ()
+  (let s :str "hello")
+  (let b :u8 (str-byte s 1))
+  (ret (cast :i64 b)))

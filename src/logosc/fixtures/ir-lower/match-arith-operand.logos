@@ -1,0 +1,5 @@
+(mod match-arith-operand)
+
+(fn main :i64 ()
+  (let v :i64 (+ 5 (match 3 (1 10) (2 20) (_ 1))))
+  (ret v))

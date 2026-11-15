@@ -1,0 +1,13 @@
+(mod structy)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn swap point ((p point))
+  (ret (make point
+         (get p y)
+         (get p x))))
+
+(fn main :i64 ()
+  (let p point (make point 3 4))
+  (let q point (swap p))
+  (ret (get q x)))

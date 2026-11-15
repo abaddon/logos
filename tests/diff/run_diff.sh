@@ -27,14 +27,14 @@ set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIR="$ROOT/tests/diff"
 OUT="$ROOT/build/diff"
-PYTHON="${PYTHON:-python3}"
+LOGOSC="${LOGOSC:-$ROOT/tools/logosc.sh}"
 CC="${CC:-gcc}"
 VERBOSE=0
 if [[ "${1:-}" == "--verbose" ]]; then
     VERBOSE=1
 fi
 
-for tool in "$PYTHON" "$CC" timeout cmp; do
+for tool in "$LOGOSC" "$CC" timeout cmp; do
     if ! command -v "$tool" > /dev/null 2>&1; then
         echo "run_diff: required tool '$tool' is not installed" >&2
         exit 2
@@ -137,7 +137,7 @@ for source in "${sources[@]}"; do
     run_one "$name" c "$OUT/$name.c-bin"
 
     for level in O0 O2; do
-        if ! "$PYTHON" -m logos build "$source" -o "$OUT/$name.$level" --opt "-$level" \
+        if ! "$LOGOSC" build "$source" -o "$OUT/$name.$level" --opt "-$level" \
                 > "$OUT/$name.$level-build.log" 2>&1; then
             fail "$name" "Logos did not build at -$level (see build/diff/$name.$level-build.log)"
             continue

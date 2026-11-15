@@ -1,0 +1,7 @@
+(mod callret)
+
+(fn add :i64 ((a :i64) (b :i64))
+  (ret (+ a b)))
+
+(fn main :i64 ()
+  (ret (add 3 4)))

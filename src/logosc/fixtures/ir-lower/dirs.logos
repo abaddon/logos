@@ -1,0 +1,15 @@
+(mod dirs)
+
+(fn main :i64 ()
+  (let made :i64 (mkdirs "build/dirs-fixture"))
+  (let dir :bool (is-dir "build/dirs-fixture"))
+  (let why :str (path-error "build/dirs-fixture"))
+  (letmut names
+    (vec :str)
+    (read-dir "build/dirs-fixture"))
+  (println (vec-len names))
+  (println (str-len why))
+  (println made)
+  (println dir)
+  (vec-free names)
+  (ret 0))

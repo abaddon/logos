@@ -1,0 +1,6 @@
+(mod cast-widen)
+
+(fn main :i64 ()
+  (let n :i8 -7)
+  (println (cast :i64 n))
+  (ret 0))

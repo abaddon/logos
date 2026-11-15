@@ -1,0 +1,13 @@
+(mod match-arm-depths)
+
+(type e (enum (a :i64) (b) (c :i64)))
+
+(fn score :i64 ((v e))
+  (ret (match v ((a n) (let d :i64 (* n 2)) (if (> d 5)
+                                              (+ d 1)
+                                              (- d 1))) ((b) 0) ((c n) (let p :i64 (+ n 3)) (let q :i64 (* p 2)) q))))
+
+(fn main :i64 ()
+  (ret (+ (score (a 4))
+         (+ (score b)
+           (score (c 1))))))

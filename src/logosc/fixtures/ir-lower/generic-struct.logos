@@ -1,0 +1,11 @@
+(mod generic-struct)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn pick :T ((x :T))
+  (ret x))
+
+(fn main :i64 ()
+  (let p point (pick (make point 1 2)))
+  (println (get p x))
+  (ret 0))

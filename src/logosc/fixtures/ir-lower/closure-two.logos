@@ -1,0 +1,12 @@
+(mod closure-two)
+
+(fn sum-with :i64 ((a :i64) (b :i64))
+  (let f (fn :i64 ((n :i64))
+           (ret (+ (+ a b) n))))
+  (ret (f 0)))
+
+(fn main :i64 ()
+  (println (sum-with 10 20))
+  (let s :i64 (sum-with 1 2))
+  (println s)
+  (ret 0))

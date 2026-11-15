@@ -1,0 +1,8 @@
+(mod fieldset)
+
+(type point (struct (x :i64) (y :i64)))
+
+(fn main :i64 ()
+  (letmut p point (make point 1 2))
+  (set-field p x 9)
+  (ret (get p x)))

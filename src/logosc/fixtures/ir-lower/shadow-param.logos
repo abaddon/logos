@@ -1,0 +1,15 @@
+(mod shadow-param)
+
+(type shade (enum (a :i64) (b)))
+
+(fn keep :i64 ((b :i64))
+  (ret b))
+
+(fn make-shade shade ()
+  (ret b))
+
+(fn main :i64 ()
+  (println (keep 7))
+  (match (make-shade) ((a n) (println n))
+    (b (println 0)))
+  (ret 0))

@@ -7,20 +7,28 @@ arena `tree-parse` builds and assumes node `0` is the file.
 
 Every source file has one printed shape, so `fmt` output can be compared byte for
 byte and used as canonical source an AI can rewrite without guessing. This
-module produces that shape by walking the arena and printing fragments; it does
-not build a string (§D10).
+module produces that shape by walking the arena and printing fragments to a
+file descriptor; it does not build a string (§D10). The descriptor is the whole
+of what changed in W8: `fmt` used to write to standard output and `main` used
+to read it there, so a file could not be rewritten in place. Threading an
+`fd :i64` through the printer costs one argument per function and buys both
+halves of Python's contract — descriptor 1 prints the canonical text, a
+descriptor from `rt_create` rewrites the file — with no buffer and no copy.
 
 ## API
 
 ```logos
-(fn fmt :void ((nodes (ref (vec node)))
+(fn fmt :void ((fd :i64)
+               (nodes (ref (vec node)))
                (ntexts (ref (vec :str)))))
 ```
 
-`fmt` prints the whole file to stdout: every top-level form at column zero, one
-blank line between forms, a final newline. An empty file prints nothing. It
-reads the two arenas and allocates nothing that survives the call; the caller
-frees both, as it would after `tree-path`.
+`fmt` writes the whole file to `fd`: every top-level form at column zero, one
+blank line between forms, a final newline. An empty file writes nothing. `1` is
+standard output — the `fmt -` and `gen2 fmt <file>` shape the gate compares —
+and any other descriptor is whatever `rt_create` opened. It reads the two
+arenas and allocates nothing that survives the call; the caller frees both, as
+it would after `tree-path`.
 
 `nodes` and `ntexts` must be the arenas `tree-parse` filled successfully, with
 the file node at id `0`. `fmt` never frees them and never reads a token vector
@@ -28,18 +36,20 @@ from the lexer: the tree owns every text it needs.
 
 | function | returns | meaning |
 |---|---|---|
-| `fmt nodes ntexts` | `:void` | print the whole file canonically |
-| `fmt-form nodes ntexts id column` | `:i64` | print one form starting at `column`; return its end column |
-| `fmt-token ntexts tok text col` | `:i64` | print one token; a string is quoted and re-escaped |
-| `fmt-string ntexts text col` | `:i64` | print a string token's canonical spelling |
-| `fmt-put col s` | `:i64` | print `s`, return the column after its last code point |
-| `fmt-break column` | `:i64` | print a newline and `column` spaces, return `column` |
-| `fmt-indent n` | `:i64` | print `n` spaces, return `n` |
+| `fmt fd nodes ntexts` | `:void` | write the whole file canonically to `fd` |
+| `fmt-form fd nodes ntexts id column` | `:i64` | print one form starting at `column`; return its end column |
+| `fmt-token fd ntexts tok text col` | `:i64` | print one token; a string is quoted and re-escaped |
+| `fmt-string fd ntexts text col` | `:i64` | print a string token's canonical spelling |
+| `fmt-put fd col s` | `:i64` | print `s`, return the column after its last code point |
+| `fmt-break fd column` | `:i64` | print a newline and `column` spaces, return `column` |
+| `fmt-indent fd n` | `:i64` | print `n` spaces, return `n` |
+| `fmt-write fd s` | `:i64` | one `rt_write`: the byte count, or -1 |
+| `fmt-emit fd s` | `:void` | `fmt-write`, discarding the count |
 | `fmt-breaks nodes ntexts id` | `:bool` | whether this form puts its form children on their own lines |
 | `fmt-form-count nodes id` | `:i64` | number of form children in the chain |
 | `fmt-skip nodes ntexts id` | `:i64` | items before the first child: 0 bare list, 1 head only, 2 named, 3 named `extern` |
-| `fmt-name ntexts kind name col` | `:i64` | print the retired definition name (and `extern`'s `fn` marker) |
-| `fmt-gap`, `fmt-tail` | `:void` | implementation: the blank line between top-level forms and the final newline |
+| `fmt-name fd ntexts kind name col` | `:i64` | print the retired definition name (and `extern`'s `fn` marker) |
+| `fmt-gap fd more`, `fmt-tail fd any` | `:void` | implementation: the blank line between top-level forms and the final newline |
 | `fmt-block-kind`, `fmt-field-kind`, `fmt-continuation` | `:bool` | implementation: kind tests and UTF-8 continuation bytes |
 
 Every printer helper takes the current column and returns the column just past
@@ -184,7 +194,7 @@ Twenty cases, each `(leaks 0)` and each run at `-O0` and `-O2`:
 The harness feeds each source through `lex`, `tree-parse` and `fmt` and asserts
 the exact stdout with `(out …)`. `fmt-src` frees all six vectors it creates.
 
-`python3 -m logos test src/logosc/fmt_test.logos --opt -O0 --opt -O2` reports
+`./tools/logosc.sh test src/logosc/fmt_test.logos --opt -O0 --opt -O2` reports
 `20 passed, 0 failed, 0 leaked`.
 
 ## Parity

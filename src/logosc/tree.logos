@@ -1,6 +1,6 @@
 (mod tree)
 
-(type node (struct (text :i64) (tok :i64) (first :i64) (next :i64) (name :i64) (line :i64) (col :i64)))
+(type node (struct (text :i64) (tok :i64) (first :i64) (next :i64) (name :i64) (line :i64) (col :i64) (path :i64)))
 
 (type open (struct (id :i64) (line :i64) (col :i64) (last :i64)))
 
@@ -15,6 +15,9 @@
 (fn tree-ok :bool ((e tree-error))
   (ret (not (get e failed))))
 
+(fn tree-noop :void ()
+  (ret))
+
 (fn tree-set-first :void ((nodes (ref (vec node))) (id :i64) (value :i64))
   (letmut n node (vec-get nodes id))
   (set-field n first value)
@@ -26,7 +29,7 @@
   (vec-set nodes id n))
 
 (fn tree-new :i64 ((nodes (ref (vec node))) (text :i64) (tok :i64) (line :i64) (col :i64))
-  (vec-push nodes (make node text tok -1 -1 -1 line col))
+  (vec-push nodes (make node text tok -1 -1 -1 line col -1))
   (ret (- (vec-len nodes) 1)))
 
 (fn tree-append :void ((nodes (ref (vec node))) (stack (ref (vec open))) (slot :i64) (child :i64))
@@ -188,7 +191,40 @@
     (set c (get (vec-get nodes c) next)))
   (ret found))
 
-(fn tree-path :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (root :i64) (target :i64))
+(fn tree-push-text :i64 ((ntexts (ref (vec :str))) (text :str))
+  (vec-push ntexts text)
+  (ret (- (vec-len ntexts) 1)))
+
+(fn tree-path-set :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (text :str))
+  (letmut n node (vec-get nodes id))
+  (if (= (get n tok) -1)
+    (set-field n path (tree-push-text ntexts text))
+    (tree-noop))
+  (vec-set nodes id n)
+  (ret))
+
+(fn tree-fill-below :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (prefix :str) (mods :i64))
+  (letmut c :i64 (get (vec-get nodes id) first))
+  (letmut slot :i64 0)
+  (while (>= c 0)
+    (let p :str (if (= c mods) prefix
+                  (tree-join prefix (tree-segment nodes ntexts c slot))))
+    (tree-path-set nodes ntexts c p)
+    (tree-fill-below nodes ntexts c p mods)
+    (if (= c mods)
+      (tree-noop)
+      (set slot (+ slot 1)))
+    (set c (get (vec-get nodes c) next)))
+  (ret))
+
+(fn tree-fill-paths :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let m :i64 (tree-module nodes ntexts 0))
+  (let prefix :str (if (= m -1) ""
+                     (vec-get ntexts (get (vec-get nodes m) name))))
+  (tree-fill-below nodes ntexts 0 prefix m)
+  (ret))
+
+(fn tree-path-walk :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (root :i64) (target :i64))
   (let m :i64 (tree-module nodes ntexts root))
   (let prefix :str (if (= m -1) ""
                      (vec-get ntexts (get (vec-get nodes m) name))))
@@ -205,6 +241,14 @@
     (set c (get (vec-get nodes c) next)))
   (ret found))
 
+(fn tree-path :str ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (root :i64) (target :i64))
+  (let at :i64 (if (or (< target 0)
+                     (>= target (vec-len nodes))) -1
+                 (get (vec-get nodes target) path)))
+  (ret (if (>= at 0)
+         (vec-get ntexts at)
+         (tree-path-walk nodes ntexts root target))))
+
 (fn tree-unclosed tree-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (stack (ref (vec open))) (state (ref (vec :i64))))
   (let depth :i64 (vec-get state 0))
   (letmut d :i64 1)
@@ -218,7 +262,7 @@
          (get inner col) "unbalanced '('")))
 
 (fn tree-parse tree-error ((kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
-  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1))
+  (vec-push nodes (make node -1 -2 -1 -1 -1 1 1 -1))
   (letmut stack
     (vec open)
     (make (vec open)))
@@ -238,4 +282,7 @@
              (tree-unclosed nodes ntexts stack state) err))
   (vec-free stack)
   (vec-free state)
+  (if (tree-ok err)
+    (tree-fill-paths nodes ntexts)
+    (tree-noop))
   (ret err))

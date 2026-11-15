@@ -24,6 +24,10 @@ fresh arena of the same shape.
                                (all (ref (vec resolve-def)))
                                (mods (ref (vec resolve-mod)))))
 
+(fn resolve-set-of resolve-error ((paths (ref (vec :str)))
+                                  (all (ref (vec resolve-def)))
+                                  (mods (ref (vec resolve-mod)))))
+
 (fn resolve-ok :bool ((e resolve-error)))
 (fn resolve-pass resolve-error ())
 (fn resolve-fail resolve-error ((code :i64) (path :str) (message :str)))
@@ -52,6 +56,21 @@ its declarations because the resolver's ranges carry names and paths, not
 types. Imported files are read, lexed and parsed inside the
 call; their arenas are freed before the imported resolver call returns, and
 their strings are process-lifetime views like every other `:str`.
+
+`resolve-set-of` is the multi-root form, and it is what Python's
+`resolve_program` does (`driver.py:100-113`, `resolve.py:150-160`). It reads
+and parses each root once to learn its declared module name, keeping two
+parallel vectors — the names and the files, the module-to-file registry the
+loader consults before the file system — and then walks the roots in argument
+order against **one** set of tables (`all`, `mods`, `active`, `depth`,
+`keys`/`vals`/`slots`). The module list therefore equals Python's `reachable`:
+the roots in argument order, each root's imports depth first, one entry per
+module name. A root another root already imported with the same file is
+skipped, so it appears at its import position once; the same module name
+answering with a different file is `E0003`, and two roots declaring one name
+are refused during the parse pass. `resolve-set` is the one-root special case
+and passes an empty registry, which is why a single-file load still answers
+`use` from the file system exactly as before.
 
 ## The result
 
@@ -348,6 +367,18 @@ one exception is an imported file that would not lex or parse, whose diagnostic
 belongs to that file and names it (`resolve-load` is the only step that reads
 another file, so it is the only step that can return a located error).
 
+`resolve-set-of` runs that same walk once per root:
+
+```text
+resolve-set-of
+  resolve-roots-meta            parse every root; fill the name -> file registry
+    resolve-root-meta           read, lex, tree-parse one root
+      resolve-root-tree         add its declared name and path
+  resolve-roots                 for each root, in argv order
+    resolve-load                skip one already resolved from the same file
+      resolve-import-*          otherwise the resolve-check walk above
+```
+
 ## Build set
 
 `gen2` is built from `src/logosc/*.logos` **and** `src/std/map.logos` and
@@ -397,7 +428,7 @@ rare; a per-node caller would be quadratic again.
 
 ## Tests
 
-`src/logosc/resolve_test.logos` has 34 cases, each run at `-O0` and `-O2` with
+`src/logosc/resolve_test.logos` has 38 cases, each run at `-O0` and `-O2` with
 `(leaks 0)`:
 
 1. `module-alone` — `(mod a)` resolves with no output.
@@ -440,10 +471,22 @@ rare; a per-node caller would be quadratic again.
 34. `late-unknown-node-slot` — an unknown form after a `fn`, a `type` and a
     `test` is `E0002` at `m/3`, so `test` takes one slot and adds no prefix
     when it is not itself the target.
+35. `two-roots` — `two/a.logos` and `two/b.logos` resolve as `[a, b]`, the
+    module list Python's `reachable` returns for that argument order.
+36. `two-roots-diamond` — roots `diamond/left` and `diamond/right` resolve as
+    `[left, base, right]`: the shared import appears once, at the first root's
+    depth-first position.
+37. `two-roots-share-the-root-registry` — `origins/left/left` and
+    `origins/right/dup` resolve to `[left/left, dup]` with `dup` read from
+    `origins/right/dup.logos`, not from the sibling `origins/left/dup.logos`:
+    the registry answers a `use` before the file system does.
+38. `two-roots-refuse-a-collapsed-module` — the same `use dup` from
+    `origins/right/right` is `E0003 duplicate module 'dup'`, naming both files:
+    one registry for every root.
 
-The suite is `python3 -m logos test src/logosc/resolve_test.logos --opt -O0
+The suite is `./tools/logosc.sh test src/logosc/resolve_test.logos --opt -O0
 --opt -O2`, run from the repository root (the fixture paths are relative to
-it). The whole front-end suite is `python3 -m logos test src/logosc --opt -O0
+it). The whole front-end suite is `./tools/logosc.sh test src/logosc --opt -O0
 --opt -O2`.
 
 ## Parity

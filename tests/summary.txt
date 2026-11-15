@@ -105,6 +105,7 @@ PASS type/spawn-arity -
 PASS type/spawn-generic -
 PASS type/spawn-own -
 PASS type/spawn-return -
+PASS type/test-body-type -
 PASS type/try-mismatch -
 PASS type/try-nonresult-fn -
 PASS type/try-nonresult -
@@ -147,6 +148,7 @@ PASS exec/closures/non-capturing-closure-returns -
 PASS exec/closures/distinct-type-arguments -
 PASS exec/closures/non-capturing-through-a-parameter -
 PASS exec/closures/capturing-local-called-twice -
+PASS exec/dirs/dirs -
 PASS exec/divzero/div-by-zero-panics -
 PASS exec/divzero/modulo-by-zero-panics -
 PASS exec/extern/pid-comes-back-as-i64 -

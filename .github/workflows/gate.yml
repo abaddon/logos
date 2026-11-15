@@ -16,31 +16,21 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    # The compiler is built from source several times (once per suite, then gen2
+    # and gen3 for the self-hosting gate), and every `(test …)` case lowers and
+    # links its whole module, so the six gates take about an hour. The budget is
+    # set to twice that so a slow runner fails for a real reason.
+    timeout-minutes: 90
     steps:
       - name: checkout
         uses: actions/checkout@v4
         with:
           # The formatting gate diffs against main, which needs the merge base.
           fetch-depth: 0
-      # Before any gate: ubuntu-22.04 ships setuptools 59.6, which cannot read
-      # the [project] table. It does not fail; it builds
-      # UNKNOWN-0.0.0-py3-none-any.whl with nothing but dist-info, so the
-      # packaging gate then reports missing files instead of the real cause.
-      # Pin the build backend forward and print every version that matters, so
-      # a future failure is diagnosable from the log alone.
-      - name: build toolchain
-        run: |
-          if ! python3 -m pip --version > /dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends python3-pip
-          fi
-          python3 -m pip install --upgrade "pip>=23" "setuptools>=68" wheel
-          python3 -m pip --version
-          python3 -c 'import setuptools; print("setuptools " + setuptools.__version__)'
-          python3 --version
-          python3 -c 'import setuptools, sys; sys.exit(0 if int(setuptools.__version__.split(".")[0]) >= 61 else 1)' \
-            || { echo "setuptools is still older than 61 after the upgrade; refusing to run the gates" >&2; exit 1; }
+      # clang and lld link the compiler and the programs it builds; gcc and jq
+      # are the differential oracles in tools/accept.sh. Python is present only
+      # because the surviving contract tests are written in it — no gate runs a
+      # compiler written in Python.
       - name: install toolchain
         run: |
           sudo apt-get update
@@ -65,32 +55,21 @@ jobs:
           make test
       - name: corpus
         run: |
-          python3 -m logos test
+          ./tools/logosc.sh test tests
       - name: acceptance
         run: |
           bash tools/accept.sh
       - name: manual drift
         run: |
-          python3 -m logos guide --check
+          ./tools/logosc.sh guide --check
       - name: formatting
         shell: bash
         run: |
           if [[ -n "$(git diff --name-only main...HEAD -- '*.logos')" ]]; then
-            python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
+            ./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')
           fi
-          python3 -m logos fmt tests docs/manual
+          ./tools/logosc.sh fmt tests docs/manual
           git diff --exit-code -- '*.logos'
       - name: self-hosting
         run: |
           bash tools/selfhost.sh
-      - name: packaging diagnostics
-        if: failure()
-        shell: bash
-        run: |
-          echo "RUNNER_TEMP=$RUNNER_TEMP"
-          echo "--- rt.c anywhere the packaging test may have installed it ---"
-          find /tmp "$RUNNER_TEMP" -maxdepth 4 -name 'rt.c' 2>/dev/null || true
-          echo "--- installed logos package trees ---"
-          find /tmp "$RUNNER_TEMP" -maxdepth 6 -type d -path '*/logos/runtime' 2>/dev/null || true
-          echo "--- package metadata visible to this interpreter ---"
-          python3 -m pip show -f logos 2>/dev/null || true

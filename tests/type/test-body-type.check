@@ -1,0 +1,1 @@
+test-body-type/test/wrong-type/2: E0100: let 'y' has type :str, found :i64

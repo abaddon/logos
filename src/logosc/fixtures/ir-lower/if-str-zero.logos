@@ -1,0 +1,11 @@
+(mod if-str-zero)
+
+(fn label :str ((n :i64))
+  (ret (if (= n 0) "zero"
+         (if (= n 1) "one" "many"))))
+
+(fn main :i64 ()
+  (println (label 0))
+  (println (label 1))
+  (println (label 7))
+  (ret 0))

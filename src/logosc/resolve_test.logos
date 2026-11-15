@@ -58,6 +58,35 @@
 (fn dump-file :void ((path :str))
   (dump-src-at path (read-file path)))
 
+(fn dump-mods :void ((mods (ref (vec resolve-mod))))
+  (letmut i :i64 0)
+  (while (< i (vec-len mods))
+    (println (get (vec-get mods i) name))
+    (println (get (vec-get mods i) file))
+    (set i (+ i 1)))
+  (ret))
+
+(fn dump-set :void ((a :str) (b :str))
+  (letmut paths
+    (vec :str)
+    (make (vec :str)))
+  (vec-push paths a)
+  (vec-push paths b)
+  (letmut all
+    (vec resolve-def)
+    (make (vec resolve-def)))
+  (letmut mods
+    (vec resolve-mod)
+    (make (vec resolve-mod)))
+  (let e resolve-error (resolve-set-of paths all mods))
+  (if (resolve-ok e)
+    (dump-mods mods)
+    (show-fail e))
+  (vec-free all)
+  (vec-free mods)
+  (vec-free paths)
+  (ret))
+
 (test module-alone
   (expect (out "OK\n")
     (code 0)
@@ -189,6 +218,30 @@
     (code 0)
     (leaks 0))
   (dump-file "src/logosc/fixtures/diamond/root.logos"))
+
+(test two-roots
+  (expect (out "a\nsrc/logosc/fixtures/two/a.logos\nb\nsrc/logosc/fixtures/two/b.logos\n")
+    (code 0)
+    (leaks 0))
+  (dump-set "src/logosc/fixtures/two/a.logos" "src/logosc/fixtures/two/b.logos"))
+
+(test two-roots-diamond
+  (expect (out "left\nsrc/logosc/fixtures/diamond/left.logos\nbase\nsrc/logosc/fixtures/diamond/base.logos\nright\nsrc/logosc/fixtures/diamond/right.logos\n")
+    (code 0)
+    (leaks 0))
+  (dump-set "src/logosc/fixtures/diamond/left.logos" "src/logosc/fixtures/diamond/right.logos"))
+
+(test two-roots-share-the-root-registry
+  (expect (out "left/left\nsrc/logosc/fixtures/origins/left/left.logos\ndup\nsrc/logosc/fixtures/origins/right/dup.logos\n")
+    (code 0)
+    (leaks 0))
+  (dump-set "src/logosc/fixtures/origins/left/left.logos" "src/logosc/fixtures/origins/right/dup.logos"))
+
+(test two-roots-refuse-a-collapsed-module
+  (expect (out "E0003\ndup\nduplicate module 'dup': src/logosc/fixtures/origins/left/dup.logos and src/logosc/fixtures/origins/right/dup.logos\n")
+    (code 0)
+    (leaks 0))
+  (dump-set "src/logosc/fixtures/origins/left/left.logos" "src/logosc/fixtures/origins/right/right.logos"))
 
 (test import-not-transitive
   (expect (out "OK\n")

@@ -1,0 +1,7 @@
+(mod float-long-literal)
+
+(fn main :i64 ()
+  (let exact :f64 15084.91740094170017982833087444305419921875)
+  (println exact)
+  (println 1e300)
+  (ret 0))

@@ -1,0 +1,9 @@
+(mod match-call-arg)
+
+(fn word :str ((n :i64))
+  (ret (match n (0 "zero") (_ "many"))))
+
+(fn main :i64 ()
+  (println (word 2))
+  (println (match 2 (0 "zero") (1 "one") (2 "two") (_ "many")))
+  (ret 0))

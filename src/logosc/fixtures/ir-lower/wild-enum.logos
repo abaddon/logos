@@ -1,0 +1,11 @@
+(mod wildenum)
+
+(type color (enum (red) (green) (blue)))
+
+(fn main :i64 ()
+  (let c color (green))
+  (ret (match c
+         (red 1)
+         (green 2)
+         (blue 3)
+         (_ 4))))

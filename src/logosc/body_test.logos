@@ -2289,3 +2289,27 @@
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void () (let p (alloc :i64 1)) (free p) (let q (ptr :i64) (ptr-add p 8)))"))
+
+(test match-unknown-payload-binds
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(type failure (enum (bad-digit :u64) (bad-text :str) (overflow))) (fn f :i64 () (let e overflow) (match e ((bad-digit n) (println n)) ((bad-text s) (println s)) (overflow (println 99))) (ret 0))"))
+
+(test generic-call-result-type
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(fn id :T ((x :T)) (ret x)) (fn f :i64 () (println (str-len (id \"abc\"))) (ret 0))"))
+
+(test test-body-valid
+  (expect (out "OK\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(test t (expect (out \"\")) (let x :i64 5) (println x))"))
+
+(test test-body-type
+  (expect (out "E0100\nm/test/t/2\nlet 'y' has type :str, found :i64\n")
+    (code 0)
+    (leaks 0))
+  (dump-src "(test t (expect (out \"\")) (let x :i64 5) (let y :str x))"))

@@ -1,0 +1,29 @@
+(mod tryprop)
+
+(type e (enum (bad :i64) (over)))
+
+(fn one :
+  (res :i64 e) ((c :i64))
+  (if (< c 10)
+    (ret (ok 7))
+    (ret (err (bad c)))))
+
+(fn add :
+  (res :i64 e) ((a :i64) (b :i64))
+  (ret (ok (+ (try (one a))
+             (try (one b))))))
+
+(fn upto :
+  (res :i64 e) ()
+  (letmut i :i64 0)
+  (letmut total :i64 0)
+  (while (< i 3)
+    (set total (+ total (try (one i))))
+    (set i (+ i 1)))
+  (ret (ok total)))
+
+(fn main :i64 ()
+  (let a (match (add 3 4) ((ok v) v) ((err _) 0)))
+  (let b (match (add 3 42) ((ok v) v) ((err x) (match x ((bad n) n) (over 0)))))
+  (let c (match (upto) ((ok v) v) ((err _) 0)))
+  (ret (+ (+ a b) c)))

@@ -80,6 +80,100 @@ nan
 """
 
 
+DIR_PROBE = r"""
+#include <stdio.h>
+#include <string.h>
+#include "rt.h"
+
+/* A Logos string is a pointer and a length, so every call here states both. */
+#define P(s) ((const unsigned char *)(s)), strlen(s)
+
+int main(void) {
+    const rt_arg *e = NULL;
+    size_t n = 0;
+    size_t i;
+    unsigned char *msg;
+
+    printf("mkdirs %ld\n", rt_mkdirs(P("build/rt-dirs/a/b")));
+    printf("again %ld\n", rt_mkdirs(P("build/rt-dirs/a/b")));
+    printf("blocked %ld\n", rt_mkdirs(P("build/rt-dirs/a/b/probe.c")));
+
+    printf("dir %ld\n", rt_is_dir(P("build/rt-dirs/a")));
+    printf("file %ld\n", rt_is_dir(P("build/rt-dirs/a/b/probe.c")));
+    printf("missing %ld\n", rt_is_dir(P("build/rt-dirs/no-such")));
+
+    n = rt_read_dir(P("build/rt-dirs"), &e, "probe/read-dir");
+    printf("count %zu\n", n);
+    for (i = 0; i < n; i++) {
+        printf("entry [%.*s]\n", (int)e[i].len, (const char *)e[i].ptr);
+    }
+
+    n = rt_read_dir(P("build/rt-dirs-empty"), &e, "probe/read-dir");
+    printf("empty %zu null %d\n", n, e == NULL);
+
+    msg = rt_path_error(P("build/rt-dirs/a"), &n);
+    printf("ok [%.*s]\n", (int)n, (const char *)msg);
+    msg = rt_path_error(P("build/rt-dirs/no-such"), &n);
+    printf("missing [%.*s]\n", (int)n, (const char *)msg);
+    return 0;
+}
+"""
+
+DIR_EXPECTED = """mkdirs 0
+again 0
+blocked -1
+dir 1
+file 0
+missing 0
+count 1
+entry [a]
+empty 0 null 1
+ok []
+missing [No such file or directory]
+"""
+
+
+class DirectoryProbeTest(unittest.TestCase):
+    """The directory helpers, on a tree the probe builds itself."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+
+        source = BUILD / "rt-dirs-probe.c"
+        binary = BUILD / "rt-dirs-probe"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(DIR_PROBE, encoding="utf-8")
+        shutil.rmtree(BUILD / "rt-dirs", ignore_errors=True)
+        shutil.rmtree(BUILD / "rt-dirs-empty", ignore_errors=True)
+        (BUILD / "rt-dirs" / "a" / "b").mkdir(parents=True)
+        (BUILD / "rt-dirs-empty").mkdir(parents=True)
+        (BUILD / "rt-dirs" / "a" / "b" / "probe.c").write_text("", encoding="utf-8")
+        command = [
+            "clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(RUNTIME),
+            str(source),
+            str(RUNTIME / "rt.c"),
+            "-o",
+            str(binary),
+            "-lm",
+        ]
+        done = subprocess.run(command, capture_output=True, text=True)
+        if done.returncode != 0:
+            raise AssertionError(f"rt-dirs-probe did not build:\n{done.stderr}")
+        cls.binary = str(binary)
+
+    def test_the_directory_helpers(self):
+        done = subprocess.run([self.binary], capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, DIR_EXPECTED)
+
+
 class RuntimeProbeTest(unittest.TestCase):
     """One binary, one expected transcript."""
 

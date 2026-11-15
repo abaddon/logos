@@ -29,7 +29,7 @@ gate_make_test() {
 }
 
 gate_logos_test() {
-    python3 -m logos test
+    ./tools/logosc.sh test tests
 }
 
 gate_accept() {
@@ -37,7 +37,7 @@ gate_accept() {
 }
 
 gate_guide() {
-    python3 -m logos guide --check
+    ./tools/logosc.sh guide --check
 }
 
 gate_fmt() {
@@ -46,11 +46,11 @@ gate_fmt() {
         return 1
     fi
     if [[ -n "$(git diff --name-only main...HEAD -- '*.logos')" ]]; then
-        python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
+        ./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')
     fi
     # The manual and the corpus are generated or canonical by contract. Format
     # them in place, then fail if formatting changed a tracked file.
-    python3 -m logos fmt tests docs/manual
+    ./tools/logosc.sh fmt tests docs/manual
     git diff --exit-code -- '*.logos'
 }
 

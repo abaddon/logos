@@ -1,0 +1,4 @@
+# The stage-0 compiler is a binary, not text: keep git from diffing or
+# normalising it, and keep line-ending conversion away from the checksum.
+bootstrap/logosc binary
+bootstrap/logosc -text -diff

@@ -21,10 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 GATES = [
     "make test",
-    "python3 -m logos test",
+    "./tools/logosc.sh test tests",
     "bash tools/accept.sh",
-    "python3 -m logos guide --check",
-    "python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')",
+    "./tools/logosc.sh guide --check",
+    "./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')",
     "bash tools/selfhost.sh",
 ]
 
@@ -33,9 +33,8 @@ GATES = [
 SIGN_OFF_COMMAND = "bash tools/check_dco.sh"
 
 HIGH_RISK_CODEOWNERS = [
-    "/logos/check.py",
-    "/logos/lower.py",
-    "/logos/types.py",
+    "/src/logosc/",
+    "/bootstrap/",
     "/docs/LOGOS.md",
     "/docs/manual/",
     "/tests/regress/",

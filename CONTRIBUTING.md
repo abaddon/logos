@@ -13,16 +13,19 @@ sudo apt-get install -y clang lld gcc jq
 make test
 ```
 
-No install step is needed: `python3 -m logos` runs from the checkout.
+No install step is needed: `./tools/logosc.sh` builds the compiler from the
+checkout on first use and runs it. The bootstrap binary it starts from,
+`bootstrap/logosc`, only compiles the compiler; it is not the compiler you are
+testing.
 
 ## The six gates
 
 ```sh
 make test
-python3 -m logos test
+./tools/logosc.sh test tests
 bash tools/accept.sh
-python3 -m logos guide --check
-python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')
+./tools/logosc.sh guide --check
+./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')
 bash tools/selfhost.sh
 ```
 
@@ -30,19 +33,22 @@ bash tools/selfhost.sh
 one PASS or FAIL line per gate. A pull request must show all six passing and
 every commit signed off.
 
-To run one unit test file:
+To run one contract test file:
 
 ```sh
-python3 -m unittest tests.test_guide -v
+python3 -m unittest tests.test_gen2_build -v
 ```
 
-To run one test method, append it: `python3 -m unittest
-tests.test_guide.ManifestTest.test_keys_are_exactly_the_documented_set -v`.
-To run one corpus category at one optimisation level:
+To run one compiler suite, or one corpus category at one optimisation level:
 
 ```sh
-python3 -m logos test --only regress --opt -O0
+./tools/logosc.sh test src/logosc/body_test.logos --opt -O0
+./tools/logosc.sh test tests --only regress --opt -O0
 ```
+
+The compiler's own suites (`body_test`, `check_test`, `resolve_test`) are the
+direct check on a lowering or checker change; they are written in Logos and run
+by the compiler itself.
 
 ## Compiler changes need a regress case
 
@@ -58,7 +64,7 @@ and the suite's leak total. Regenerate it only when you add a case or
 intentionally change an existing one:
 
 ```sh
-python3 -m logos test --update-baseline
+./tools/logosc.sh test tests --update-baseline
 ```
 
 Never regenerate it to hide a failure. A case that passed in the baseline and
@@ -74,8 +80,18 @@ Never hand-edit `docs/LOGOS.md`. Edit the chapter in `docs/manual/` or the
 compiler table it comes from, then:
 
 ```sh
-python3 -m logos guide > docs/LOGOS.md
-python3 -m logos guide --check
+./tools/logosc.sh guide > docs/LOGOS.md
+./tools/logosc.sh guide --check
+```
+
+If you change `src/logosc/`, the stage-0 binary must be rebuilt in the same
+pull request, because it is the only compiler that can build the source. The
+`bash tools/selfhost.sh` gate fails if the pair is not a fixed point:
+
+```sh
+./tools/logosc.sh version
+cp build/logosc bootstrap/logosc
+( cd bootstrap && sha256sum logosc > logosc.sha256 )
 ```
 
 ## Invariants

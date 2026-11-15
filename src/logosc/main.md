@@ -1,53 +1,241 @@
-# `src/logosc/main.logos` — the `fmt`, `resolve` and `check` verbs and the process contract
+# `src/logosc/main.logos` — the verbs and the process contract
 
 The entry point of the self-hosted compiler, `gen2`: `logos/cli.py`'s `fmt`
-verb ported to Logos, plus `resolve`, which runs the W5 resolver without a
-checker, and `check`, which runs the W6 declaration pass over the resolved
-module set. The modules before it return values; this one is a program. It owns
-the process boundary — the command line, the exit status and the two output
+verb ported to Logos — one or more paths, directories walked recursively, `-`
+for standard input, rewritten in place — plus `resolve`, which runs the W5
+resolver without a checker, `check`, which runs the W6 declaration pass over
+the resolved module set, and `build`, which lowers that module set, writes the
+LLVM IR `emit` prints, and runs clang over the text and the C runtime to
+produce a native binary. The modules before it return values; this one is a program. It owns the
+process boundary — the command line, the exit status and the two output
 streams — and nothing else.
 
-Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md` and `check.md` first. This file adds no
-language surface: it calls the modules in the order the Python compiler does.
+Read `lex.md`, `tree.md`, `fmt.md`, `resolve.md`, `check.md`, `lower.md`,
+`emit.md` and `harness.md` first. This file adds no language surface: it calls
+the modules in the order the Python compiler does.
 
 ## The command line
 
 ```
-gen2 fmt <file>
-gen2 resolve <file>
+gen2 version
+gen2 show <file> <path>
+gen2 fmt <file|dir|->...
+gen2 resolve <file>...
 gen2 check <file>
+gen2 build <file>... [-o <out>] [--opt <O>] [--test <name>] [--keep-ir]
+gen2 test [<path>] [--only <category>] [--opt <level>]... [--update-baseline]
+gen2 guide [--json|--check]
 ```
+
+`patch` is deliberately absent: see "The usage block" below.
 
 `(args)` returns the whole command line including the program name, as the
 runtime copies it from `/proc/self/cmdline`. So the shape is:
 
 | index | holds |
 |---|---|
-| `0` | the program, `gen2` |
-| `1` | the verb, `fmt`, `resolve` or `check` |
-| `2` | the file to format or resolve |
+| `0` | the program |
+| `1` | the verb, `version`, `show`, `fmt`, `resolve`, `check`, `build`, `test` or `guide` |
+| `2` | `show`'s file, or the file to check |
+| `2` … `n-1` | the paths to format, resolve or build (one or more), and `build`'s or `test`'s flags, or `test`'s one path |
+| `3` | `show`'s node path (the empty word is the file itself) |
 
-`main` accepts exactly these three elements. **No arguments, an unknown verb, a
-missing file argument, or any extra argument** prints one line to stderr and
-exits 2:
+`build`'s flags may appear anywhere among its files, as Python's `argparse`
+allows: `-o OUT` names the binary, `--opt O` (or `--opt=O`) names the
+optimisation level and defaults to `-O2`, and `--keep-ir` is accepted and
+changes nothing, because the IR is always kept. A word that starts with `-` and
+is not one of those four is a usage error; a file whose name starts with `-`
+would have to be written with a path. A repeated `-o` or `--opt` takes the last
+value, as `argparse` does.
+
+`--test NAME` builds one `(test …)` body of the file as the program's `main`
+instead of the module's own: the third arity above is the only shape Python has
+no `build` flag for, because the runner (`logos/driver.py`'s `run_test`) calls
+the lowering directly. Three things follow from it and none is a usage error —
+the required-`main` rule is not applied, the IR goes to
+`build/<stem>.<name>.ll` with `/` and `\` in the name replaced by `_`, and the
+link adds `-DLOGOS_DEBUG=1` first in the clang command line so the runtime's
+leak report is compiled in. A repeated `--test` takes the last value. See
+`lower.md`'s "Test mode" for what the lowering does with the name.
+
+`test` is the corpus runner. `PATH` defaults to `tests` (`nargs="?"` in
+`cli.py`), `--only CAT` filters by category and must name one of the eight, and
+`--opt` is consumed the way `argparse` reads it after `cli._normalize_argv`:
+one flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two
+levels, `--opt=-O0` is one, and a run with no `--opt` is both. A second
+positional argument, and any other word starting with `-`, is a usage error.
+
+`--update-baseline` rewrites `<root>/summary.txt`, the suite's recorded result,
+and is the only way that file is ever written once Python is gone. It is
+`harness.logos`'s (`h-baseline-save`); `main` only checks the root first,
+because Python refuses a file, a category directory and a directory that holds
+no category before it runs anything (`cli.py:186-210`). The three refusals are
+one line each and exit 2, e.g.
 
 ```
-usage: gen2 <fmt|resolve|check> <file>
+logos: test: --update-baseline needs a directory, not a single file
+logos: test: --update-baseline needs the suite root, not the category directory 'tests/exec'
+logos: test: --update-baseline needs the suite root, a directory holding a category such as 'exec'; 'examples' is not one
 ```
 
-The usage line is fixed, not derived from `argv[0]`: the gate runs
-`build/selfhost/gen2`, and a message that echoed the path would change with the
-build directory for no benefit.
+The run is `harness.logos`'s (`h-run`), and this file gives it the levels and
+turns its status into the process's: every case is built and run at each level,
+its four clauses and its levels are compared, and the report ends with
+`<passed> passed, <failed> failed, <leaks> leaked`. Exit 1 when a case failed,
+when a file sat outside the known categories, or when nothing ran; 2 on the two
+usage errors above. Ids, their order, the detail sentences and the summary are
+Python's `tester.py` and `cli.py`; the trailing baseline line is W9's, so a run
+ends at the summary.
+
+`guide` is the generated manual (`guide.md`). With no flag it prints
+`docs/LOGOS.md` to stdout; `--json` prints the manifest and a newline; `--check`
+regenerates the markdown and compares it byte for byte with `docs/LOGOS.md`,
+printing `guide: docs/LOGOS.md is current` and exiting 0, or a stale report on
+stderr and exiting 1. Both modes are mutually exclusive, as `argparse`'s
+`add_mutually_exclusive_group` makes them (`cli.py:136-146`), and anything else
+is the usage error below. The two tables the manifest cannot be built without
+are read from the compiler — `types.logos`'s primitive and type-form lists,
+`harness.logos`'s categories — and the code, rule, form, arity, meaning and
+chapter-title tables live in `guide.logos` itself.
+
+The command line is `argparse`'s, because the tool it replaces is Python's and
+a script that reads a message reads it byte for byte. `main-help`, the
+`main-verb-usage` table and `main-cli-error` are those bytes: a **missing
+required argument** is the sub-verb's usage line plus
+`<prog> <verb>: error: the following arguments are required: …`, while an
+**unknown verb** and an **unrecognized word or flag** are the top-level usage
+line plus `<prog>: error: …`, because `argparse` reports them from the parent
+parser (`cli.py:151-184`). All of them exit 2 and write only stderr:
+
+```
+$ gen2 show
+usage: gen2 show [-h] FILE PATH
+gen2 show: error: the following arguments are required: FILE, PATH
+
+$ gen2 frobnicate
+usage: gen2 [-h] command ...
+gen2: error: argument command: invalid choice: 'frobnicate' (choose from 'build', 'test', 'fmt', 'show', 'version', 'guide')
+```
+
+**No argument at all** is not an error: it prints the help to stdout and exits
+0, exactly as `argparse`'s `print_help` does when no subcommand was given
+(`cli.py:156-158`). The help is the 80-column rendering, with one row per verb;
+`COLUMNS` does not change it, because the text is a constant here and argparse's
+wrapping is not reproduced.
+
+`<prog>` is the base name of `argv[0]`, not a constant: installed as `logosc`
+the text is Python's exactly, and run as `build/selfhost/gen2` it names the
+binary that was actually run. Python hardcodes `logosc`; a copy of the binary
+named `logosc` is therefore what the parity test compares, and the rename costs
+nothing at the call site. `(args)` gives the whole command line, so the base
+name is `main-base` of entry zero.
+
+The verb list is Python's, minus `patch`: that verb replaces one node through
+`stdin`, is used by nobody in the gate, and is a developer convenience rather
+than something `logosc` keeps. `patch` is therefore **not** a verb here — it is
+rejected as an unknown command (exit 2, `invalid choice: 'patch'`), and neither
+the help nor the choice list names it. `resolve` and `check`, which are this
+port's own verbs and have no Python counterpart, stay out of the help for the
+same reason the text is Python's: the block is the replaced tool's contract, and
+`resolve`/`check` are documented here instead.
+
+A repeated `-` is the one `fmt` argument error that is not a usage error:
+Python refuses it with `logos: fmt: '-' may be given at most once` and exit 2
+(`cli.py:336-343`), and so does this verb, before it formats anything. A word
+starting with `-` is an option rather than a path, so `fmt -x` is
+`the following arguments are required: FILE` and `fmt -x a.logos` is
+`unrecognized arguments: -x`, both measured.
+
+Two arities are *not* usage errors, because they are facts about the build set
+rather than about the command line: a set with no `main` and a set with two
+`main`s each print one diagnostic line and exit 2 (`E0103` and `E0003`; see
+"Output" below). `resolve` and `check` keep one usage line each for a wrong
+arity (`main-port-verb`), since neither has an `argparse` spelling to copy.
+
+A verb given a **path that does not exist** is not a usage error either: it is
+`logos: <path>: <strerror>` with exit 1, the same line `fmt` prints, for every
+verb that reads a file (`fmt`, `build`, `show`, and `test`'s own
+`logos: test: <root>: no such file or directory`). `build` checks its whole set
+with `path-error` before lowering anything, so a missing source is reported
+before a diagnostic is raised about a half-read set; `show` uses the same check
+`fmt` does. `test` skips the check and lets the harness answer, because a
+missing suite root is a run failure rather than an argument error.
+
+## `version` and `show`
+
+`version` is one line, `logos 0.1.0`, and exit 0 — Python's
+`print(f"logos {__version__}")` (`cli.py:131`, `logos/__init__.py:3`). The
+string is a constant here rather than read from a package, because there is no
+package left to read it from; bumping the version means changing `main-version`
+and nothing else.
+
+`show FILE PATH` prints one node: the canonical form the printer would write
+for it, followed by one newline — Python's `render(node)` (`cli.py:401-418`),
+which is `fmt-form` at column zero for a form and `fmt-token` for a token, plus
+the newline `render` adds. The empty path is the file, and prints the whole
+canonical file exactly as `fmt` would (`fmt 1`).
+
+The path is the **node path the diagnostics print**: `mod/fn/2/1`. `tree-path`
+already computes it, so `main-find-tree` asks each top-level form for its
+stored path, compares, and descends through `main-find-below` by numbering each
+form's children from zero. The descent has to number tokens too, because a
+token holds a position and can be addressed (`m/f/0` is a return type); a token
+has no stored path, which is why the walk mirrors `assign_paths` instead of
+reading the field. `main-prefix` is `str.startswith(child + "/")`, including
+its behaviour on an empty prefix, so `hello//main` and `/hello/main` miss the
+way Python's do.
+
+A path that names nothing is one line on stderr and exit 1, Python's text
+character for character (`cli.py:406-412`):
+
+```
+logos: show: no node at path 'hello/main/9' in examples/hello.logos
+```
+
+The source is loaded the way `fmt` loads it — `path-error` first, then
+`main-fmt-loaded`'s lex and tree passes — so an unreadable file and a file the
+lexer refuses report exactly what they report for `fmt`, with the port's
+`<path>:<line>:<col>: <CODE>: …` order for the latter (see "Output").
+
+`show` does not replace anything, so it needs no `stdin` and no write: the file
+is opened read-only by `read-file` and the tree it builds is freed on every
+path, including the miss.
 
 ## Output
 
-On success `main` prints the canonical source of the file to stdout, byte for
-byte as `fmt` prints it (`fmt.md` defines the shape), prints nothing to stderr,
-and exits 0. `fmt` streams fragments straight to stdout; `main` never captures
-or rebuilds them, so a long file costs no extra copy.
+`fmt` rewrites each named file in place and prints nothing — Python's
+`_format_path` (`cli.py:353-369`), and what makes the verb idempotent and
+composable with `git`. `-` is the exception: standard input is read once,
+formatted, and written to stdout, because a stream has no name to write back
+to. `fmt` streams fragments straight to the open descriptor (`fmt.md`), so a
+long file costs no whole-file copy and no temporary.
+
+A path that is a directory is walked: every entry is visited in name order, a
+directory entry is descended into in place and a file entry ending in
+`.logos` is formatted. That is Python's `sorted(path.rglob("*.logos"))` order,
+which compares path *components* rather than the whole path as a string, so
+`b/x.logos` comes before `b.logos` (`b` is a prefix of `b.logos`) even though
+`b.logos` sorts first byte-wise. The walk is spelled as recursion over a sorted
+entry list because that is exactly the component-wise order; `main-str-less`
+and `main-sort` are the byte-wise string comparison and insertion sort that
+produce it. Every file is attempted even after one fails, so one broken file
+does not hide the rest, and the exit status is 1 when any of them failed.
+
+A path that cannot be read and written is Python's one line, with the C
+library's own message, and exit 1 (`cli.py:355-368`):
+
+```
+logos: <path>: No such file or directory
+```
+
+`path-error` is what produces the message: `read-file` panics R0007 by design,
+and a verb whose contract is a line on stderr and exit 1 cannot use it. The
+check runs before the file is opened, so a file that cannot be written is not
+truncated first, and a partition of the tree that fails leaves every other file
+formatted.
 
 On a failure before the tree exists it prints exactly one diagnostic line to
-stderr, prints nothing to stdout, and exits 2:
+stderr and exits 1:
 
 ```
 <file>:<line>:<column>: <CODE>: <message>
@@ -58,21 +246,25 @@ stderr, prints nothing to stdout, and exits 2:
 | the lexer rejected the file | `E0006` | the token's one-based line and column |
 | the tree rejected the file | `E0001` | the offending `(` or `)`'s one-based line and column |
 
-The location comes first and the code second, as this entry point's contract
-fixes it. `logos/diag.py` renders the code first (`E0006 file:line:col: …`
-from the Python `fmt`); the two orders are deliberately not shared, because the
-gate compares stdout only and no Logos consumer parses the diagnostic.
+The exit status is 1, as Python's `_format_path` returns 1 for a `LogosError`;
+the file is left exactly as it was, because the parse finishes before the
+descriptor is opened. The location comes first and the code second, as this
+entry point's contract fixes it. `logos/diag.py` renders the code first
+(`E0006 file:line:col: …` from the Python `fmt`); the two orders are
+deliberately not shared, and the `fmt` parity test compares the file order and
+the bytes, not this text.
 
-A file `read-file` cannot open or read never reaches either branch: the runtime
-panics `R0007` at the `read-file` node path and exits 2, exactly as it does for
-any other Logos program (`docs/manual/19-runtime-access.logos`). That line names
-a node path rather than a source position, because no source position exists
-yet.
+A file `path-error` clears never reaches either branch, and a file that
+changes between the check and the read — the one race this cannot close —
+still panics `R0007` at the `read-file` node path and exits 2, exactly as it
+does for any other Logos program
+(`docs/manual/19-runtime-access.logos`).
 
-`gen2 resolve` lexes and parses the file the same way, then runs
-`resolve-file` instead of `fmt`. On success it prints nothing to either stream
-and exits 0. On a resolver diagnostic it prints exactly one line to stderr and
-exits 2:
+`gen2 resolve` lexes and parses one file, then runs `resolve-file` instead of
+`fmt`; with several files it runs `resolve-set-of` over all of them, which
+resolves the set as one unit (`resolve.md`). On success it prints nothing to
+either stream and exits 0. On a resolver diagnostic it prints exactly one line
+to stderr and exits 2:
 
 ```
 <location>: <CODE>: <message>
@@ -118,47 +310,280 @@ checker failure is `E0002`, `E0003`, `E0100`, `E0101`, `E0500`, `E0501`,
 file with an expression error checks and exits 0 — see `check.md` for the
 exact boundary.
 
+`gen2 build` parses its first file, then runs the same steps as `check` over
+the whole set it was given: `resolve-set-of` over every file, and `check-file`
+over the module set the resolver built. It then requires exactly one `main`
+somewhere in the set (see below), lowers the whole set, and emits. The emitter's
+text — the whole of `out[0]` — is written to `build/<first file's stem>.ll`, and
+clang turns that file plus `logos/runtime/rt.c` into a native binary at `-o`, or
+at `build/<first file's stem>` when `-o` is absent:
+
+```
+clang {opt} -target x86_64-unknown-linux-gnu build/<stem>.ll logos/runtime/rt.c \
+    -o <out> -lpthread -lm
+```
+
+That is Python's command with Python's arguments (`driver.py:243-254`), which is
+why a build of the same set produces a byte-identical executable: clang embeds
+the IR file's basename and nothing else about the path, and both drivers keep
+the text at `build/<stem>.ll`. `{opt}` is `-O2` unless `--opt` says otherwise,
+and both link flags are unconditional. The build prints nothing to either
+stream on success and exits 0.
+
+Two paths are created before they are used — `build/` for the IR, and the `-o`
+path's directory — because a fresh checkout has no `build/` directory.
+`main-mkdir` is `(mkdirs dir)`, the runtime helper that creates a path and its
+missing parents and returns 0 or -1; it replaced a `mkdir -p` child process, so
+a build no longer depends on a `PATH` entry and no longer pays a spawn.
+`main-exists` still runs `test -f` for the runtime's presence; that probe is
+one per build, and folding it into the runtime is a separate question with a
+different failure line attached. Both creation and probing ignore the status,
+because a directory that cannot be made fails at the write or at clang, with
+the line that says so.
+
+Nothing else is produced: no object file and no second `.ll`. `tools/selfhost.sh`
+reads `build/<stem>.ll` after each `gen2 build` and compares it with the file
+Python's build writes to the same path.
+
+Two checks belong to `build` and not to `check`:
+
+- **One `main`, somewhere in the set.** `check-file` already refuses a second
+  `main` anywhere in the module set (`E0003`, `duplicate definition 'main'`),
+  because a second entry point is a second definition. A set with *no* `main`
+  is refused by `check-required-main` with `E0103: no 'main' function to
+  build`, located at the first root's file. Neither is a usage error: the
+  command line was well formed and the source was not. The check runs after the
+  checker, so a set that also has a body error reports the checker's
+  refusal first, as Python's `build_program` does.
+- **A runtime to link.** `main-link` asks `main-exists` for
+  `logos/runtime/rt.c`; when the file is absent the build stops with one
+  `logos: runtime not found: logos/runtime/rt.c` line and exit 1, and removes
+  the IR it had just written, rather than handing clang a path that is not
+  there.
+
+The pipeline stops at the first failure and each failure has one shape:
+
+| failure | code | location |
+|---|---|---|
+| the lexer | `E0006` | the token's `file:line:col` |
+| the tree | `E0001` | the offending paren's `file:line:col` |
+| the resolver | `E0002`–`E0005` | the node path, or a `file:line:col` (`main-at`) |
+| the checker | its own code | the node path the checker named |
+| the lowering | `E0002`, `E0102`, `E0103`, … | the node path of the form it refused |
+| `emit` | `E0002` | the module's node path |
+| the IR write | none | `logos: cannot write <path>`, exit 1 |
+| the link | none | `logos: clang failed: …`, exit 1 |
+
+A lowering refusal is `lower-error`'s: `lo-fail-at` recorded the form's node
+path, and `lower-code` renders the number (`2` → `E0002`). An `emit` refusal is
+`ir-error`'s, and it carries no path at all — the IR rows name no source node —
+so the diagnostic names the module (`tree-path` of the root, e.g. `m`) and uses
+`E0002` for "this arena cannot be printed". `main-ir-diag` is the one place
+that decides this; the port-only code is documented because Python's compiler
+raises instead of printing. **Neither is a panic**: a failed emit is a line on
+stderr and exit 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
+
+The last two stages have no source location, so they cannot use the diagnostic
+shape above; they use Python's `build` shape instead, one `logos: …` line on
+stderr and exit 1 (`cli.py:311-327`). A clang failure prints the command it ran
+followed by clang's own stderr, which is how `BuildError` reads in Python, and
+removes both artefacts — the IR and the half-written binary — so a failed build
+leaves nothing behind that could be mistaken for a success.
+
 ## Functions
 
 | function | returns | meaning |
 |---|---|---|
 | `main` | `:i64` | the entry point: read `argv`, dispatch, return the status |
-| `main-args a` | `:i64` | check the verb and arity, then run the file |
+| `main-prog a` | `:str` | the base name of `argv[0]`, what the usage block prints |
+| `main-base s` | `:str` | the substring after the last `/` |
+| `main-help prog` | `:i64` | print the help to stdout and return 0 |
+| `main-verb-usage verb` | `:str` | the `argparse` usage tail for one verb |
+| `main-verb-label verb` | `:str` | `""` for the top parser, `" show"` for a sub-parser |
+| `main-cli-error prog verb msg` | `:i64` | print a usage line and an `argparse` error, return 2 |
+| `main-required prog verb names` | `:i64` | the missing-positional error |
+| `main-unrecognized prog rest` | `:i64` | the unrecognized-words error |
+| `main-invalid prog verb` | `:i64` | the invalid-choice error and the verb list |
+| `main-join-args a i n` | `:str` | join `argv[i..n)` with single spaces |
+| `main-join-vec items` | `:str` | the same join over a vector |
+| `main-verb a n prog` | `:i64` | dispatch on `argv[1]`, or the invalid-choice error |
+| `main-args a` | `:i64` | no argument is the help; otherwise `main-verb` |
+| `main-version a n prog` | `:i64` | `logos 0.1.0`, or the unrecognized words |
+| `main-show a n prog` | `:i64` | `show`'s arity, then the file and its path |
+| `main-show-file path target` | `:i64` | check the file, parse it, print one node or the miss |
+| `main-show-nodes path nodes ntexts target` | `:i64` | address the path and print what it names |
+| `main-show-one nodes ntexts id` | `:void` | print one form or one token, plus a newline |
+| `main-show-form`, `main-show-token` | `:void` | the two printer calls |
+| `main-show-missing path target` | `:i64` | `logos: show: no node at path …`, exit 1 |
+| `main-find-tree nodes ntexts path` | `:i64` | the node id at a path, or -1 |
+| `main-find-at nodes ntexts c path` | `:i64` | one top-level form: its own path, else below it |
+| `main-find-below nodes ntexts base id path` | `:i64` | number a form's children and descend |
+| `main-prefix p path` | `:bool` | `path` starts with `p` and then `/` |
+| `main-build a n prog` | `:i64` | read `build`'s flags and files, then build or report |
+| `main-bad-flag prog verb a n i` | `:i64` | the flag error at `argv[i]`: a missing value or an unknown word |
+| `main-unreadable paths` | `:str` | the first path `path-error` refuses, or `""` |
+| `main-arg a n i paths outs opts` | `:i64` | one argv word: the next index, or -1 for a usage error |
+| `main-flag-next a i into` | `:i64` | push the word after a flag and skip both |
+| `main-attached-next s i into` | `:i64` | push the value of `--opt=…` and skip the word |
+| `main-path-next a i paths` | `:i64` | push a source path and step over it |
+| `main-dest paths outs` | `:str` | `-o`'s last value, or `build/<first stem>` |
+| `main-opt opts` | `:str` | `--opt`'s last value, or `-O2` |
+| `main-paths a first count paths` | `:void` | copy `count` argv entries into a new `paths` vector |
 | `main-run verb path` | `:i64` | create the six vectors, run, free them, return the status |
 | `main-source verb path …` | `:i64` | read, lex, then parse or report `E0006` |
 | `main-tree verb path …` | `:i64` | parse, then format, resolve or report `E0001` |
-| `main-print nodes ntexts` | `:i64` | run `fmt` and return 0 |
+| `main-print nodes ntexts` | `:i64` | run `fmt` on descriptor 1 and return 0 |
+| `main-fmt a first count` | `:i64` | format the argv paths, or stdin for `-`; 0, 1 or 2 |
+| `main-fmt-path arg` | `:i64` | format one path: a directory by walking it, a file in place |
+| `main-fmt-file path` | `:i64` | check the path, parse it, then rewrite it |
+| `main-fmt-stdin` | `:i64` | read standard input, parse it and print the canonical form |
+| `main-fmt-tree dir` | `:i64` | list a directory, sort it, format its `.logos` files and descend |
+| `main-fmt-loaded path src …` | `:i64` | lex and parse one source, or return its diagnostic as exit 1 |
+| `main-fmt-render path nodes ntexts` | `:i64` | create the file and print the canonical form into it |
+| `main-fmt-write-bad path` | `:i64` | the create failure: its message, exit 1 |
+| `main-fmt-diag path code line col msg` | `:i64` | print one diagnostic and return 1 |
+| `main-fmt-bad path msg` | `:i64` | print `logos: <path>: <msg>` and return 1 |
+| `main-fmt-twice` | `:i64` | print the repeated-`-` line and return 2 |
+| `main-test a n prog` | `:i64` | read `test`'s path and flags, then run the harness or report |
+| `main-test-arg a i n path only flags` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
+| `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
+| `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
+| `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
+| `main-test-opts a i n levels` | `:i64` | consume the levels after `--opt` into `levels`; -1 when there is none |
+| `main-test-opt-eq s next levels` | `:i64` | push an attached `--opt=-O0`'s value and skip the word |
+| `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
+| `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
+| `main-test-run path only levels flags` | `:i64` | check the baseline root, validate `--only`, call `h-run` |
+| `main-test-baseline root` | `:i64` | run Python's `_baseline_argument_problem`; 0 when the root is a suite |
+| `main-baseline-problem path` | `:str` | why the root cannot own a baseline, or `""` |
+| `main-baseline-root-problem path` | `:str` | the directory half: a suite root, not a category or a stray |
+| `main-has-category root` | `:bool` | whether `root` holds any of the eight category directories |
+| `main-categories out` | `:void` | the eight category names, in `tester.CATEGORIES` order |
+| `main-test-fail problem` | `:i64` | `logos: test: <problem>`, exit 2 |
+| `main-test-unknown name` | `:i64` | print the unknown-category line and return 2 |
+| `main-sort names` | `:void` | sort entry names byte-wise, in place |
+| `main-str-less a b` | `:bool` | byte-wise `a < b` |
+| `main-join dir name` | `:str` | `dir/name`, without a doubled slash |
+| `main-fmt-verb a n prog` | `:i64` | `fmt`'s arity: a FILE is required, an option is not a path |
+| `main-fmt-options a n counts` | `:void` | count the positionals and remember the first option |
+| `main-guide a n prog` | `:i64` | `guide`'s flags, the mutually-exclusive pair, then the mode |
+| `main-guide-flags a n flags extra` | `:void` | read `--json`, `--check` and everything that is neither |
+| `main-guide-mutex a n` | `:str` | `argument --check: not allowed with argument --json` |
+| `main-port-verb a n prog verb` | `:i64` | `resolve` and `check`, the two verbs Python has no line for |
+| `main-port-arity prog verb` | `:i64` | the one usage line those two print on a wrong arity |
+| `main-logos-name name` | `:bool` | whether a name ends in `.logos` |
+| `main-or a b` | `:i64` | the status of two files: 1 when either failed |
 | `main-resolved file nodes ntexts` | `:i64` | run `resolve-file` and return 0 or the diagnostic |
+| `main-resolve-set a first count` | `:i64` | run `resolve-set-of` over the argv files and return 0 or the diagnostic |
 | `main-resolve-diag file e` | `:i64` | print one resolver diagnostic and return 2 |
 | `main-at path file line col fallback` | `:str` | the diagnostic's location: path, `file:line:col`, or `fallback` |
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
+| `main-build-all paths dest opt` | `:i64` | create the arena, run the pipeline over the files, free it, return the status |
+| `main-built paths dest opt …` | `:i64` | read, lex and parse the first root, resolve the set, check it, load every other module, lower the unit, emit, write `build/<stem>.ll`, link |
+| `main-stem path` | `:str` | the file name without its directory and last extension |
+| `main-ir-path path` | `:str` | `build/<stem>.ll`, where the IR always goes |
+| `main-out-path path` | `:str` | `build/<stem>`, the default binary |
+| `main-dir path` | `:str` | the directory part of `path`, or `""` when it has none |
+| `main-runtime` | `:str` | `logos/runtime/rt.c`, the runtime the binary is linked with |
+| `main-exists path` | `:bool` | whether `path` is a regular file (`test -f`) |
+| `main-mkdir dir` | `:void` | `(mkdirs dir)`, ignoring the status |
+| `main-joined argv` | `:str` | the command line as one line, for the failure message |
+| `main-link ll out opt` | `:i64` | link `ll` and the runtime into `out`; 0 or the failure line |
+| `main-link-bad text r ll out` | `:i64` | print clang's failure, remove both artefacts, return 1 |
+| `main-link-missing ll out rt` | `:i64` | print the missing-runtime line, remove both artefacts, return 1 |
+| `main-fail msg` | `:i64` | print one `logos: …` line and return 1 |
+| `main-append mnod mntx starts ends nod ntx` | `:void` | append one module's nodes and texts, recording the range the two ended at |
+| `main-load-module mods m mnod mntx starts ends` | `:i64` | read, lex and parse module `m` of the resolver's set into the unit, or return the first diagnostic |
+| `main-lower-diag file e` | `:i64` | print one lowering diagnostic and return 2 |
+| `main-ir-diag file nodes ntexts e` | `:i64` | print one emitter refusal at the module and return 2 |
+| `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a `logos:` line |
+| `main-spit-bad path` | `:i64` | print the output-file failure line and return 1 |
 | `main-diag path code line col msg` | `:i64` | print one lexer/parser diagnostic and return 2 |
-| `main-usage` | `:i64` | print the usage line and return 2 |
-| `main-write s` | `:void` | one `rt_write` to file descriptor 2 |
+| `main-nothing` | `:void` | the empty `else` branch of an early `ret` |
+| `main-usage` | `:i64` | print the usage lines and return 2 |
+| `main-write s` | `:void` | one `fmt-emit` to file descriptor 2 |
 
 `main-write` is the only way this module reaches the output streams beyond
-`print`: Logos has no stderr builtin, so the module declares the runtime's
-`rt_write` as an `extern` and writes to descriptor 2. `main` returns the status
-and the emitted `main` hands it to the C entry point, so the process exits with
-0 or 2; nothing calls `exit`.
+`print`: Logos has no stderr builtin, so it calls `fmt-emit` with descriptor 2
+(`fmt.md`). `fmt` owns the `rt_write` extern because it is the module that
+prints; a second declaration of the same symbol in this module would be
+`E0003: duplicate definition 'rt_write'`, and a Logos module cannot call
+another module's extern through a `use` it does not have. `main-spit` reuses
+the same path for the IR file: `rt_create` opens the path and returns a
+descriptor (`< 0` on failure), `fmt-write` writes the whole string and returns
+the byte count, and `close` releases it. A `:str` is a pointer and a length, so
+the two-argument `rt_write` declaration is the runtime's three-argument C
+function — the same ABI coincidence `src/std/io.logos` relies on. `unlink` is
+declared the other way round: C's `unlink` reads only the pointer, and the
+length the Logos `:str` passes in the second register is ignored, which is what
+lets a failed build remove the two files it wrote. `main` returns the status and the emitted `main`
+hands it to the C entry point, so the process exits with 0, 1 or 2; nothing
+calls `exit`.
+
+## Loading the unit
+
+`build` lowers a **unit**, not a file. `resolve-set-of` already read every root
+and everything they `use`, and left them in `mods` — one `resolve-mod` per
+module, in dependency order, with the first root at slot 0. `main-built` parses
+the first root into `nod`/`ntx` (the lexer, the tree and the checker all take a
+single tree), then copies that module into `mnods`/`mntx` with `main-append`
+and loops `main-load-module` over the rest: each one is read, lexed and parsed
+into temporary vectors, appended to the unit's two vectors, and its temporary
+vectors are freed. `main-append` also pushes the half-open range
+`[start, end)` of the module's nodes and, as the next pair entry, of its
+texts — so `mstarts`/`mends` carry one `(nodes, texts)` pair per module and
+`lower-build` can refill the single-tree arena one module at a time.
+
+Loading is not lowering: no tree walk, no resolution and no checking happens
+here, and a module the resolver read twice is loaded once because `mods` names
+it once. A module that fails to lex or parse is reported at its own file
+(`main-diag`) before any lowering starts.
 
 ## Ownership
 
 `main` owns three things and frees all of them before it returns:
 
-- the `(args)` vector, with `vec-free`;
+- the `(args)` vector, with `vec-free`; `main-build` and `main-resolve-set`
+  also free the `paths` vector they copy the file names into;
 - the four lexer vectors and the two arena vectors, also with `vec-free`, on
   every path — success, `E0006` and `E0001`;
 - `check`'s two resolver tables (`all` and `mods`), with `vec-free`, on every
   path, before `check-file`'s diagnostic is printed;
+- `build`'s full arena — seventy parallel vectors — with `vec-free`, on every
+  path, including the ones that stop at a lexer, tree, resolver or checker
+  diagnostic. `main-build-all` is the one function that allocates it, and its
+  `main-built` callee is the one that returns through every early exit.
+  `main-build` owns the three vectors the command line fills — `paths`, `outs`
+  and `opts` — and frees them on the usage path as well as after the build;
+- the argument vectors handed to `run` are **moved**, not freed: the form copies
+  each element into a C string it keeps for the process's life, so `main-exists`
+  and `main-link` pass their vectors and never free them. The `:run` handle and
+  its stdout and stderr buffers are process-lifetime too, so a build that runs
+  clang owes no `free` for any of it;
+- the directory listing `fmt` reads is a tracked vector, freed with `vec-free`
+  before `main-fmt-tree` returns; the entry *names* inside it are the runtime's
+  process-lifetime buffers, like the command line's, and `vec-free` releases
+  only the array that points at them (`read-dir`, `docs/LOGOS.md`);
 - nothing else. `read-file` returns a buffer the runtime owns for the process's
   life, and `fmt` allocates nothing, so no other `free` is owed.
 
 The error values are structs, not allocations: `lex-error`, `tree-error` and
 `resolve-error` carry a `:str` message that is a literal or a slice of the
 source, so reporting one costs no allocation either.
+
+## Finding the runtime
+
+Python finds `rt.c` beside its installed package (`driver.py:54-75`); a Logos
+binary has no package, and no runtime primitive reports where the executable
+lives, so `gen2` names the runtime the way it names everything else it touches:
+`logos/runtime/rt.c`, relative to the working directory. The repository is the
+unit here — `src/logosc/*.logos` on the command line, `build/` for the output,
+and `logos/runtime/rt.c` for the link are all repository-relative, and every
+caller is either the gate or a person at the root (`tools/selfhost.sh` starts
+with `cd "$ROOT"`). A build run anywhere else says so in one line and exits 1;
+it does not silently link a different runtime.
 
 ## Building it
 
@@ -167,7 +592,7 @@ source, so reporting one costs no allocation either.
 name, `src/std/map.logos` and `src/std/str.logos`:
 
 ```sh
-python3 -m logos build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/selfhost/gen2
+./tools/logosc.sh build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/selfhost/gen2
 ```
 
 Only those two stdlib files, not the whole `src/std` directory: the stdlib's
@@ -175,8 +600,23 @@ Only those two stdlib files, not the whole `src/std` directory: the stdlib's
 module defines `main`; the `*_test.logos` modules in the set are compiled but
 their `(test …)` bodies are not entry points, so they add no second entry. `use`
 resolves against the build set, which is why `fmt <file>` needs no search path.
-`tools/selfhost.sh` is the caller: it builds this binary and runs it over every
-tracked `.logos` file.
+`tools/selfhost.sh` is the caller: it builds this binary, runs `fmt` over every
+tracked `.logos` file, and then runs `build` over the files in
+`tools/selfhost-ir.txt`, comparing the `build/<stem>.ll` each side writes byte
+for byte.
+
+That same command run by `gen2` itself is the fixed point this wave exists for:
+
+```sh
+build/selfhost/gen2 build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/gen3
+build/gen3 build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/gen3b
+cmp build/gen3 build/gen3b
+```
+
+No Python is involved in either line, and the two binaries are equal because
+the second build's IR is the first build's IR, under the same name, compiled by
+the same clang command. `tests/test_gen2_build.py` judges the same contract on a
+one-file program, where it also compares the binary with Python's.
 
 ## What it does not do
 
@@ -184,10 +624,35 @@ tracked `.logos` file.
   type error formats and exits 0. The Python `fmt` verb behaves the same way.
   `resolve` likewise stops at names: it does not type-check, but it does follow
   `use`, reading `<name>.logos` beside the asking file (see `resolve.md`).
-- **No in-place rewrite.** `main` prints; it never writes the file back. The
-  gate compares the stream with the file, and a caller that wants to rewrite
-  redirects it.
-- **No stdin.** The Python verb accepts `-`; `gen2 fmt` takes a path. The gate
-  always has paths.
+- **No `rglob` on a pattern other than `*.logos`.** The walk is the verb's,
+  not a general glob: it recurses into every directory and formats the entries
+  whose names end in `.logos`. Python's `Path.rglob("*.logos")` would also
+  yield a *directory* named `x.logos` and then fail to read it; this verb
+  descends into it and formats what is inside. No tree in the repository has
+  one, and the difference is a directory named like a source file.
+- **No baseline comparison.** `--update-baseline` writes the file
+  (`harness.md`), but a run without the flag still ends at the summary, where
+  Python prints `baseline tests/summary.txt: n regression(s)` or
+  `baseline: none` (`cli.py:271-276`). Comparing a run against the baseline —
+  a regression, a missing case, a new case with no result, a leak total above
+  the recorded one — is W9.
+- **No `cwd`.** The baseline line names the file as the root argument spells it
+  (`tests/summary.txt` for `test`, or `build/x/summary.txt`), which is what
+  Python's `_display` prints for a relative root. Python additionally shortens
+  an *absolute* root that sits under the working directory; the port cannot,
+  because the language has no `getcwd` and adding one would change the runtime
+  and the IR of every binary. Running with a relative root — the invocation in
+  the cutover plan — is byte-identical.
+- **No front-end exit-1.** A lexer, tree, resolver or checker refusal is the
+  port's own diagnostic line with exit 2, where Python's `build` prints
+  `error.render()` and exits 1 (`cli.py:311-327`). The link failures do follow
+  Python; the four front-end statuses are part of the command-line cutover, not
+  of the driver.
+- **A 90-second child.** `(run)` gives the child the runtime's fixed budget
+  (`rt.c`) and kills it at 124 when it runs out. W8 step 2 raised it from 30 s:
+  the compiler's own unit is 18.2 MB of IR and clang at `-O2` spends 27 s on it
+  here, and the 30 s budget did time out at 124 on a busy host, which the driver
+  can only report as a clang failure. Ninety seconds is still a hang guard, and
+  clang is the only child in the repository that approaches it.
 - **No diagnostic for an unreadable file.** That is `read-file`'s `R0007`, with
   its own line, not a fourth code here.

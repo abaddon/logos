@@ -1,0 +1,9 @@
+(mod heap)
+
+(fn main :i64 ()
+  (let p (alloc :i64 2))
+  (set-deref p 5)
+  (set-deref (ptr-add p 1) 7)
+  (let x :i64 (deref (ptr-add p 1)))
+  (free p)
+  (ret x))

@@ -1,0 +1,10 @@
+(mod struct-in-enum)
+
+(type p (struct (x :i64) (y :i64)))
+
+(type e (enum (wrap p) (plain)))
+
+(fn main :i64 ()
+  (let v e (wrap (make p 3 4)))
+  (match v ((wrap q) (ret (+ (get q x)
+                            (get q y)))) (plain (ret 0))))

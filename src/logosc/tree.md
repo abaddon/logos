@@ -51,6 +51,7 @@ vector; the caller frees both.
 | `tree-open`, `tree-close`, `tree-leaf`, `tree-token` | `tree-error` | implementation: one `(`, one `)`, one atom/string/number, one token |
 | `tree-finish`, `tree-finish-head` | `:void` | implementation: name a closed form and drop its head/name from the child chain |
 | `tree-module`, `tree-segment`, `tree-below`, `tree-join` | `:i64` / `:str` | implementation: path computation |
+| `tree-fill-paths`, `tree-fill-below`, `tree-path-set` | `:void` | implementation: the one pass that stores every form's path |
 | `tree-unclosed` | `tree-error` | implementation: the partially built tree's innermost open form |
 
 ## Arena shape (§D7)
@@ -59,8 +60,8 @@ One `(vec node)` holds every form and every token; a `(vec :str)` holds their
 texts. That is the shape the plan's "Shape (§D7)" section and §D7 itself name:
 one `(vec node)` for the tree, children by first-child and next-sibling ids,
 text by id into `(vec :str)`. The plan's sketch of `node` has five `:i64`
-fields; this module needs seven (`text`, `tok`, `first`, `next`, `name`, `line`,
-`col`), and a struct of `:i64` fields is what the plan allows. One struct arena
+fields; this module needs eight (`text`, `tok`, `first`, `next`, `name`, `line`,
+`col`, `path`), and a struct of `:i64` fields is what the plan allows. One struct arena
 plus one text vector keeps each function to two arena `(ref …)` parameters
 instead of a parallel vector per field. Editing one link is `vec-get`,
 `set-field`, `vec-set` — three statements — and every function passes the two
@@ -73,7 +74,8 @@ arenas by `(ref …)` and ids, never pointers.
                    (next :i64)   ; next sibling id, -1 for none
                    (name :i64)   ; the definition name's text id, -1 for none
                    (line :i64)   ; one-based `(` or token position
-                   (col :i64)))
+                   (col :i64)    ; one-based column
+                   (path :i64))) ; this form's path, as a text id; -1 for none
 ```
 
 `text` is `-1` for a bare list (`()` or a form whose first item is not an atom,
@@ -156,11 +158,24 @@ A top-level form with a name uses the name even when no module exists: `(fn a
 :i64 ()) (fn b :i64 ())` gives `a` and `b`. The module is the only form whose
 own path replaces its segment.
 
-`tree-path` computes the path on demand, walking from `root` and carrying the
-prefix; no path vector is stored. It returns `""` both for the root and for a
-node that is not in the tree (including every token), so a caller that asks for
-a token gets the same answer as for a missing node. Paths are built with
-`str-concat` and are process-lifetime strings, untracked by §D9.
+Paths are **stored, not recomputed**. `tree-parse` calls `tree-fill-paths`
+once the stream is read; it walks the same chains `assign_paths` walks, builds
+each form's path with `tree-join`/`tree-segment`, appends the string to
+`ntexts` and records its id in the form's `path` field. Tokens keep `path = -1`:
+a token occupies a slot but has no path of its own, which is why `tree-path`
+still answers `""` for one. One pass costs two `str-concat`s per form and
+nothing per lookup — the walk this replaced was O(nodes in the module) *per
+call*, and lowering asks for an allocation site's path once per statement, so a
+big module spent quadratic time and memory on paths alone (the eleven-module
+build's 3 GB peak; see `docs/superpowers/plans/2026-11-13-w7-multimodule-memory-notes.md`).
+
+`tree-path` reads `path` and returns the text; it falls back to
+`tree-path-walk` (the old demand-driven walk) when the field is `-1`, so an
+arena a caller assembled by hand — `tree_test` does — answers exactly as it did
+before. `tree-path` returns `""` both for the root and for a node that is not in
+the tree (including every token), so a caller that asks for a token gets the
+same answer as for a missing node. Paths are built with `str-concat` and are
+process-lifetime strings, untracked by §D9.
 
 ## Errors — all `E0001`
 
@@ -264,7 +279,7 @@ comparison was a throwaway harness, not a committed test, because there is no
 
 ## Before this module existed
 
-`python3 -m logos test src/logosc/tree_test.logos --opt -O0 --opt -O2` then (the
+`./tools/logosc.sh test src/logosc/tree_test.logos --opt -O0 --opt -O2` then (the
 nine cases in the file at the time) failed with `0 passed, 9 failed`; every case
 reported `E0005 tree-test/1: unknown module 'tree'` at both levels, because `use
 tree` had no `tree.logos` beside it. After the module:

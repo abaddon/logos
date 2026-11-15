@@ -1,0 +1,6 @@
+(mod strs)
+
+(fn main :i64 ()
+  (let s :str (str-concat "ab" "cd"))
+  (let t :str (str-slice s 1 3))
+  (ret (if (str-eq t "bc") 1 0)))

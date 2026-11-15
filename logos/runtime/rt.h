@@ -241,6 +241,37 @@ typedef struct {
  * tracked `(vec :str)` over these pairs. */
 size_t rt_args(const rt_arg **args);
 
+/* Whether `path` names a directory.
+ * stat, not lstat, so a symbolic link to a directory counts as one. A path
+ * that cannot be examined is not a directory; the caller reports the failure
+ * through the call that needs the bytes, not through this test. */
+long rt_is_dir(const unsigned char *path, size_t n);
+
+/* The names of the entries in directory `path`, without "." and "..", in the
+ * order the file system returns them; the caller sorts if it needs a stable
+ * order. Returns the count and stores the address of the process-lifetime
+ * array of pairs in *out, which is NULL exactly when the count is zero.
+ * `node_path` locates a panic, as `read-file`'s does.
+ * Panics R0007 at `node_path` when the directory cannot be opened, or when
+ * reading it fails part way — a short list would read as a smaller directory.
+ * The names are malloc'ed once each and never released: like the command line,
+ * they live as long as the process and are not tracked. */
+size_t rt_read_dir(const unsigned char *path, size_t n, const rt_arg **out,
+                   const char *node_path);
+
+/* Create `path` and every missing parent, like `mkdir -p`.
+ * Returns 0 when `path` is a directory afterwards, -1 when it cannot be made
+ * one — a regular file in the way, a permission error, or an empty path. */
+long rt_mkdirs(const unsigned char *path, size_t n);
+
+/* The C library's message for why `path` cannot be opened for reading and
+ * writing, or the empty string when it can; the byte count goes to *out_len.
+ * This is `fmt`'s error line: Python reports an OSError as
+ * `logos: <path>: <strerror>`, so the driver asks before it reads and gets the
+ * same words without a panic. The buffer is process-lifetime and untracked,
+ * like the other strings the runtime builds. */
+unsigned char *rt_path_error(const unsigned char *path, size_t n, size_t *out_len);
+
 /* An opaque handle to a finished child process: process-lifetime and not
  * tracked, like a mutex or a channel, because no form releases it. */
 typedef struct rt_run rt_run;
@@ -252,12 +283,15 @@ typedef struct rt_run rt_run;
  * is `prog`. Those copies live for the process lifetime and are untracked; the
  * caller's arguments are only read.
  *
- * The child's stdout and stderr are captured into the handle. Returns once the
+ * The child's standard output and standard error are captured into the handle,
+ * and its standard input is `/dev/null`: a program that reads until end of file
+ * sees an empty stream instead of inheriting the caller's terminal or pipe.
+ * Returns once the
  * child has exited and both streams have reached end of file, so a child that
  * talks a lot on both cannot deadlock against a full pipe. A child still
- * running after 30 seconds is killed, and its status is then 124; otherwise
+ * running after 90 seconds is killed, and its status is then 124; otherwise
  * the status is the exit code, or 128 + the number of the signal that ended
- * it. The 30 seconds bound the child as well as the pipes: a child that closes
+ * it. The 90 seconds bound the child as well as the pipes: a child that closes
  * both streams and then never exits is killed too. A grandchild that inherits
  * the pipes and keeps them open is not: it can hold the call past the deadline
  * until it exits, because end of file is what ends the read.
@@ -270,7 +304,23 @@ rt_run *rt_run_start(const unsigned char *prog, size_t pn,
                      const unsigned char **argv, const size_t *argn,
                      size_t argc, const char *call_path);
 
-/* The status: an exit code, 128 + signal, or 124 after the timeout. Panics
+/* The same run with the caller's own budget, for a supervisor that knows how
+ * long its child may take — `(run prog args ms)`, where a harness gives one
+ * test case ten seconds and a build the default. `timeout_ms` of 0 means the
+ * default 90 seconds.
+ *
+ * It differs from rt_run_start in its answer to a child that could not be
+ * started: the supervisor owns the failure, so it is returned on the handle
+ * rather than panicking. The status is then -1 — a value no exit code and no
+ * `128 + signal` can produce — and rt_run_err holds `could not run: <prog>:
+ * <reason>`, so the caller can report the case instead of dying with it. */
+rt_run *rt_run_start_timed(const unsigned char *prog, size_t pn,
+                           const unsigned char **argv, const size_t *argn,
+                           size_t argc, long long timeout_ms,
+                           const char *call_path);
+
+/* The status: an exit code, 128 + signal, 124 after the timeout, or -1 for a
+ * child rt_run_start_timed could not start. Panics
  * R0005 on a NULL handle, like the two readers below. */
 long rt_run_status(rt_run *r);
 

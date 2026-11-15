@@ -1,0 +1,12 @@
+(mod generic-nested)
+
+(fn id :T ((x :T))
+  (ret x))
+
+(fn twice :T ((x :T))
+  (ret (id (+ x x))))
+
+(fn main :i64 ()
+  (let a :i64 (twice 10))
+  (println a)
+  (ret 0))

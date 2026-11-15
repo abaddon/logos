@@ -1,0 +1,11 @@
+(mod closure-one)
+
+(fn add-with :i64 ((k :i64))
+  (let f (fn :i64 ((x :i64))
+           (ret (+ x k))))
+  (ret (f 1)))
+
+(fn main :i64 ()
+  (println (add-with 10))
+  (println (add-with 20))
+  (ret 0))

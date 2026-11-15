@@ -1,0 +1,11 @@
+(mod arith)
+
+(fn add3 :i64 ((a :i64) (b :i64) (c :i64))
+  (ret (+ (+ a b) c)))
+
+(fn main :i64 ()
+  (let x :i64 40)
+  (let y :i32 2)
+  (let z :i8 3)
+  (let w :i64 (cast :i64 y))
+  (ret (+ (add3 x w (cast :i64 z)) 1)))
