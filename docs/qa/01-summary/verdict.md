@@ -15,7 +15,7 @@ against this tree, not copied.
 
 | Claim | Evidence |
 |---|---|
-| The six documented gates pass on this tree | `bash tools/pr_gate.sh`: **6/6** (see [`../03-dossiers/gate-run-log.md`](../03-dossiers/gate-run-log.md)) |
+| The six documented gates pass on this tree | 6/6 on the parent commit locally and on CI; CI on PR #33 runs the same six against this commit (see [`../03-dossiers/gate-run-log.md`](../03-dossiers/gate-run-log.md)) |
 | Every negative fixture is judged by the compiler | 147 sidecars, **144 agree**, 3 disagreeing plus 1 code-level gap registered in `tools/qa-known-gaps.txt` with measurements |
 | Every published diagnostic is reachable | **34 of 35** codes exercised from `tests/`; `E0201` registered as having no emitter |
 | The corpus cannot silently lose cases | per-category floors and 315 cases total, enforced by `tests/test_qa.py`; baseline pins `-O0` and `-O2` |
@@ -61,7 +61,7 @@ Legend: **PASS** measured this pass · **PARTIAL** measured, with a named gap ·
 | # | Criterion | Verdict | Evidence on this tree |
 |---|---|---|---|
 | V1-14 | Bit-reproducible builds, published hash, cross-host claim | **PARTIAL** | Same-host: `tests/test_cli.py::Determinism` builds twice and compares bytes. Cross-host: the self-hosting gate strips the two linker-owned sections and requires every other section equal, and `release.yml` compares digests on a second runner. Nothing is published as a release hash yet. |
-| V1-15 | All six gates pass from a clean container within a documented budget | **PASS** | `bash tools/pr_gate.sh` 6/6 locally on this tree; CI runs the same six steps on `ubuntu-22.04` with a 90-minute budget. Wall time and per-gate logs in the gate-run dossier. |
+| V1-15 | All six gates pass from a clean container within a documented budget | **PASS** | 6/6 on the parent commit locally; CI runs the same six steps on `ubuntu-22.04` with a 90-minute budget, and the pull request for this pass re-runs them. Wall time and per-gate logs in the gate-run dossier. |
 | V1-16 | The known limits are published in one page and linked from README/AGENTS | **NOT ON MAIN** | `docs/reference/limits.md` exists on the unmerged docs branch (t_bd94ddc5). On this tree the limits are still scattered. |
 
 ### E. Publishable
