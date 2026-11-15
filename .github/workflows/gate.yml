@@ -53,6 +53,7 @@ jobs:
       - name: bootstrap diagnostic
         run: |
           set -u
+          mkdir -p build
           env | grep -E '^(LANG|LC_|TMPDIR|PATH|LIBRARY_PATH|CFLAGS|SOURCE_DATE_EPOCH)' | sort
           clang --version | head -n 1
           ld --version | head -n 1
