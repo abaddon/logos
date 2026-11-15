@@ -233,6 +233,23 @@ if ! cmp -s "$BIN" "$GEN3"; then
     exit 2
 fi
 
+# The equality above does not prove the stage-0 matches this source. gen2 is
+# whatever the stage-0 produces from the source, so a stage-0 that can still
+# compile it reaches the same fixed point while lagging behind it — measured by
+# building with the previous release's stage-0, which reproduced the current
+# compiler exactly. Comparing the stage-0 with the binary it just produced does
+# prove it, because a stage-0 built from this source reproduces itself byte for
+# byte. What the fixed point cannot see is the reason the check exists: a defect
+# in the stage-0 can compile the source into a gen2 that carries the same defect,
+# and both sides stay green while both are wrong.
+if ! cmp -s "$BOOT" "$BIN"; then
+    echo "selfhost: bootstrap/logosc is not what this source produces; rebuild it:" >&2
+    echo "    ./tools/logosc.sh version" >&2
+    echo "    cp build/logosc bootstrap/logosc" >&2
+    echo "    ( cd bootstrap && sha256sum logosc > logosc.sha256 )" >&2
+    exit 2
+fi
+
 DIFFS=0
 STDOUT="$OUT/current.out"
 STDERR="$OUT/current.err"
