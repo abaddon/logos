@@ -27,11 +27,15 @@ the compiler's own tables and every example is run by the test harness at `-O0`
 and `-O2`, so it cannot drift from the implementation.
 
 - `docs/LOGOS.md` — the manual, generated; do not edit it by hand.
+- `docs/CLI.md` — the tool contract: verbs, flags, streams, exit codes, and
+  the JSON documents an agent may depend on.
 - `logosc guide --json` — the machine-readable manifest: forms, types,
-  operators, builtins, reserved names, diagnostic codes and test categories.
+  operators, builtins, reserved names, diagnostic codes and test categories,
+  at `schema_version` 1.
 - `logosc guide --check` — proves the committed manual is current; exits 1 with
   a diff summary when it is stale.
 - `docs/manual/` — the numbered chapter sources the manual embeds.
+- `docs/schemas/` — the published JSON schemas for `--json` output.
 
 Regenerate after changing the compiler with `logosc guide > docs/LOGOS.md`.
 
@@ -52,9 +56,11 @@ Verified by execution on this machine:
   differential oracle against gcc, three example programs whose output matches
   `wc`, `jq` and a C reference byte for byte, formatter idempotency over every
   `.logos` file, and a compile-speed floor.
-- 24 contract tests pass: the gate list, the C runtime, and the self-hosting
-  summary. The suites that diffed the compiler against the Python
-  implementation went with it.
+- 47 contract tests pass: the gate list, the C runtime, the self-hosting
+  summary, and the CLI contract (`tests/test_cli.py`: exit codes, per-verb
+  help, JSON diagnostics for every failing phase, and compiling from a
+  directory outside the checkout). The suites that diffed the compiler against
+  the Python implementation went with it.
 - `bash tools/selfhost.sh` proves the fixed point: the stage-0 binary builds
   `gen2` from `src/`, `gen2` builds `gen3`, the two binaries are identical, and
   their IR agrees on the compiler's own source.
@@ -109,7 +115,11 @@ reads freed memory, uses an uninitialised value, or behaves differently at
   columns; a regular-file redirect uses a different width.
 - Float literals are converted by libc `strtod`, the same correctly rounded
   conversion Python's `float()` uses; a non-conforming `strtod` would shift the
-  bits. A non-finite literal is emitted as `inf` rather than refused.
+  bits. A literal with no finite value in its type — `1e999` for `:f64`,
+  `3.5e38` for `:f32` — is refused with `E0106`, not emitted as `inf`. The
+  decision is a decimal digit-string comparison against the type's maximum
+  (`17976931348623157` for `:f64`, `34028234` for `:f32`), so a literal within
+  one ulp of the maximum is refused too.
 
 ## Requirements
 
@@ -126,8 +136,11 @@ reads freed memory, uses an uninitialised value, or behaves differently at
 
 ```sh
 ./tools/logosc.sh version                      # logos 0.1.0
+./tools/logosc.sh version --json               # {"schema_version":1,...}
 ./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
 ./build/hello                                  # hello
+./tools/logosc.sh build bad.logos --json       # diagnostics as JSON on stderr
+./tools/logosc.sh build -h                     # that verb's flags, exit 0
 ./tools/logosc.sh guide                        # the generated manual
 ./tools/logosc.sh guide --json                 # the machine-readable manifest
 ./tools/logosc.sh guide --check                # fail if docs/LOGOS.md is stale

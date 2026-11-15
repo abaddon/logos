@@ -6,6 +6,8 @@
 
 (use map)
 
+(use harness)
+
 (type resolve-error (struct (failed :bool) (code :i64) (path :str) (file :str) (line :i64) (col :i64) (message :str)))
 
 (type resolve-def (struct (name :str) (path :str) (own :i64) (kind :i64)))
@@ -78,7 +80,20 @@
          (str-concat name ".logos"))))
 
 (fn resolve-stdlib :str ((name :str))
-  (ret (resolve-sibling "src/std" name)))
+  (letmut cands
+    (vec :str)
+    (make (vec :str)))
+  (let root :str (h-exe-root))
+  (if (not (str-eq root ""))
+    (vec-push cands (resolve-sibling (str-concat root "/share/logos/std") name))
+    (resolve-nothing))
+  (if (not (str-eq root ""))
+    (vec-push cands (resolve-sibling (str-concat root "/src/std") name))
+    (resolve-nothing))
+  (vec-push cands (resolve-sibling "src/std" name))
+  (let found :str (h-first-file cands (resolve-sibling "src/std" name)))
+  (vec-free cands)
+  (ret found))
 
 (fn resolve-key :str ((dir :str) (name :str))
   (ret (str-concat dir (str-concat "\0" name))))
