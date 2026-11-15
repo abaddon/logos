@@ -110,6 +110,7 @@ PASS type/try-mismatch -
 PASS type/try-nonresult-fn -
 PASS type/try-nonresult -
 PASS type/unhandled-result -
+PASS type/unknown-field -
 PASS type/unknown-fn -
 PASS type/unknown-name-binding -
 PASS type/unknown-name -
@@ -198,6 +199,7 @@ PASS exec/results/owner-in-a-binding -
 PASS exec/run/run -
 PASS exec/run/nonzero-status -
 PASS exec/run/signalled-status -
+PASS exec/run/an-unstartable-program-panics -
 PASS exec/run/run-across-a-thread -
 PASS exec/shifts/left-shift -
 PASS exec/shifts/right-shift-is-arithmetic -

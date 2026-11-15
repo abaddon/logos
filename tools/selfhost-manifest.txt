@@ -358,6 +358,7 @@ tests/type/try-mismatch.logos
 tests/type/try-nonresult-fn.logos
 tests/type/try-nonresult.logos
 tests/type/unhandled-result.logos
+tests/type/unknown-field.logos
 tests/type/unknown-fn.logos
 tests/type/unknown-name-binding.logos
 tests/type/unknown-name.logos
