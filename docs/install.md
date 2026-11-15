@@ -1,7 +1,7 @@
 # Install `logosc`
 
-`logosc` is one directory. Unpack it, run `bin/logosc` from inside it, and it
-compiles Logos to native x86_64 Linux binaries. Nothing is installed
+`logosc` is one directory. Unpack it, run `bin/logosc`, and it compiles Logos to
+native x86_64 Linux binaries from any working directory. Nothing is installed
 system-wide, nothing is added to `PATH` unless you add it, and uninstalling is
 `rm -rf` on that directory.
 
@@ -116,10 +116,46 @@ $ ./greet
 std ok
 ```
 
-Neither path needs an environment variable or a `cd`. What does not work is
-splitting the tree up: `bin/logosc` on its own has no runtime to link against
-and no standard library to resolve, and reports
-`logos: runtime not found: …`, exit 1.
+`<prefix>` below is the directory above `bin/`. The two lookups, in the order
+they are tried:
+
+| what | order |
+|---|---|
+| the runtime | `<prefix>/share/logos/runtime/rt.c`, `<prefix>/logos/runtime/rt.c`, then `logos/runtime/rt.c` in the working directory |
+| a module `(use name)` reads | `<dir of the asking file>/<name>.logos`, the `LOGOS_PATH` entries, `<prefix>/share/logos/std/<name>.logos`, `<prefix>/src/std/<name>.logos`, then `src/std/<name>.logos` in the working directory |
+
+Two environment variables override the prefix and extend the module path:
+
+| variable | meaning |
+|---|---|
+| `LOGOS_ROOT` | the prefix to use instead of the one derived from the executable. Point it at an unpacked tarball, a checkout, or a copy staged somewhere else. Unset or empty means "ask the executable". |
+| `LOGOS_PATH` | extra directories to search for modules, colon-separated, tried in order after the asking file's own directory and before the shipped library. Empty entries are ignored, as `$PATH` ignores them. |
+
+```sh
+# a compiler copied out of its prefix, pointed back at it
+LOGOS_ROOT=~/logos-0.2.1-x86_64-linux ~/bin/logosc build hello.logos -o hello
+
+# your own modules, from any directory
+LOGOS_PATH=~/logos-mods:./vendor/logos ./bin/logosc build app.logos -o app
+```
+
+Neither variable is needed for a normal install, and the working directory is
+still consulted last, so a build started inside a checkout behaves exactly as it
+did before. What does not work is splitting the tree up: `bin/logosc` on its own
+has no runtime to link against and no standard library to resolve, and the
+diagnostic prints the paths it tried rather than saying "runtime not found" and
+leaving you to guess.
+
+```sh
+$ bin/logosc build greet.logos -o greet
+greet.logos: E0800: runtime not found; searched: <prefix>/share/logos/runtime/rt.c, <prefix>/logos/runtime/rt.c, logos/runtime/rt.c
+
+$ bin/logosc build greet.logos -o greet
+greet/0: E0005: unknown module 'nope'; searched: <dir of greet.logos>/nope.logos, <prefix>/share/logos/std/nope.logos, <prefix>/src/std/nope.logos, src/std/nope.logos
+```
+
+Both are errors, exit 1, and both are one JSON object per line when `--json` is
+on — the same guarantee every other diagnostic gives.
 
 Two consequences worth knowing:
 

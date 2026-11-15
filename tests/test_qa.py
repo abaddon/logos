@@ -82,6 +82,18 @@ DIAGNOSTIC_FIELDS = {
     "col",
 }
 
+#: Codes pinned outside the corpus, each mapped to the file that exercises it.
+#: A `.expect` sidecar is only judged when the compiler exits 2 on a source
+#: error, so a fixture cannot express a fault of the *installation*: a source
+#: that is fine, an exit status of 1, and a missing runtime no `.logos` file in
+#: this repository can un-provide. `tests/test_install.py` drives a compiler
+#: copied into a prefix that lacks its runtime, and `make test` runs it with the
+#: other contract tests. The file has to name the code, so deleting the case
+#: removes the coverage instead of leaving a silent hole here.
+PYTHON_COVERAGE = {
+    "E0800": "tests/test_install.py",
+}
+
 _CACHE = {}
 
 
@@ -334,6 +346,11 @@ class DiagnosticCoverage(unittest.TestCase):
             for code in codes:
                 if code in text:
                     exercised.add(code)
+        # A code whose only expressible failure is an installation one cannot be
+        # reached from the corpus; its case lives in Python and has to name it.
+        for code, path in PYTHON_COVERAGE.items():
+            if code in (ROOT / path).read_text(encoding="utf-8"):
+                exercised.add(code)
         missing = sorted(set(codes) - exercised - exempt_codes)
         self.assertEqual([], missing,
                          "published but never exercised: %s" % ", ".join(missing))

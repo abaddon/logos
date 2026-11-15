@@ -6,7 +6,7 @@
 
 (use map)
 
-(use harness)
+(use sys)
 
 (type resolve-error (struct (failed :bool) (code :i64) (path :str) (file :str) (line :i64) (col :i64) (message :str)))
 
@@ -79,21 +79,46 @@
                        (str-concat dir "/")))
          (str-concat name ".logos"))))
 
-(fn resolve-stdlib :str ((name :str))
-  (letmut cands
+(fn resolve-unknown :str ((name :str) (cands (ref (vec :str))))
+  (ret (if (> (vec-len cands) 0)
+         (str-concat "unknown module '" (str-concat name (str-concat "'; searched: " (sys-list cands))))
+         (str-concat "unknown module '" (str-concat name "'")))))
+
+(fn resolve-candidates :void ((out (ref (vec :str))) (file :str) (name :str))
+  (vec-push out (resolve-sibling (resolve-dir file) name))
+  (letmut dirs
     (vec :str)
     (make (vec :str)))
-  (let root :str (h-exe-root))
+  (sys-split-paths dirs (sys-env "LOGOS_PATH"))
+  (letmut i :i64 0)
+  (while (< i (vec-len dirs))
+    (vec-push out (resolve-sibling (sys-trim (vec-get dirs i)) name))
+    (set i (+ i 1)))
+  (vec-free dirs)
+  (let root :str (sys-root))
   (if (not (str-eq root ""))
-    (vec-push cands (resolve-sibling (str-concat root "/share/logos/std") name))
+    (vec-push out (resolve-sibling (sys-join root "share/logos/std") name))
     (resolve-nothing))
   (if (not (str-eq root ""))
-    (vec-push cands (resolve-sibling (str-concat root "/src/std") name))
+    (vec-push out (resolve-sibling (sys-join root "src/std") name))
     (resolve-nothing))
-  (vec-push cands (resolve-sibling "src/std" name))
-  (let found :str (h-first-file cands (resolve-sibling "src/std" name)))
-  (vec-free cands)
+  (vec-push out (resolve-sibling "src/std" name))
+  (ret))
+
+(fn resolve-first :str ((cands (ref (vec :str))))
+  (letmut i :i64 0)
+  (letmut found :str "")
+  (while (and (str-eq found "")
+           (< i (vec-len cands)))
+    (if (resolve-exists (vec-get cands i))
+      (set found (vec-get cands i))
+      (resolve-nothing))
+    (set i (+ i 1)))
   (ret found))
+
+(fn resolve-choose :str ((cands (ref (vec :str))) (file :str) (name :str))
+  (resolve-candidates cands file name)
+  (ret (resolve-first cands)))
 
 (fn resolve-key :str ((dir :str) (name :str))
   (ret (str-concat dir (str-concat "\0" name))))
@@ -336,14 +361,20 @@
   (ret found))
 
 (fn resolve-import-load resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (file :str) (name :str) (use-path :str) (ask-slot :i64) (key :str) (defs (ref (vec resolve-def))) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (active (ref (vec :str))) (depth (ref (vec :i64))) (keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))) (rnames (ref (vec :str))) (rpaths (ref (vec :str))))
-  (let sibling :str (resolve-sibling (resolve-dir file) name))
   (let root :str (resolve-root-file rnames rpaths name))
-  (let found :str (if (not (str-eq root "")) root
-                    (if (resolve-exists sibling) sibling
-                      (resolve-stdlib name))))
-  (ret (if (not (resolve-exists found))
-         (resolve-fail 5 use-path (str-concat "unknown module '" (str-concat name "'")))
-         (resolve-import-at nodes ntexts file name use-path ask-slot found key defs all mods active depth keys vals slots rnames rpaths))))
+  (letmut cands
+    (vec :str)
+    (make (vec :str)))
+  (letmut found :str root)
+  (if (str-eq found "")
+    (set found (resolve-choose cands file name))
+    (resolve-nothing))
+  (letmut out resolve-error (resolve-fail 5 use-path ""))
+  (if (resolve-exists found)
+    (set out (resolve-import-at nodes ntexts file name use-path ask-slot found key defs all mods active depth keys vals slots rnames rpaths))
+    (set out (resolve-fail 5 use-path (resolve-unknown name cands))))
+  (vec-free cands)
+  (ret out))
 
 (fn resolve-import-at resolve-error ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (file :str) (name :str) (use-path :str) (ask-slot :i64) (found :str) (key :str) (defs (ref (vec resolve-def))) (all (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (active (ref (vec :str))) (depth (ref (vec :i64))) (keys (ref (vec :str))) (vals (ref (vec :i64))) (slots (ref (vec :i64))) (rnames (ref (vec :str))) (rpaths (ref (vec :str))))
   (let at :i64 (resolve-mod-find keys vals slots name))

@@ -2,14 +2,13 @@
 # Assemble the installable tarball for one version.
 #
 # The layout is the contract, not a convention: the compiler resolves its
-# runtime at `logos/runtime/rt.c` and its standard library at
-# `src/std/<name>.logos` relative to the *working directory*, so the tarball
-# ships those two paths spelled exactly as the repository spells them and
-# `docs/install.md` says to run the compiler from the unpacked directory.
-# Resolving them relative to the executable is the D2/D3 compiler change; until
-# it lands, mirroring the repository's paths is what makes an install work
-# outside a checkout. When that change lands, this layout stays valid: it is the
-# same two paths, only found by a different rule.
+# runtime at `<prefix>/logos/runtime/rt.c` and its standard library at
+# `<prefix>/src/std/<name>.logos`, where `<prefix>` is the directory above the
+# binary's own — `bin/logosc` puts the prefix one level up — so the tarball ships
+# those two paths spelled exactly as the repository spells them. Falling back to
+# the working directory is the last resort and is not what an install relies on;
+# `docs/install.md` therefore no longer asks the consumer to run the compiler
+# from inside the unpacked directory.
 #
 # The documentation ships laid out exactly as the repository lays it out:
 # `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CHANGELOG.md` and `LICENSE` at

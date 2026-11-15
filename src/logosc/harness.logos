@@ -47,39 +47,6 @@
     (set n (- n 1)))
   (ret (str-slice s 0 n)))
 
-(fn h-exe :str ()
-  (letmut argv
-    (vec :str)
-    (make (vec :str)))
-  (vec-push argv "-c")
-  (vec-push argv "readlink -f /proc/$PPID/exe")
-  (let r :run (run "sh" argv))
-  (ret (if (= (run-status r) 0)
-         (h-trim-nl (run-out r)) "")))
-
-(fn h-exe-dir :str ()
-  (ret (h-parent (h-exe))))
-
-(fn h-exe-root :str ()
-  (letmut root :str (h-parent (h-parent (h-exe))))
-  (if (str-eq root "/")
-    (set root "")
-    (h-nothing))
-  (ret root))
-
-(fn h-first-file :str ((candidates (ref (vec :str))) (fallback :str))
-  (letmut out :str fallback)
-  (letmut i :i64 0)
-  (letmut found :bool false)
-  (while (and (not found)
-           (< i (vec-len candidates)))
-    (set found (h-file-exists (vec-get candidates i)))
-    (if found
-      (set out (vec-get candidates i))
-      (h-nothing))
-    (set i (+ i 1)))
-  (ret out))
-
 (fn h-categories :void ((out (ref (vec :str))))
   (vec-push out "parse")
   (vec-push out "type")

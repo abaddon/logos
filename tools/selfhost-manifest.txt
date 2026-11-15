@@ -161,6 +161,8 @@ src/logosc/lower.logos
 src/logosc/main.logos
 src/logosc/resolve.logos
 src/logosc/resolve_test.logos
+src/logosc/sys.logos
+src/logosc/sys_test.logos
 src/logosc/tree.logos
 src/logosc/tree_test.logos
 src/logosc/types.logos
@@ -253,6 +255,7 @@ tests/regress/reserved-name.logos
 tests/regress/result-foreign-enum/failure.logos
 tests/regress/result-foreign-enum/program.logos
 tests/regress/rt-definition.logos
+tests/regress/runtime-locate.logos
 tests/regress/str-concat-overflow.logos
 tests/regress/struct-owner-mismatch/deep.logos
 tests/regress/struct-owner-mismatch/program.logos

@@ -1,0 +1,103 @@
+(mod sys-test)
+
+(use sys)
+
+(test join-no-double-slash
+  (expect (out "/a/b\n")
+    (code 0)
+    (leaks 0))
+  (println (sys-join "/a/" "b")))
+
+(test join-keeps-a-relative-dir
+  (expect (out "vendor/mods\n")
+    (code 0)
+    (leaks 0))
+  (println (sys-join "vendor" "mods")))
+
+(test join-with-no-dir-is-the-base
+  (expect (out "mods\n")
+    (code 0)
+    (leaks 0))
+  (println (sys-join "" "mods")))
+
+(test dir-drops-the-last-component
+  (expect (out "/a/b\n/\n\n")
+    (code 0)
+    (leaks 0))
+  (println (sys-dir "/a/b/c"))
+  (println (sys-dir "/c"))
+  (println (sys-dir "c")))
+
+(test trim-drops-trailing-slashes-but-keeps-the-root
+  (expect (out "/a/b\n/\n")
+    (code 0)
+    (leaks 0))
+  (println (sys-trim "/a/b//"))
+  (println (sys-trim "/")))
+
+(test split-drops-empty-entries
+  (expect (out "2\na\nb\n0\n2\na\nb\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (sys-split-paths a "a:b")
+  (println (vec-len a))
+  (println (vec-get a 0))
+  (println (vec-get a 1))
+  (letmut b
+    (vec :str)
+    (make (vec :str)))
+  (sys-split-paths b "")
+  (println (vec-len b))
+  (letmut c
+    (vec :str)
+    (make (vec :str)))
+  (sys-split-paths c "a::b:")
+  (println (vec-len c))
+  (println (vec-get c 0))
+  (println (vec-get c 1))
+  (vec-free a)
+  (vec-free b)
+  (vec-free c))
+
+(test list-joins-with-a-comma
+  (expect (out "a, b, c\n\n")
+    (code 0)
+    (leaks 0))
+  (letmut items
+    (vec :str)
+    (make (vec :str)))
+  (vec-push items "a")
+  (vec-push items "b")
+  (vec-push items "c")
+  (println (sys-list items))
+  (letmut empty
+    (vec :str)
+    (make (vec :str)))
+  (println (sys-list empty))
+  (vec-free items)
+  (vec-free empty))
+
+(test an-unset-variable-is-empty
+  (expect (out "0\n")
+    (code 0)
+    (leaks 0))
+  (println (str-len (sys-env "LOGOS_NO_SUCH_VARIABLE_42"))))
+
+(test the-executable-has-a-path
+  (expect (out "exe ok\n")
+    (code 0)
+    (leaks 0))
+  (println (if (> (str-len (sys-exe)) 0) "exe ok" "exe bad")))
+
+(test root-follows-the-override-else-the-executable
+  (expect (out "root ok\n")
+    (code 0)
+    (leaks 0))
+  (let env :str (sys-trim (sys-env "LOGOS_ROOT")))
+  (if (str-eq env "")
+    (println (if (str-eq (sys-root)
+                   (sys-dir (sys-dir (sys-exe)))) "root ok" "root bad"))
+    (println (if (str-eq (sys-root) env) "root ok" "root bad"))))

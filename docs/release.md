@@ -110,9 +110,12 @@ at `<root>/logos/runtime/rt.c` and the standard library at
 `<root>/src/std/<name>.logos`, where `<root>` is the parent of the `bin`
 directory holding the executable (`/proc/self/exe`), falling back to
 `share/logos/…` for a differently-installed tree and finally to the working
-directory. That is why unpacking *is* installing: the tarball reproduces the
-two paths the compiler looks for, and it works from any directory without an
-environment variable.
+directory. `LOGOS_ROOT` overrides that root and `LOGOS_PATH` adds module
+directories, both documented for consumers in `docs/install.md`; the search
+order and the reasons for it are
+`docs/superpowers/specs/2026-11-15-runtime-and-library-lookup.md`. That is why
+unpacking *is* installing: the tarball reproduces the paths the compiler looks
+for, and it works from any directory without an environment variable.
 
 ## Why the tarball is byte-reproducible
 

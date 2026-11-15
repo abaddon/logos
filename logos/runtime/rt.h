@@ -272,6 +272,43 @@ long rt_mkdirs(const unsigned char *path, size_t n);
  * like the other strings the runtime builds. */
 unsigned char *rt_path_error(const unsigned char *path, size_t n, size_t *out_len);
 
+/* A Logos `:str` as it crosses the extern boundary in a return value: one
+ * struct of the two values an argument passes as a pair. An `extern fn … :str`
+ * declared in Logos lowers to exactly this, so a runtime function can build a
+ * string and hand it back without an out-pointer.
+ *
+ * The data pointer is borrowed for the life of the process, like every other
+ * string the runtime builds; a returned string owns nothing and no form
+ * releases it. */
+typedef struct {
+    unsigned char *data;
+    size_t len;
+} rt_slice;
+
+/* The path of the running program, as a string.
+ *
+ * It is the target of /proc/self/exe, so it is absolute and every symlink in
+ * it is already resolved: a compiler started as `~/.local/bin/logosc` names the
+ * directory it really lives in, not the link. This is how a program finds the
+ * files shipped beside it without trusting the working directory — which is
+ * whatever the caller had — or `argv[0]`, which a shell or a wrapper may have
+ * rewritten.
+ *
+ * A zero-length answer means the kernel would not say (no procfs, or a length
+ * no buffer holds); it is never a path, and a caller must treat it as
+ * "unknowable" rather than as an empty directory. */
+rt_slice rt_exe_path(void);
+
+/* The value of the environment variable whose name is the `n` bytes at `name`.
+ *
+ * An unset variable and one set to the empty string give the same answer, a
+ * zero-length string: both mean "nothing to honour", and a caller that had to
+ * tell them apart would be respecting an empty prefix. The name is a Logos
+ * string — a pointer and a byte count, never NUL terminated — and it is copied
+ * only because getenv needs a terminator; the value is copied into the buffer
+ * this returns, so a later setenv by the program cannot move it. */
+rt_slice rt_getenv(const unsigned char *name, size_t n);
+
 /* An opaque handle to a finished child process: process-lifetime and not
  * tracked, like a mutex or a channel, because no form releases it. */
 typedef struct rt_run rt_run;

@@ -922,6 +922,7 @@ An `extern fn` may declare an `rt_` symbol — the runtime owns that definition 
 | `E0601` | try type mismatch |
 | `E0602` | unhandled result |
 | `E0700` | shared state not marked |
+| `E0800` | runtime not found |
 | `R0006` | a program could not be started |
 | `R0007` | could not read a file |
 

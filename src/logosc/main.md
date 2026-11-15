@@ -336,11 +336,12 @@ path's directory — because a fresh checkout has no `build/` directory.
 `main-mkdir` is `(mkdirs dir)`, the runtime helper that creates a path and its
 missing parents and returns 0 or -1; it replaced a `mkdir -p` child process, so
 a build no longer depends on a `PATH` entry and no longer pays a spawn.
-`main-exists` still runs `test -f` for the runtime's presence; that probe is
-one per build, and folding it into the runtime is a separate question with a
-different failure line attached. Both creation and probing ignore the status,
-because a directory that cannot be made fails at the write or at clang, with
-the line that says so.
+`main-exists` still runs `test -f` for the runtime's presence; that probe is one
+per candidate in the runtime's search order — two at most, and one in a
+checkout, where the first candidate answers — and folding it into the runtime is
+a separate question with a different failure line attached. Both creation and
+probing ignore the status, because a directory that cannot be made fails at the
+write or at clang, with the line that says so.
 
 Nothing else is produced: no object file and no second `.ll`. `tools/selfhost.sh`
 reads `build/<stem>.ll` after each `gen2 build` and compares it with the file
@@ -356,11 +357,12 @@ Two checks belong to `build` and not to `check`:
   command line was well formed and the source was not. The check runs after the
   checker, so a set that also has a body error reports the checker's
   refusal first, as Python's `build_program` does.
-- **A runtime to link.** `main-link` asks `main-exists` for
-  `logos/runtime/rt.c`; when the file is absent the build stops with one
-  `logos: runtime not found: logos/runtime/rt.c` line and exit 1, and removes
-  the IR it had just written, rather than handing clang a path that is not
-  there.
+- **A runtime to link.** `main-link` asks `main-exists` for each candidate in
+  `main-runtime-candidates`, `<root>/share/logos/runtime/rt.c` (installed) and
+  `<root>/logos/runtime/rt.c` (checkout) first, `logos/runtime/rt.c` last; when
+  none is a regular file the build stops with one `E0800` line naming the order,
+  exit 1, and removes the IR it had just written, rather than handing clang a
+  path that is not there.
 
 The pipeline stops at the first failure and each failure has one shape:
 
@@ -373,6 +375,7 @@ The pipeline stops at the first failure and each failure has one shape:
 | the lowering | `E0002`, `E0102`, `E0103`, … | the node path of the form it refused |
 | `emit` | `E0002` | the module's node path |
 | the IR write | none | `logos: cannot write <path>`, exit 1 |
+| the runtime lookup | `E0800` | the file being built, then the search order |
 | the link | none | `logos: clang failed: …`, exit 1 |
 
 A lowering refusal is `lower-error`'s: `lo-fail-at` recorded the form's node
@@ -384,9 +387,12 @@ that decides this; the port-only code is documented because Python's compiler
 raises instead of printing. **Neither is a panic**: a failed emit is a line on
 stderr and exit 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
 
-The last two stages have no source location, so they cannot use the diagnostic
-shape above; they use Python's `build` shape instead, one `logos: …` line on
-stderr and exit 1 (`cli.py:311-327`). A clang failure prints the command it ran
+The IR write and the link have no source location, so they cannot use the
+diagnostic shape above; they use Python's `build` shape instead, one `logos: …`
+line on stderr and exit 1 (`cli.py:311-327`). The runtime lookup between them has
+no source *node* either, but it has a file and a code, so it is printed the way
+`E0103: no 'main' function to build` is — `<file>: E0800: …`. A clang failure
+prints the command it ran
 followed by clang's own stderr, which is how `BuildError` reads in Python, and
 removes both artefacts — the IR and the half-written binary — so a failed build
 leaves nothing behind that could be mistaken for a success.
@@ -487,7 +493,8 @@ leaves nothing behind that could be mistaken for a success.
 | `main-ir-path path` | `:str` | `build/<stem>.ll`, where the IR always goes |
 | `main-out-path path` | `:str` | `build/<stem>`, the default binary |
 | `main-dir path` | `:str` | the directory part of `path`, or `""` when it has none |
-| `main-runtime` | `:str` | `logos/runtime/rt.c`, the runtime the binary is linked with |
+| `main-runtime-candidates out` | `:void` | push the runtime's search order: `<root>/logos/runtime/rt.c`, then `logos/runtime/rt.c` |
+| `main-runtime cands` | `:str` | the first candidate that is a regular file, or `""` |
 | `main-exists path` | `:bool` | whether `path` is a regular file (`test -f`) |
 | `main-mkdir dir` | `:void` | `(mkdirs dir)`, ignoring the status |
 | `main-joined argv` | `:str` | the command line as one line, for the failure message |
@@ -577,14 +584,36 @@ source, so reporting one costs no allocation either.
 ## Finding the runtime
 
 Python finds `rt.c` beside its installed package (`driver.py:54-75`); a Logos
-binary has no package, and no runtime primitive reports where the executable
-lives, so `gen2` names the runtime the way it names everything else it touches:
-`logos/runtime/rt.c`, relative to the working directory. The repository is the
-unit here — `src/logosc/*.logos` on the command line, `build/` for the output,
-and `logos/runtime/rt.c` for the link are all repository-relative, and every
-caller is either the gate or a person at the root (`tools/selfhost.sh` starts
-with `cd "$ROOT"`). A build run anywhere else says so in one line and exits 1;
-it does not silently link a different runtime.
+binary had no package and no primitive that reported where the executable lives,
+so `gen2` used to name the runtime the way it named everything else it touched:
+`logos/runtime/rt.c`, relative to the working directory. That made an installed
+compiler only work from inside the directory it was unpacked into. It is now
+resolved from the compiler's own location (D2 of the v1 readiness audit;
+`docs/superpowers/specs/2026-11-15-runtime-and-library-lookup.md`):
+
+1. `<root>/logos/runtime/rt.c`
+2. `logos/runtime/rt.c` — the working directory, last
+
+`<root>` is `LOGOS_ROOT` when it is set and non-empty, otherwise the parent of
+the directory holding `/proc/self/exe` — `<prefix>/bin/logosc` and
+`<repo>/build/logosc` both name their prefix. `sys-root` in `sys.md` owns that
+rule; `main-runtime-candidates` owns the order; `main-runtime` takes the first
+candidate `main-exists` accepts. The working directory is last because the
+repository's own gates and fixtures build with relative paths, and a build from
+the root a person is standing in still works exactly as it did.
+
+A build that finds none of them prints the order it tried, with a code and the
+file being built, and removes the IR it had just written:
+
+```
+hello.logos: E0800: runtime not found; searched: /prefix/share/logos/runtime/rt.c, /prefix/logos/runtime/rt.c, logos/runtime/rt.c
+```
+
+`E0800` is the one code this change adds to the table in `guide.logos`. Before
+it, this failure was `logos: runtime not found: logos/runtime/rt.c` with exit 1
+and neither a code nor a location — the only refusal an agent could not classify
+by reading it. The exit status stays 1: the command line was fine and the source
+was fine, the installation is what is broken.
 
 ## Building it
 
