@@ -54,17 +54,34 @@ jobs:
         run: |
           set -u
           mkdir -p build
-          env | grep -E '^(LANG|LC_|TMPDIR|PATH|LIBRARY_PATH|CFLAGS|SOURCE_DATE_EPOCH)' | sort
-          clang --version | head -n 1
-          ld --version | head -n 1
           ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos \
             -o build/diag-gen2 > build/diag.log 2>&1 || echo "diag build failed"
-          ls -l bootstrap/logosc build/diag-gen2
-          sha256sum bootstrap/logosc build/diag-gen2
-          sha256sum build/body_test.ll 2>/dev/null || echo "no IR"
-          readelf -p .comment bootstrap/logosc | tail -n 2
-          readelf -p .comment build/diag-gen2 | tail -n 2
-          cmp -l bootstrap/logosc build/diag-gen2 2>&1 | head -n 5
+          echo "== differing bytes =="
+          cmp -l bootstrap/logosc build/diag-gen2 | wc -l
+          echo "== first and last differing offsets =="
+          cmp -l bootstrap/logosc build/diag-gen2 | head -n 3
+          cmp -l bootstrap/logosc build/diag-gen2 | tail -n 3
+          echo "== bytes around the first difference =="
+          od -An -tx1 -j 832 -N 96 bootstrap/logosc
+          od -An -tx1 -j 832 -N 96 build/diag-gen2
+          echo "== sections =="
+          readelf -S bootstrap/logosc | grep -E '\.(text|data|rodata|note|comment|symtab|strtab)' 
+          readelf -S build/diag-gen2 | grep -E '\.(text|data|rodata|note|comment|symtab|strtab)'
+          echo "== build id =="
+          readelf -n bootstrap/logosc | tail -n 4
+          readelf -n build/diag-gen2 | tail -n 4
+          echo "== does TMPDIR leak into the output? =="
+          mkdir -p /home/runner/alt-tmp
+          TMPDIR=/tmp ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos -o /tmp/leak
+          cp /tmp/leak build/leak-a
+          TMPDIR=/home/runner/alt-tmp ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos -o /tmp/leak
+          cp /tmp/leak build/leak-b
+          sha256sum build/leak-a build/leak-b
+          cmp -l build/leak-a build/leak-b | wc -l
+          echo "== does the -o path leak into the output? =="
+          ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/one
+          ./bootstrap/logosc build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/a-much-longer-output-name
+          sha256sum build/one build/a-much-longer-output-name
       # Precondition, not a gate: it runs before any gate and stops the job when
       # a commit is unsigned. Only for a pull request -- a push to main has no
       # base to compare against and must not re-litigate commits already merged.
