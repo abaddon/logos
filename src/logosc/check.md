@@ -1532,9 +1532,9 @@ with a raw tree: the resolver refuses a nameless `extern` before the checker
 sees it, so no source file can reach the rule through `check-file`.
 
 The suite is
-`python3 -m logos test src/logosc/check_test.logos --opt -O0 --opt -O2` for the
+`./tools/logosc.sh test src/logosc/check_test.logos --opt -O0 --opt -O2` for the
 declarations and
-`python3 -m logos test src/logosc/body_test.logos --opt -O0 --opt -O2` for the
+`./tools/logosc.sh test src/logosc/body_test.logos --opt -O0 --opt -O2` for the
 body pass, both run from the repository root because the visibility fixtures
 are reached by path.
 

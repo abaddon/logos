@@ -194,7 +194,7 @@ Twenty cases, each `(leaks 0)` and each run at `-O0` and `-O2`:
 The harness feeds each source through `lex`, `tree-parse` and `fmt` and asserts
 the exact stdout with `(out …)`. `fmt-src` frees all six vectors it creates.
 
-`python3 -m logos test src/logosc/fmt_test.logos --opt -O0 --opt -O2` reports
+`./tools/logosc.sh test src/logosc/fmt_test.logos --opt -O0 --opt -O2` reports
 `20 passed, 0 failed, 0 leaked`.
 
 ## Parity

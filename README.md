@@ -8,10 +8,16 @@ guessing. There is no implicit conversion, no hidden allocation, no hidden
 global state and no silent error swallowing. A call that allocates shows it. A
 call that can fail declares it. Release is manual through `free`.
 
-The compiler front end is Python, standard library only: lexer, parser,
-resolver and type checker lower a typed syntax tree to a small flat IR, which is
-printed as LLVM IR text. `clang` compiles that text and links it against the C
-runtime in `logos/runtime/`.
+The compiler is written in Logos. `src/logosc/` is the whole of it: lexer,
+parser, resolver, checker, lowering and emitter, each module paired with a
+`.md` beside it that carries its contract. The compiler lowers a typed syntax
+tree to a small flat IR, prints it as LLVM IR text, and `clang` compiles that
+text and links it against the C runtime in `logos/runtime/`.
+
+It is self-hosting. `bootstrap/logosc` is a stage-0 binary whose only job is to
+build the compiler from `src/`; the result builds itself again, and the two
+binaries are byte-identical. No Python is involved in building anything: the
+compiler is the only compiler here.
 
 ## Learn it
 
@@ -36,22 +42,29 @@ and the test harness are built, reviewed, and green.
 
 Verified by execution on this machine:
 
-- `python3 -m logos test` runs 184 cases across eight categories at `-O0` and
-  `-O2` and compares the two optimisation levels with each other, not only with
-  the expected output. 0 failures, 10 deliberate leaks, 0 baseline regressions.
+- `./tools/logosc.sh test tests` runs 308 cases across eight categories at
+  `-O0` and `-O2` and compares the two optimisation levels with each other, not
+  only with the expected output. 0 failures, 10 deliberate leaks, 0 baseline
+  regressions.
+- The compiler's own suites run through the same binary: 361 `body_test` cases,
+  80 `check_test` cases and 38 `resolve_test` cases, each at both levels.
 - `bash tools/accept.sh` runs seven sections and all pass: the harness, a
   differential oracle against gcc, three example programs whose output matches
-  `wc`, `jq` and a C reference byte for byte, formatter idempotency over 41
-  files, and a compile-speed floor.
-- 851 unit tests pass. `tools/verify_install.sh` installs the package into a
-  throwaway prefix and builds a program from outside the repository.
+  `wc`, `jq` and a C reference byte for byte, formatter idempotency over every
+  `.logos` file, and a compile-speed floor.
+- 24 contract tests pass: the gate list, the C runtime, and the self-hosting
+  summary. The suites that diffed the compiler against the Python
+  implementation went with it.
+- `bash tools/selfhost.sh` proves the fixed point: the stage-0 binary builds
+  `gen2` from `src/`, `gen2` builds `gen3`, the two binaries are identical, and
+  their IR agrees on the compiler's own source.
 
 The language has: integers, floats, booleans and strings; structs with C
 layout; fixed arrays and growable vectors; enums with payloads; results and
 optionals with `try`; generics by monomorphisation; closures confined to their
 frame; manual memory with move checking and a leak tracker; threads, mutexes,
 channels and atomics over pthreads; `extern` declarations for the C ABI; and
-node-addressed tooling (`show`, `patch`, `fmt`) that treats one subtree as one
+node-addressed tooling (`show`, `fmt`) that treats one subtree as one
 editable unit.
 
 ### What it refuses, on purpose
@@ -83,44 +96,50 @@ reads freed memory, uses an uninitialised value, or behaves differently at
 ### Known limits
 
 - One target: x86_64 Linux. The target triple is a flag, but arm64 and Darwin
-  have not been built or tested.
+  have not been built or tested. `bootstrap/logosc` is an x86_64 Linux binary,
+  so another platform needs a stage-0 built where the compiler already runs.
 - Release builds do not quarantine freed blocks, so `R0002` in a release build
   is defence in depth. A stale double free cannot be constructed from Logos
   source, because the ownership rules above refuse it.
-- Imports resolve at check time but only own-module functions are lowered, so a
-  cross-module call is refused until linking exists. Test-local helper
-  functions are refused for the same reason.
 - A `:str` owns nothing: concatenation allocates a buffer that lives until the
   process exits, and it does not appear in the leak report.
 - A mutex held by a thread that exited stays locked; an unjoined thread's
   allocations may or may not appear in the leak report.
 - `examples/wc.logos` matches GNU `wc` through a pipe, which pads to seven
   columns; a regular-file redirect uses a different width.
-
+- Float literals are converted by libc `strtod`, the same correctly rounded
+  conversion Python's `float()` uses; a non-conforming `strtod` would shift the
+  bits. A non-finite literal is emitted as `inf` rather than refused.
 
 ## Requirements
 
 - Ubuntu 22.04, x86_64
-- Python 3.10 or newer (3.10.12 ships with Ubuntu 22.04; 3.14 also works)
 - clang 14 and lld: `apt-get install -y clang lld` (`lld` is unused so far;
   clang links through the system linker)
 - gcc 11 and jq 1.6 for `tools/accept.sh`: gcc builds the differential oracle's
   C twins, jq is the JSON example's reference
 - GNU make
+- Python 3.10 or newer, for the contract tests only — no gate runs a compiler
+  written in Python
 
 ## Usage
 
 ```sh
-python3 -m logos version                      # logos 0.1.0
-python3 -m logos build examples/hello.logos   # build/hello, and build/hello.ll
-./build/hello                                 # hello
-python3 -m logos guide                        # the generated manual
-python3 -m logos guide --json                 # the machine-readable manifest
-python3 -m logos guide --check                # fail if docs/LOGOS.md is stale
-python3 -m logos test                         # run the directive-driven corpus
-python3 -m logos test --only exec --opt -O0   # one category, one optimisation level
-bash tools/accept.sh                          # corpus, gcc oracle, examples, fmt
+./tools/logosc.sh version                      # logos 0.1.0
+./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
+./build/hello                                  # hello
+./tools/logosc.sh guide                        # the generated manual
+./tools/logosc.sh guide --json                 # the machine-readable manifest
+./tools/logosc.sh guide --check                # fail if docs/LOGOS.md is stale
+./tools/logosc.sh test tests                   # run the directive-driven corpus
+./tools/logosc.sh test tests --only exec --opt -O0   # one category, one level
+bash tools/accept.sh                           # corpus, gcc oracle, examples, fmt
 ```
+
+`tools/logosc.sh` is a thin wrapper: it checks `bootstrap/logosc` against its
+recorded SHA-256, rebuilds `build/logosc` from `src/` whenever the source is
+newer, and runs that. Use it, not the bootstrap binary, whenever you are
+testing a change to the compiler.
 
 `logosc test` reads the `(expect ...)` directive in each `(test ...)` node and
 the module-level `(expect-error E0xxx)` of a negative case, runs every case at
@@ -174,9 +193,17 @@ documents the script also compares.
 ## Development
 
 ```sh
-make test    # python3 -m unittest discover -s tests -t . -v
-make fmt     # python3 -m logos fmt .
+make test    # 24 contract tests, then the compiler's own suites at -O0 and -O2
+make fmt     # ./tools/logosc.sh fmt .
 make clean   # remove build output and caches
+```
+
+After changing `src/logosc/`, rebuild the stage-0 binary in the same commit:
+
+```sh
+./tools/logosc.sh version
+cp build/logosc bootstrap/logosc
+( cd bootstrap && sha256sum logosc > logosc.sha256 )
 ```
 
 ## Contribute
@@ -192,15 +219,18 @@ gate if it fails.
 
 | Path | Purpose |
 | --- | --- |
-| `logos/` | Python compiler front end and command line interface |
+| `src/logosc/` | The compiler, in Logos, one module per file with its `.md` beside it |
+| `src/std/` | The standard library, in Logos |
+| `bootstrap/logosc` | Stage-0 binary that builds the compiler; its SHA-256 is recorded |
 | `logos/runtime/rt.h` | Declarations of the C runtime reached through `extern` |
-| `logos/runtime/rt.c` | C runtime implementation, shipped as package data |
+| `logos/runtime/rt.c` | C runtime implementation, linked into every binary |
 | `examples/` | Three real programs, their input fixture and the matrix reference |
 | `docs/LOGOS.md` | The generated manual: cheat sheet, executable chapters, reference tables |
 | `docs/manual/` | The numbered chapter sources the manual embeds |
-| `tests/` | `unittest` suite and the directive corpus |
+| `tests/` | The directive corpus and the contract tests |
 | `tests/diff/` | Programs with hand-written C twins, compared against gcc |
 | `tools/accept.sh` | The end-to-end acceptance gate |
+| `tools/logosc.sh` | Builds the compiler from source and runs it |
 | `docs/superpowers/` | Design spec and implementation plan |
 
 ## License

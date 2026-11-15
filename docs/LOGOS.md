@@ -34,7 +34,7 @@ Machine-readable: `logosc guide --json` prints the manifest (forms, types, opera
 
 ## Manual
 
-20 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `python3 -m logos test docs/manual` runs every one at `-O0` and `-O2`.
+20 chapters in learning order. Each is a complete module; its `(test ...)` node declares the output shown, and `./tools/logosc.sh test docs/manual` runs every one at `-O0` and `-O2`.
 
 ### 1. Values and literals
 

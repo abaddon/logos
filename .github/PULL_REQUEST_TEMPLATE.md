@@ -17,10 +17,10 @@ must pass.
 | Gate | Command | Result |
 | --- | --- | --- |
 | unit tests | `make test` | |
-| corpus | `python3 -m logos test` | |
+| corpus | `./tools/logosc.sh test tests` | |
 | acceptance | `bash tools/accept.sh` | |
-| manual drift | `python3 -m logos guide --check` | |
-| formatting | `python3 -m logos fmt $(git diff --name-only main...HEAD -- '*.logos')` | |
+| manual drift | `./tools/logosc.sh guide --check` | |
+| formatting | `./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')` | |
 | self-hosting | `bash tools/selfhost.sh` | |
 
 ## Checklist
@@ -37,8 +37,11 @@ must pass.
       uninitialised memory; no accepted program behaves differently at `-O0`
       and `-O2`; no checker-accepted form is unimplemented in the backend;
       every diagnostic carries a code and a node path.
-- [ ] `docs/LOGOS.md` was regenerated with `python3 -m logos guide`, not
+- [ ] `docs/LOGOS.md` was regenerated with `./tools/logosc.sh guide`, not
       hand-edited.
+- [ ] If `src/logosc/` changed, `bootstrap/logosc` and `bootstrap/logosc.sha256`
+      were rebuilt in the same pull request, and `bash tools/selfhost.sh` proves
+      the pair is a fixed point.
 - [ ] The branch is named `feat/…`, `fix/…` or `docs/…` and contains one
       logical change.
 - [ ] Every commit is signed off (`git commit --signoff`) and

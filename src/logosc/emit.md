@@ -264,13 +264,13 @@ Regenerate with:
 
 ```text
 python3 tools/ir_parity.py
-python3 -m logos test src/logosc/emit_test.logos --opt -O0 --opt -O2
+./tools/logosc.sh test src/logosc/emit_test.logos --opt -O0 --opt -O2
 ```
 
 The generated test reads its fixtures by repository-relative path, so run it
 from the repository root, as every suite here is run. Adding a case is one entry
 in `MODULES`: the fixture, the constructor sequence and the expectation all come
-from it. The generator formats the test file with `python3 -m logos fmt`, so the
+from it. The generator formats the test file with `./tools/logosc.sh fmt`, so the
 output is a fixed point of the formatter.
 
 ## Build set

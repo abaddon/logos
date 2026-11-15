@@ -19,13 +19,14 @@
 # Build products and captured output live under build/accept/, which is
 # ignored; the working tree is never modified.
 #
-# Requirements: python3, clang, gcc, jq, GNU wc, timeout, cmp.
+# Requirements: clang, gcc, jq, GNU wc, timeout, cmp. The compiler is
+# `tools/logosc.sh`, built from src/ by the bootstrap; no Python is involved.
 
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/accept"
-PYTHON="${PYTHON:-python3}"
+LOGOSC="${LOGOSC:-$ROOT/tools/logosc.sh}"
 CC="${CC:-gcc}"
 FAILURES=0
 SECTIONS=0
@@ -60,7 +61,7 @@ section() {
 }
 
 missing=""
-for tool in "$PYTHON" clang "$CC" jq wc timeout cmp find; do
+for tool in "$LOGOSC" clang "$CC" jq wc timeout cmp find; do
     if ! command -v "$tool" > /dev/null 2>&1; then
         missing="$missing $tool"
     fi
@@ -74,7 +75,7 @@ fi
 # 1. The directive corpus
 # ---------------------------------------------------------------------------
 section
-if "$PYTHON" -m logos test > "$OUT/test.log" 2>&1; then
+if "$LOGOSC" test > "$OUT/test.log" 2>&1; then
     CASES=$(grep -c '^PASS ' "$OUT/test.log")
     if [[ "$CASES" -eq 0 ]]; then
         fail "test corpus" "the run passed no case; the corpus is empty"
@@ -116,9 +117,9 @@ shopt -s nullglob
 WC_INPUTS=("README.md" examples/inputs/*.txt)
 if [[ ${#WC_INPUTS[@]} -lt $MIN_WC_INPUTS ]]; then
     fail "examples/wc.logos" "found ${#WC_INPUTS[@]} input(s), expected at least $MIN_WC_INPUTS"
-elif ! "$PYTHON" -m logos build examples/wc.logos -o "$OUT/wc-O2" --opt -O2 \
+elif ! "$LOGOSC" build examples/wc.logos -o "$OUT/wc-O2" --opt -O2 \
         > "$OUT/wc-build.log" 2>&1 \
-        || ! "$PYTHON" -m logos build examples/wc.logos -o "$OUT/wc-O0" --opt -O0 \
+        || ! "$LOGOSC" build examples/wc.logos -o "$OUT/wc-O0" --opt -O0 \
         >> "$OUT/wc-build.log" 2>&1; then
     fail "examples/wc.logos" "did not build: see build/accept/wc-build.log"
 else
@@ -185,9 +186,9 @@ JSON_BAD="examples/inputs/malformed.json"
 JSON_ITEMS=$(( ${#JSON_VALID[@]} + 1 ))
 if [[ $JSON_ITEMS -lt $MIN_JSON_INPUTS || ! -f "$JSON_BAD" ]]; then
     fail "examples/json.logos" "found $JSON_ITEMS input(s), expected at least $MIN_JSON_INPUTS"
-elif ! "$PYTHON" -m logos build examples/json.logos -o "$OUT/json-O2" --opt -O2 \
+elif ! "$LOGOSC" build examples/json.logos -o "$OUT/json-O2" --opt -O2 \
         > "$OUT/json-build.log" 2>&1 \
-        || ! "$PYTHON" -m logos build examples/json.logos -o "$OUT/json-O0" --opt -O0 \
+        || ! "$LOGOSC" build examples/json.logos -o "$OUT/json-O0" --opt -O0 \
         >> "$OUT/json-build.log" 2>&1; then
     fail "examples/json.logos" "did not build: see build/accept/json-build.log"
 else
@@ -243,9 +244,9 @@ fi
 # 5. examples/matrix.logos against a C reference build
 # ---------------------------------------------------------------------------
 section
-if "$PYTHON" -m logos build examples/matrix.logos -o "$OUT/matrix-O2" --opt -O2 \
+if "$LOGOSC" build examples/matrix.logos -o "$OUT/matrix-O2" --opt -O2 \
         > "$OUT/matrix-build.log" 2>&1 \
-        && "$PYTHON" -m logos build examples/matrix.logos -o "$OUT/matrix-O0" --opt -O0 \
+        && "$LOGOSC" build examples/matrix.logos -o "$OUT/matrix-O0" --opt -O0 \
         >> "$OUT/matrix-build.log" 2>&1 \
         && "$CC" -std=c11 -O2 -Wall -Wextra -Werror examples/matrix_ref.c \
         -o "$OUT/matrix-ref" >> "$OUT/matrix-build.log" 2>&1; then
@@ -291,12 +292,12 @@ FMT_FAILURES=0
 while IFS= read -r -d '' source; do
     name="${source#./}"
     FORMATTED=$((FORMATTED + 1))
-    if ! "$PYTHON" -m logos fmt - < "$source" > "$OUT/fmt-once" 2> "$OUT/fmt.err"; then
+    if ! "$LOGOSC" fmt - < "$source" > "$OUT/fmt-once" 2> "$OUT/fmt.err"; then
         fail "fmt $name" "$(tr '\n' ' ' < "$OUT/fmt.err")"
         FMT_FAILURES=$((FMT_FAILURES + 1))
         continue
     fi
-    if ! "$PYTHON" -m logos fmt - < "$OUT/fmt-once" > "$OUT/fmt-twice" 2> "$OUT/fmt.err"; then
+    if ! "$LOGOSC" fmt - < "$OUT/fmt-once" > "$OUT/fmt-twice" 2> "$OUT/fmt.err"; then
         fail "fmt $name" "second pass failed: $(tr '\n' ' ' < "$OUT/fmt.err")"
         FMT_FAILURES=$((FMT_FAILURES + 1))
         continue
@@ -351,7 +352,7 @@ section
     echo '  (free flag))'
 } > "$OUT/speed.logos"
 SPEED_START=$(date +%s%N)
-if "$PYTHON" -m logos build "$OUT/speed.logos" -o "$OUT/speed" --opt -O2 \
+if "$LOGOSC" build "$OUT/speed.logos" -o "$OUT/speed" --opt -O2 \
         > "$OUT/speed-build.log" 2>&1; then
     SPEED_END=$(date +%s%N)
     SPEED_MS=$(( (SPEED_END - SPEED_START) / 1000000 ))

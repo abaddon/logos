@@ -3,9 +3,11 @@
 The `test` verb, six of its seven steps: which files a suite run covers, what
 each case is called and in what order, what a case's directives say, how a case
 is built and run at every level, how the levels are compared, and what the run
-prints. The reference is `logos/tester.py` and `logos/cli.py`; Python is the
-oracle for every sentence here. `main.md` owns the command line; this module
-owns the corpus.
+prints. It was written against the Python implementation's `tester.py` and
+`cli.py`, which the cutover deleted; that implementation is the historical
+oracle for every sentence here, and `./tools/logosc.sh test tests` is now the
+behaviour itself. `main.md` owns the command line; this module owns the
+corpus.
 
 `h-run` is the entry point: `(h-run ROOT ONLY LEVELS UPDATE)` prints one line
 per case, at every level, then the skipped files, then the summary line, and
@@ -293,7 +295,7 @@ left, with the Python it belongs to:
   `PASS` lines, not the 307 the harness notes record — one fixture landed with
   W8 step 3c-1b, and the baseline is that run's output.
 - **`--only`.** `gen2 test tests --only mem` prints the same 7 ids, in the same
-  order, as `python3 -m logos test tests --only mem`, and the same leak total
+  order, as `./tools/logosc.sh test tests --only mem`, and the same leak total
   (`6`) after the same summary shape. Two of the seven do not build in the
   port's lowering, so the statuses and the exit code differ; see below.
 - **Malformed directives.** 26 fixtures under a scratch tree, one variant per
@@ -305,7 +307,7 @@ left, with the Python it belongs to:
   `--only` exits 2 with Python's sentence; a suite tree holding a `.logos` file
   outside every category prints `SKIP <path>` and the stderr sentence and exits
   1; a tree with no case prints `test: no cases found in <path>` after its
-  summary and exits 1. All four match `python3 -m logos test` on the same tree,
+  summary and exits 1. All four match `./tools/logosc.sh test` on the same tree,
   except that Python's run ends with a baseline line.
 - **Standard input.** `gen2 test tests/exec/read.logos` builds and runs both
   cases, prints two `PASS` lines and returns 0 in about a second. Before the

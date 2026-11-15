@@ -1,7 +1,8 @@
 # `src/logosc/lower.logos` — the tree into the IR arena
 
-The lowering: `logos/lower.py` ported to Logos for the forms W7 PR B lists —
-declarations, expressions, `if`/`while`/`match`, direct and `extern` calls.
+The lowering: the reference implementation's `lower.py`, ported to Logos for
+declarations, expressions, `if`/`while`/`match`, direct and `extern` calls. The
+Python module was deleted at the cutover; this is the lowering now.
 It is the third reader of the parsed tree (after `resolve` and `check`) and the
 only writer of the module `emit` prints. `lower-build` returns a `lower-error`
 and fills the same arena `emit` reads; it prints nothing and knows no paths.

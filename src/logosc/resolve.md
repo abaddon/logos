@@ -484,9 +484,9 @@ rare; a per-node caller would be quadratic again.
     `origins/right/right` is `E0003 duplicate module 'dup'`, naming both files:
     one registry for every root.
 
-The suite is `python3 -m logos test src/logosc/resolve_test.logos --opt -O0
+The suite is `./tools/logosc.sh test src/logosc/resolve_test.logos --opt -O0
 --opt -O2`, run from the repository root (the fixture paths are relative to
-it). The whole front-end suite is `python3 -m logos test src/logosc --opt -O0
+it). The whole front-end suite is `./tools/logosc.sh test src/logosc --opt -O0
 --opt -O2`.
 
 ## Parity

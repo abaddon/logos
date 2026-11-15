@@ -592,7 +592,7 @@ it does not silently link a different runtime.
 name, `src/std/map.logos` and `src/std/str.logos`:
 
 ```sh
-python3 -m logos build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/selfhost/gen2
+./tools/logosc.sh build src/logosc/*.logos src/std/map.logos src/std/str.logos -o build/selfhost/gen2
 ```
 
 Only those two stdlib files, not the whole `src/std` directory: the stdlib's

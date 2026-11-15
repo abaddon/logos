@@ -279,7 +279,7 @@ comparison was a throwaway harness, not a committed test, because there is no
 
 ## Before this module existed
 
-`python3 -m logos test src/logosc/tree_test.logos --opt -O0 --opt -O2` then (the
+`./tools/logosc.sh test src/logosc/tree_test.logos --opt -O0 --opt -O2` then (the
 nine cases in the file at the time) failed with `0 passed, 9 failed`; every case
 reported `E0005 tree-test/1: unknown module 'tree'` at both levels, because `use
 tree` had no `tree.logos` beside it. After the module:

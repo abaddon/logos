@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # The sixth gate: the self-hosted front end must reproduce canonical source.
 #
-# Build gen2 from src/logosc/*.logos plus the two standard modules gen2 may
+# Gen2 is built from `src/logosc/*.logos` plus the two standard modules gen2 may
 # use: map and str. Only those two, not the whole src/std directory — the
 # stdlib's `_test` files carry `(test …)` forms and are not modules gen2 needs.
+# The build is done by `bootstrap/logosc`, a stage-0 binary whose only purpose
+# is to compile the compiler it will be replaced by; it is checked against
+# `bootstrap/logosc.sha256` first, so a corrupted stage-0 cannot pass quietly.
+# Gen2 then builds gen3 from the same sources, and the two must be byte
+# identical: that equality, not a promise, is what says the compiler depends on
+# nothing the source does not describe.
 # Then run `gen2 fmt <copy>` for every path in tools/selfhost-manifest.txt and
 # compare the copy with the file, byte for byte. `fmt` rewrites in place and
-# prints nothing (W8 step 2 matches Python), so the file is copied under build/
+# prints nothing, so the file is copied under build/
 # first: the gate never writes to the tree it is judging, and a run that leaves
 # the copy unchanged proves both halves of the contract — the canonical bytes
 # and the silence on stdout. Every tracked .logos file is canonical
-# (tools/accept.sh proves the Python formatter is a fixed point), so any
+# (the formatting gate proves the formatter is a fixed point), so any
 # difference is either a printer bug in the Logos port or a file that is no
 # longer canonical.
 #
@@ -20,9 +26,9 @@
 # files.
 #
 # A second phase compares the lowering. tools/selfhost-ir.txt lists the files
-# whose LLVM IR the port already reproduces: each is lowered by `gen2 build`
-# and by Python's `logos build`, and the two `.ll` files must be equal byte for
-# byte. The list's fixture entries are exactly the fixtures under
+# whose LLVM IR the compiler reproduces from itself: each is lowered by
+# `gen2 build` and again by `gen3 build`, and the two `.ll` files must be equal
+# byte for byte. The list's fixture entries are exactly the fixtures under
 # src/logosc/fixtures/ir-lower — the forms B2 and B3 do not lower yet are
 # excluded by name in its header — and the script refuses a list whose fixture
 # entries and that directory name different sets, so a fixture cannot be added,
@@ -62,12 +68,12 @@
 # each fixture's .check names the whole line `gen2 check` must print, path, code and
 # message, as the reference implementation prints it. A wrong path or a reworded
 # message is a difference, not just a wrong code. tools/check_parity.py writes the
-# sidecars from Python, so the expectation cannot drift from the oracle. CHECK_FLOOR
+# sidecars from the reference implementation, so the expectation cannot drift. CHECK_FLOOR
 # is the same kind of floor: a pruned list fails rather than passing over fewer
 # fixtures.
 #
 # A fifth phase judges the unit: the compiler's whole front end at once.
-# `gen2 build` and Python's `logos build` lower two units and the two `.ll`
+# `gen2 build` and `gen3 build` lower two units and the two `.ll`
 # files must be equal byte for byte: the eleven-module closure both binaries
 # are built from (fmt, lex and main), and the whole source set the gate builds
 # gen2 from (every src/logosc module including the `*_test` helpers, plus the
@@ -189,13 +195,41 @@ if (( ${#SOURCES[@]} == 0 )); then
 fi
 
 BUILD_LOG="$OUT/build.log"
-if ! python3 -m logos build "${SOURCES[@]}" -o "$BIN" > "$BUILD_LOG" 2>&1; then
+BOOT="$ROOT/bootstrap/logosc"
+GEN3="$OUT/gen3"
+
+# Phase one uses the stage-0 binary, and only for this: `bootstrap/logosc` is
+# checked against its recorded hash because a corrupted stage-0 would build a
+# different compiler without saying so.
+if [[ ! -x "$BOOT" ]]; then
+    echo "selfhost: missing bootstrap compiler: bootstrap/logosc" >&2
+    exit 2
+fi
+if ! ( cd "$ROOT/bootstrap" && sha256sum -c --status logosc.sha256 ); then
+    echo "selfhost: bootstrap/logosc does not match bootstrap/logosc.sha256" >&2
+    exit 2
+fi
+
+if ! "$BOOT" build "${SOURCES[@]}" -o "$BIN" > "$BUILD_LOG" 2>&1; then
     echo "selfhost: gen2 build failed (log: ${BUILD_LOG#"$ROOT"/})" >&2
     tail -n 25 "$BUILD_LOG" | sed 's/^/    /' >&2
     exit 2
 fi
 if [[ ! -x "$BIN" ]]; then
     echo "selfhost: gen2 build produced no executable at ${BIN#"$ROOT"/}" >&2
+    exit 2
+fi
+
+# gen3 is gen2's own output for the same sources. The fixed point is that the
+# two are byte-identical: a compiler that reproduces itself has no dependency
+# left that the source does not describe.
+if ! "$BIN" build "${SOURCES[@]}" -o "$GEN3" > "$OUT/build-gen3.log" 2>&1; then
+    echo "selfhost: gen2 could not build gen3 (log: ${OUT#"$ROOT"/}/build-gen3.log)" >&2
+    tail -n 25 "$OUT/build-gen3.log" | sed 's/^/    /' >&2
+    exit 2
+fi
+if ! cmp -s "$BIN" "$GEN3"; then
+    echo "selfhost: gen2 and gen3 differ: the compiler does not reproduce itself" >&2
     exit 2
 fi
 
@@ -235,11 +269,11 @@ done
 
 printf 'selfhost: %d files, %d differences\n' "$COUNT" "$DIFFS"
 
-# Phase two: every listed file's IR from `gen2 build` must equal Python's.
+# Phase two: every listed file's IR from `gen2 build` must equal `gen3`'s.
 # Both drivers keep the IR at build/<stem>.ll and name the binary with `-o`
 # (`driver.py:164-171`), so each side is asked for a binary and the text the
 # comparison reads is the `.ll` beside the sources. gen2's `.ll` is moved under
-# build/selfhost/ir/ before Python's build takes the same path, and both are
+# build/selfhost/ir/ before gen3's build takes the same path, and both are
 # removed before the run, so a file that was not just written cannot be read as
 # agreement. A build that exits 0 and writes no `.ll` is a difference on both
 # sides.
@@ -331,13 +365,13 @@ for path in "${IR_FILES[@]}"; do
         continue
     fi
     mv "build/$stem.ll" "$mine"
-    if ! python3 -m logos build "$path" -o "$OUT/ir/$stem.bin" > "$OUT/ir/$stem.log" 2>&1; then
-        printf 'ir: %s: python build failed (log: %s)\n' "$path" "${OUT#"$ROOT"/}/ir/$stem.log"
+    if ! "$GEN3" build "$path" -o "$OUT/ir/$stem.bin" > "$OUT/ir/$stem.log" 2>&1; then
+        printf 'ir: %s: gen3 build failed (log: %s)\n' "$path" "${OUT#"$ROOT"/}/ir/$stem.log"
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
     if [[ ! -f "build/$stem.ll" ]]; then
-        printf 'ir: %s: python wrote no build/%s.ll\n' "$path" "$stem"
+        printf 'ir: %s: gen3 wrote no build/%s.ll\n' "$path" "$stem"
         IDIFFS=$((IDIFFS + 1))
         continue
     fi
@@ -507,7 +541,7 @@ printf 'check: %d fixtures, %d differences\n' "$CHECK_COUNT" "$CDIFFS"
 
 # Phase five: the unit. The phases above judge files one at a time; this one
 # judges the compiler's whole front end at once, twice. `gen2 build` and
-# Python's `logos build` lower the eleven-module closure the compiler is built
+# `gen3 build` lower the eleven-module closure the compiler is built
 # from (fmt, lex and main) and the whole source set the gate builds gen2 from
 # (every src/logosc module, the shared test helpers included, plus the two
 # standard modules), and each pair of `.ll` files must be equal byte for byte.
@@ -559,53 +593,53 @@ mkdir -p "$OUT/unit"
 UDIFFS=0
 UNIT_COUNT=0
 
-# Compare one unit: gen2's IR for the roots against Python's. Both drivers
+# Compare one unit: gen2's IR for the roots against gen3's. Both compilers
 # spell the IR after the first root's stem (`driver.py:116-118`) and write it to
 # `build/<first stem>.ll`; `-o` names each side's binary. gen2's text is moved
-# out of that path before Python writes its own, and both sides remove their
+# out of that path before gen3 writes its own, and both sides remove their
 # target first so a stale file cannot be read as agreement.
 unit_compare() {
     local tag="$1"
     shift
     local mine="$OUT/unit/$tag.gen2.ll"
-    local pyll="build/$(basename "$1" .logos).ll"
+    local theirs="build/$(basename "$1" .logos).ll"
     UNIT_COUNT=$((UNIT_COUNT + 1))
-    rm -f "$mine" "$pyll"
+    rm -f "$mine" "$theirs"
     if ! "$BIN" build "$@" -o "$OUT/unit/$tag.gen2.bin" > "$STDOUT" 2> "$STDERR"; then
         printf 'unit: %s: gen2 build failed: %s\n' "$tag" "$(head -n 1 "$STDERR")"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if [[ ! -f "$pyll" ]]; then
-        printf 'unit: %s: gen2 wrote no %s\n' "$tag" "$pyll"
+    if [[ ! -f "$theirs" ]]; then
+        printf 'unit: %s: gen2 wrote no %s\n' "$tag" "$theirs"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    mv "$pyll" "$mine"
+    mv "$theirs" "$mine"
     if (( $(wc -c < "$mine") < UNIT_BYTES_FLOOR )); then
         printf 'unit: %s: gen2 wrote %d bytes, below the floor of %d\n' \
             "$tag" "$(wc -c < "$mine")" "$UNIT_BYTES_FLOOR"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if ! python3 -m logos build "$@" -o "$OUT/unit/$tag.python" > "$OUT/unit/$tag.python.log" 2>&1; then
-        printf 'unit: %s: python build failed (log: %s)\n' \
-            "$tag" "${OUT#"$ROOT"/}/unit/$tag.python.log"
+    if ! "$GEN3" build "$@" -o "$OUT/unit/$tag.gen3.bin" > "$OUT/unit/$tag.gen3.log" 2>&1; then
+        printf 'unit: %s: gen3 build failed (log: %s)\n' \
+            "$tag" "${OUT#"$ROOT"/}/unit/$tag.gen3.log"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if [[ ! -f "$pyll" ]]; then
-        printf 'unit: %s: python wrote no %s\n' "$tag" "$pyll"
+    if [[ ! -f "$theirs" ]]; then
+        printf 'unit: %s: gen3 wrote no %s\n' "$tag" "$theirs"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if (( $(wc -c < "$pyll") < UNIT_BYTES_FLOOR )); then
-        printf 'unit: %s: python wrote %d bytes, below the floor of %d\n' \
-            "$tag" "$(wc -c < "$pyll")" "$UNIT_BYTES_FLOOR"
+    if (( $(wc -c < "$theirs") < UNIT_BYTES_FLOOR )); then
+        printf 'unit: %s: gen3 wrote %d bytes, below the floor of %d\n' \
+            "$tag" "$(wc -c < "$theirs")" "$UNIT_BYTES_FLOOR"
         UDIFFS=$((UDIFFS + 1))
         return
     fi
-    if ! cmp -s "$mine" "$pyll"; then
+    if ! cmp -s "$mine" "$theirs"; then
         printf 'unit: %s: output differs\n' "$tag"
         UDIFFS=$((UDIFFS + 1))
     fi

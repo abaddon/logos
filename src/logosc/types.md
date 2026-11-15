@@ -481,8 +481,8 @@ rather than copied.
 Run the suite from the repository root:
 
 ```text
-python3 -m logos test src/logosc/types_test.logos --opt -O0 --opt -O2
-python3 -m logos test src/logosc --opt -O0 --opt -O2
+./tools/logosc.sh test src/logosc/types_test.logos --opt -O0 --opt -O2
+./tools/logosc.sh test src/logosc --opt -O0 --opt -O2
 ```
 
 ## Build set
