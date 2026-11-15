@@ -119,6 +119,7 @@ stage-0 was built with, which `bootstrap/toolchain.txt` records:
 ```
 clang: Ubuntu clang version 14.0.0-1ubuntu1.1
 ld: GNU ld (GNU Binutils for Ubuntu) 2.38
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0      # informational
 ```
 
 `tools/toolchain.sh --check` compares that record with the host, and both the
@@ -126,10 +127,26 @@ pull request gate and the release workflow run it **before** the six gates, so a
 host that cannot reproduce the stage-0 is told so by name in seconds instead of
 failing the self-hosting gate an hour later with rebuild advice that would not
 help. `tools/toolchain.sh --install` installs the recorded clang on Debian and
-Ubuntu.
+Ubuntu. Changing either enforced line is a release decision: rebuild the
+bootstrap with the new toolchain and record it in the same commit.
 
-Changing either recorded line is a release decision: rebuild the bootstrap with
-the new toolchain and record it in the same commit.
+### Why the self-hosting gate strips two sections before comparing
+
+Measured, not assumed. Two Ubuntu 22.04 hosts with the same clang, the same `ld`
+and **byte-identical IR** (sha256 `fa04bd7b…` on both) produced compiler binaries
+that differ in exactly **24 bytes**: 20 inside `.note.gnu.build-id` and 4 inside
+`.comment`, where `ld` merges the version of the GCC that built the
+distribution's crt objects — `11.4.0-1ubuntu1~22.04.3` against `…22.04.4`. The
+build-id is a hash over the output, so it inherits that string.
+
+Neither byte was emitted by this compiler, and neither can be: a stage-0 rebuilt
+on the other host would carry the same difference. A raw `cmp` therefore
+reported a correct compiler as stale, and `main` had been red since #28 for that
+reason alone. `tools/selfhost.sh` now strips `.comment` and
+`.note.gnu.build-id` from both sides with `objcopy` and requires the rest — code,
+data, read-only data, symbols, strings, every other section — to be identical
+byte for byte, printing a line when the raw bytes differ only there. A change in
+anything the compiler emits still fails the gate.
 
 ## What this pipeline deliberately does not do
 

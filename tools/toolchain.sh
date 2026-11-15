@@ -42,6 +42,10 @@ actual() {
             command -v ld > /dev/null 2>&1 || { printf 'ld: not found on PATH\n'; return 0; }
             ld --version 2>/dev/null | head -n 1
             ;;
+        gcc)
+            command -v gcc > /dev/null 2>&1 || { printf 'gcc: not found on PATH\n'; return 0; }
+            gcc --version 2>/dev/null | head -n 1
+            ;;
     esac
 }
 
@@ -76,6 +80,15 @@ for tool in clang ld; do
         status=1
     fi
 done
+
+# The GCC line is informational, and it is the reason the currency gate strips
+# `.comment` before comparing: ld merges this string into the output, and the
+# build-id is a hash over the output, so two hosts whose distro point release
+# differs produce binaries that differ in those two places and nowhere else.
+# Printed so the difference is explained, not enforced, because a contributor
+# cannot choose their distro's point release and the compiler is identical
+# either way.
+printf 'gcc: %s (informational: built the crt objects ld links)\n' "$(actual gcc)"
 
 if (( status == 0 )); then
     exit 0

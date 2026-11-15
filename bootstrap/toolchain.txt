@@ -11,3 +11,11 @@
 # bootstrap with the new toolchain and record it in the same commit.
 clang: Ubuntu clang version 14.0.0-1ubuntu1.1
 ld: GNU ld (GNU Binutils for Ubuntu) 2.38
+# Informational, not enforced: this is the compiler that built the
+# distribution's crt objects, and `ld` merges its version string into every
+# binary's `.comment` section — the build-id is a hash over the output, so it
+# inherits that string. Two hosts on different Ubuntu point releases therefore
+# produce binaries that differ in exactly those two places and nowhere else,
+# which is why the self-hosting gate strips `.comment` and `.note.gnu.build-id`
+# before comparing. A different value here is expected and harmless.
+gcc: gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
