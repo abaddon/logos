@@ -308,7 +308,7 @@ clang to produce a native binary. Silent on success, exit 0.
 | `-o OUT` | write the binary to `OUT` (default `build/<stem>` of the **first** file). A repeated `-o` takes the last value |
 | `--opt LEVEL` (`--opt=LEVEL`) | clang optimisation level, default `-O2`. A repeated flag takes the last value |
 | `--test NAME` | build one `(test NAME …)` body as the program's `main`, for debugging a single case. Skips the required-`main` rule, writes IR to `build/<stem>.<name>.ll` (`/` and `\` replaced by `_`), and links with `-DLOGOS_DEBUG=1` so the runtime's leak report is compiled in |
-| `--target TRIPLE` (`--target=TRIPLE`) | the target triple written to the IR header and passed to clang's `-target`. Default `x86_64-unknown-linux-gnu`. Only that value is accepted today: the backend, the sizing rules and `logos/runtime/rt.c` all assume x86_64 Linux, so any other triple is a usage error (exit 2) naming the value, not a clang failure. Arm64 is issue #10 |
+| `--target TRIPLE` (`--target=TRIPLE`) | the target triple written to the IR header and passed to clang's `-target`. Default `x86_64-unknown-linux-gnu`. Only that value is accepted today: the backend, the sizing rules and `logos/runtime/rt.c` all assume x86_64 Linux, so any other triple is a usage error (exit 2) naming the value, not a clang failure. The remaining arm64 Linux work is issue #2; #10 is the macOS target |
 | `--keep-ir` | accepted and **changes nothing** — the IR is always kept. It exists for compatibility with the deleted Python tool; ignore it |
 
 Flags may appear anywhere among the files. A word starting with `-` that is not

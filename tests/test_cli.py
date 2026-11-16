@@ -398,6 +398,20 @@ class Targets(unittest.TestCase):
         self.assertIn("--target", done.stderr)
         self.assertIn("expected one argument", done.stderr)
 
+    def test_the_test_verb_does_not_claim_the_target_flag(self):
+        """`test` never had `--target`, so there it is an unknown word.
+
+        `main-bad-flag` (`src/logosc/main.logos`) is shared by every verb;
+        classifying `--target` as value-taking there made `test --target X`
+        answer "expected one argument" for a flag `test` does not accept, where
+        `main` answered "unrecognized arguments". Both refusals exit 2; the
+        message is the contract, and it must name the real fault.
+        """
+        done = run(["test", "--target", self.HOST, "tests/regress"])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("unrecognized arguments: --target", done.stderr)
+        self.assertNotIn("expected one argument", done.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
