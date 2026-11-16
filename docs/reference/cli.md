@@ -28,7 +28,7 @@ disagree, the measured output on this page and the source are right and
 | `fmt` | `fmt PATH...` (file, directory, or `-`) | rewrite source in canonical form | `0` `1` `2` |
 | `resolve` | `resolve FILE...` | parse and resolve names; no type check | `0` `1` `2` |
 | `check` | `check FILE` | resolve, then the full checker; no codegen | `0` `1` `2` |
-| `build` | `build FILE... [-o OUT] [--opt O] [--test NAME] [--keep-ir]` | lower, emit IR, link a native binary | `0` `1` `2` |
+| `build` | `build FILE... [-o OUT] [--opt O] [--target TRIPLE] [--test NAME] [--keep-ir]` | lower, emit IR, link a native binary | `0` `1` `2` |
 | `test` | `test [PATH] [--only CAT] [--opt LEVEL]... [--update-baseline]` | build and run every `(test ...)` node | `0` `1` `2` |
 | `guide` | `guide [--json\|--check]` | print the manual, its manifest, or check it is current | `0` `1` `2` |
 
@@ -72,7 +72,7 @@ Every verb has its own help, on stdout, exit 0 — this is the flag discovery
 surface, and each block below is a copy of it:
 
 ```sh
-logosc build -h     # usage: logosc build [-h] [-o OUT] [--opt O] [--keep-ir] FILE [FILE ...]
+logosc build -h     # usage: logosc build [-h] [-o OUT] [--opt O] [--target TRIPLE] [--keep-ir] FILE [FILE ...]
 logosc test -h      # usage: logosc test [-h] [--only CAT] [--opt O] [--update-baseline] [PATH]
 logosc fmt -h       # usage: logosc fmt [-h] FILE [FILE ...]
 logosc show -h      # usage: logosc show [-h] FILE PATH
@@ -293,7 +293,7 @@ On a checker diagnostic: `<node-path>: <CODE>: <message>` on stderr, exit 2.
 ## `build`
 
 ```sh
-logosc build FILE... [-o OUT] [--opt LEVEL] [--test NAME] [--keep-ir]
+logosc build FILE... [-o OUT] [--opt LEVEL] [--target TRIPLE] [--test NAME] [--keep-ir]
 ```
 
 Parses the first file, resolves and checks the whole set as one program,
@@ -308,10 +308,11 @@ clang to produce a native binary. Silent on success, exit 0.
 | `-o OUT` | write the binary to `OUT` (default `build/<stem>` of the **first** file). A repeated `-o` takes the last value |
 | `--opt LEVEL` (`--opt=LEVEL`) | clang optimisation level, default `-O2`. A repeated flag takes the last value |
 | `--test NAME` | build one `(test NAME …)` body as the program's `main`, for debugging a single case. Skips the required-`main` rule, writes IR to `build/<stem>.<name>.ll` (`/` and `\` replaced by `_`), and links with `-DLOGOS_DEBUG=1` so the runtime's leak report is compiled in |
+| `--target TRIPLE` (`--target=TRIPLE`) | the target triple written to the IR header and passed to clang's `-target`. Default `x86_64-unknown-linux-gnu`. Only that value is accepted today: the backend, the sizing rules and `logos/runtime/rt.c` all assume x86_64 Linux, so any other triple is a usage error (exit 2) naming the value, not a clang failure. Arm64 is issue #10 |
 | `--keep-ir` | accepted and **changes nothing** — the IR is always kept. It exists for compatibility with the deleted Python tool; ignore it |
 
 Flags may appear anywhere among the files. A word starting with `-` that is not
-one of those four is a usage error (exit 2). A file whose name starts with `-`
+one of those five is a usage error (exit 2). A file whose name starts with `-`
 must be written with a path (`./-weird.logos`).
 
 ### What it writes
@@ -330,10 +331,10 @@ The IR is the artefact to read when a program misbehaves and a source-level
 explanation is not enough. It is the same text clang compiled, so it is a
 direct answer to "what did the compiler actually emit".
 
-The clang invocation is fixed:
+The clang invocation is fixed except for the triple:
 
 ```sh
-clang <opt> -target x86_64-unknown-linux-gnu build/<stem>.ll logos/runtime/rt.c \
+clang <opt> -target <triple> build/<stem>.ll logos/runtime/rt.c \
     -o <out> -lpthread -lm
 ```
 
