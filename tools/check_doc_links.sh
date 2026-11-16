@@ -41,7 +41,13 @@ while IFS= read -r -d '' page; do
             BROKEN=$((BROKEN + 1))
             printf 'broken: %s -> %s\n' "${page#"$TREE"/}" "$target"
         fi
-    done < <(grep -oE '\]\([^)]*\)' "$page" | sed -e 's/^](//' -e 's/)$//')
+    # A link may carry a title: `[x](page.md "Title")`. The title is not part of
+    # the path, so it is stripped here; no tracked path contains a space, which
+    # is what makes stopping at the space safe.
+    done < <(grep -oE '\]\([^)]*\)' "$page" |
+                 sed -e 's/^](//' -e 's/)$//' \
+                     -e 's/[[:space:]][[:space:]]*"[^"]*"$//' \
+                     -e "s/[[:space:]][[:space:]]*'[^']*'\$//")
 done < <(find "$TREE" -type f -name '*.md' -print0 | sort -z)
 
 printf '%d files, %d relative links, %d broken\n' "$FILES" "$LINKS" "$BROKEN"

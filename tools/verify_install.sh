@@ -13,8 +13,8 @@
 #
 # These are the things a consumer does in the first five minutes.
 # Everything runs with the working directory inside the unpacked prefix, which
-# is what `docs/install.md` tells the consumer to do: the compiler resolves its
-# runtime and standard library relative to the working directory today.
+# is what `docs/install.md` tells the consumer to do: the prefix is the layout
+# the compiler resolves its runtime and standard library out of.
 #
 # Usage: bash tools/verify_install.sh dist/logos-<version>-x86_64-linux.tar.gz
 

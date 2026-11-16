@@ -8,13 +8,14 @@ LOGOSC ?= ./tools/logosc.sh
 # would fail on them. Everything else that judged the compiler is a Logos suite
 # below, or the corpus.
 CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_cli \
-	tests.test_qa tests.test_selfhost
+	tests.test_qa tests.test_selfhost tests.test_docs
 
 # The seconds-scale loop: everything that judges a change without building the
 # compiler twice or running a corpus. `make test` is the gate; this is what an
 # agent runs between edits. tests.test_selfhost is the sixth gate end to end
 # (about seven minutes) and stays out of it.
-FAST_TESTS = tests.test_contributing tests.test_runtime tests.test_cli tests.test_qa
+FAST_TESTS = tests.test_contributing tests.test_runtime tests.test_cli \
+	tests.test_qa tests.test_docs
 
 LOGOS_SUITES = src/logosc/body_test.logos src/logosc/check_test.logos \
 	src/logosc/resolve_test.logos src/logosc/lex_test.logos \
