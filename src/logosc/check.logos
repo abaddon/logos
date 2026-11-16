@@ -7466,7 +7466,9 @@
     (ret (check-fail 3 (check-node-path nodes ntexts c) "rt_ names are reserved"))
     (check-nothing))
   (if (not (str-eq (check-test-helper-dup ents vindex vis-s name) ""))
-    (ret (check-fail 3 (check-node-path nodes ntexts c) (str-concat "duplicate definition '" (str-concat name "'"))))
+    (ret (check-fail 3
+           (check-node-path nodes ntexts c)
+           (str-concat "duplicate definition '" (str-concat name "'"))))
     (check-nothing))
   (letmut vs
     (vec :str)
@@ -7610,7 +7612,10 @@
   (letmut h :i64 0)
   (while (and (check-ok err)
            (< h (vec-len helpers)))
-    (set err (check-body-fn nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname ents vindex vis-s ve selfname mods (vec-get helpers h) (vec-get helpers (+ h 1)) (check-name-text nodes ntexts (vec-get helpers h))))
+    (set err (check-body-fn nodes ntexts dnames dids tags names elem extra pbase powner pnames ptypes pchild pvname ents vindex vis-s ve selfname mods
+               (vec-get helpers h)
+               (vec-get helpers (+ h 1))
+               (check-name-text nodes ntexts (vec-get helpers h))))
     (set h (+ h 2)))
   (vec-free helpers)
   (ret err))
