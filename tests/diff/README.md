@@ -32,10 +32,16 @@ Two consequences a case author has to keep in mind:
   `get`; the backend lowers those to `insertvalue` / `extractvalue` on an SSA
   aggregate, so no byte offset, size or padding is ever printed or compared. A
   packed or reordered layout would pass these cases. Layout is pinned instead
-  by the IR fixtures (`src/logosc/fixtures/ir-lower/struct.logos`,
-  `struct-pad.logos`) and the emitter suite they feed, which assert the record
-  type and its padding directly. If a case is named `*_layout`, it is claiming
-  something this corpus cannot check.
+  by the golden emitter fixtures under `src/logosc/fixtures/ir/` — `struct.ll`
+  line 6 is `%struct.point = type { i8, i64 }` — which
+  `src/logosc/emit_test.logos` regenerates and compares with the file byte for
+  byte; `make test` runs those 24 cases, so a reordered or packed record changes
+  the expected text and fails. The fixtures under
+  `src/logosc/fixtures/ir-lower/` do **not** pin layout: they are the
+  gen2-vs-gen3 parity list, and `tools/selfhost.sh` lowers each of them with
+  both generations and `cmp`s the two, so a stable wrong layout passes there.
+  If a case is named `*_layout`, it is claiming something this corpus cannot
+  check.
 - **`f64` is printed at shortest round-trip, C's `%g` is not.** Logos prints the
   shortest decimal that round-trips to the same double; `printf("%g")` prints
   six significant digits. The two agree on every value these cases print
