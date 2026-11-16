@@ -4,9 +4,10 @@
 # The Logos side is compiled by the project's own driver, which emits LLVM IR
 # and hands it to clang. The C side is compiled by gcc, deliberately not by the
 # same compiler family: an oracle that shares clang's optimiser would agree
-# with a miscompilation that clang and the oracle both make. Both programs are
-# run at -O0 and -O2, and both levels must print the same bytes and leave the
-# same exit status as the C twin.
+# with a miscompilation that clang and the oracle both make. The Logos binary
+# is built and run at -O0 and at -O2; the C twin is built once at -O2 and run
+# once, and each Logos run must print the same bytes and leave the same exit
+# status as that one C run.
 #
 # The corpus only uses operations C defines. Signed overflow, shifting by the
 # width or more, and float-to-integer conversion out of range are undefined in

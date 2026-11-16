@@ -1,4 +1,4 @@
-/* C twin for struct_layout.logos. */
+/* C twin for struct_fields.logos. */
 
 #include <stdint.h>
 #include <stdio.h>

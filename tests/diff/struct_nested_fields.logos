@@ -1,4 +1,4 @@
-(mod struct_nested)
+(mod struct_nested_fields)
 
 (type point (struct (x :i16) (y :i16)))
 

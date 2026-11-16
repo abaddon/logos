@@ -1,4 +1,4 @@
-(mod struct_layout)
+(mod struct_fields)
 
 (type record (struct (small :u8) (wide :i64) (medium :u16) (fraction :f64)))
 

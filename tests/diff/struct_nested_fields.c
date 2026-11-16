@@ -1,4 +1,4 @@
-/* C twin for struct_nested.logos. */
+/* C twin for struct_nested_fields.logos. */
 
 #include <stdint.h>
 #include <stdio.h>
