@@ -11,15 +11,16 @@ when a `v*` tag is pushed.
 ## The version has one source
 
 `logosc version` prints `logos <version>`, and the string lives in exactly one
-place: `main-version` in `src/logosc/main.logos`. A release is named after it —
+place: `main-semver` in `src/logosc/main.logos`. A release is named after it —
 tag `v<version>` — and the pipeline refuses to publish when the tag and the
-compiler disagree:
+compiler disagree. `CHANGELOG.md` carries a section per version and is the
+source of the release notes; it is the only other file that names a version.
 
 ```
 $ make release
-release: version 0.1.0 from 9194412
+release: version 0.2.0 from 0b6ee47
 ...
-$ gh release create v0.1.0 ...
+$ gh release create v0.2.0 ...
 ```
 
 Nothing else in the repository carries a version, so there is no file to forget.
@@ -33,15 +34,15 @@ make release
 It builds the tarball **twice** and requires the two SHA-256 sums to match, then
 unpacks the tarball into a scratch directory and compiles three programs from it
 — hello world, a standard-library import, and a program with a type error that
-must be refused with a diagnostic code. Measured on `9194412`:
+must be refused with a diagnostic code. Measured on `0b6ee47`:
 
 ```
-release: version 0.1.0 from 9194412
-dist: dist/logos-0.1.0-x86_64-linux.tar.gz (510545 bytes)
-dist: 6f5984632f4dcd2659f49117dec625da8229a3f2e68968b13f1cd6d3f9335698  logos-0.1.0-x86_64-linux.tar.gz
-release: tarball reproducible, sha256 6f5984632f4dcd2659f49117dec625da8229a3f2e68968b13f1cd6d3f9335698
+release: version 0.2.0 from 0b6ee47
+dist: dist/logos-0.2.0-x86_64-linux.tar.gz (520382 bytes)
+dist: db3da2ffb48eee677e6b36eccf18b1cc2b4a58a68919cc8b0847519848b28ae6  logos-0.2.0-x86_64-linux.tar.gz
+release: tarball reproducible, sha256 db3da2ffb48eee677e6b36eccf18b1cc2b4a58a68919cc8b0847519848b28ae6
 PASS layout: the compiler, the runtime, the standard library and VERSION
-PASS version: 0.1.0
+PASS version: 0.2.0
 PASS build: hello world compiles and prints
 PASS stdlib: (use str) resolves and links
 PASS diagnostics: bad/main/2: E0100: let 'x' has type :i64, found :str
@@ -49,14 +50,18 @@ PASS diagnostics: bad/main/2: E0100: let 'x' has type :i64, found :str
 5/5 install checks passed
 ```
 
+The digest is per commit, not per version: the tarball records the commit hash
+and date in `VERSION`, so a rebuild of a different commit is a different file
+and the claim to check is that the two builds *inside one run* agree.
+
 A rehearsal publishes nothing and is allowed on a dirty tree — it is how the
 pipeline is tested before the change is committed. Publishing is not.
 
 ## Publish
 
 ```sh
-git tag -s v0.1.0 -m "Logos 0.1.0"     # on the commit to release
-git push origin v0.1.0                  # this is what starts the workflow
+git tag -a v0.2.0 -m "Logos 0.2.0"     # on the commit to release; -s instead when you have a signing key
+git push origin v0.2.0                 # this is what starts the workflow
 ```
 
 The tag push runs `.github/workflows/release.yml`:
@@ -88,12 +93,14 @@ logos-<version>-x86_64-linux/
 └── VERSION            version, commit, and the recorded clang and ld
 ```
 
-The paths are not a packaging convention: the compiler looks for the runtime at
-`logos/runtime/rt.c` and the standard library at `src/std/<name>.logos` relative
-to the working directory, so the tarball mirrors the repository. Making those
-paths resolve relative to the executable (`/proc/self/exe`, with `LOGOS_ROOT`
-and `LOGOS_PATH` overrides) is a compiler change — tracked for v1.1 — and the
-layout stays valid when it lands, because it is still the same two paths.
+The paths are the compiler's own lookup layout: `bin/logosc` finds the runtime
+at `<root>/logos/runtime/rt.c` and the standard library at
+`<root>/src/std/<name>.logos`, where `<root>` is the parent of the `bin`
+directory holding the executable (`/proc/self/exe`), falling back to
+`share/logos/…` for a differently-installed tree and finally to the working
+directory. That is why unpacking *is* installing: the tarball reproduces the
+two paths the compiler looks for, and it works from any directory without an
+environment variable.
 
 ## Why the tarball is byte-reproducible
 

@@ -6,7 +6,7 @@ build from `src/`, not through `tools/logosc.sh` — the wrapper changes the
 working directory to the repository root, and two of these tests exist
 precisely because the compiler must not need that.
 
-Exit codes (see docs/CLI.md):
+Exit codes (see docs/reference/cli.md):
   0  success
   2  a source error, a usage error, or a failed `guide --check`
   1  an I/O or toolchain failure
@@ -79,7 +79,7 @@ class Version(unittest.TestCase):
     def test_text_form_is_stable(self):
         done = run(["version"])
         self.assertEqual(done.returncode, 0)
-        self.assertEqual(done.stdout, "logos 0.1.0\n")
+        self.assertEqual(done.stdout, "logos 0.2.0\n")
 
     def test_json_form_is_machine_readable(self):
         done = run(["version", "--json"])

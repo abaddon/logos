@@ -19,59 +19,177 @@ build the compiler from `src/`; the result builds itself again, and the two
 binaries are byte-identical. No Python is involved in building anything: the
 compiler is the only compiler here.
 
-## Learn it
-
-Start with `docs/LOGOS.md`: one dense reference, cheat sheet first, then one
-complete executable chapter per feature in learning order. It is generated from
-the compiler's own tables and every example is run by the test harness at `-O0`
-and `-O2`, so it cannot drift from the implementation.
-
-- `docs/LOGOS.md` — the manual, generated; do not edit it by hand.
-- `docs/CLI.md` — the tool contract: verbs, flags, streams, exit codes, and
-  the JSON documents an agent may depend on.
-- `logosc guide --json` — the machine-readable manifest: forms, types,
-  operators, builtins, reserved names, diagnostic codes and test categories,
-  at `schema_version` 1.
-- `logosc guide --check` — proves the committed manual is current; exits 1 with
-  a diff summary when it is stale.
-- `docs/manual/` — the numbered chapter sources the manual embeds.
-- `docs/schemas/` — the published JSON schemas for `--json` output.
-
-Regenerate after changing the compiler with `logosc guide > docs/LOGOS.md`.
+**Documentation index: [`docs/00-index.md`](docs/00-index.md).**
 
 ## Status
 
-Logos v1 is complete for one target: x86_64 Linux. The language, the compiler
-and the test harness are built, reviewed, and green.
+**v0.2.0 is the first published release.** Obtain it from the releases page or
+with `gh release download` ([`docs/install.md`](docs/install.md)); what it
+contains is [`CHANGELOG.md`](CHANGELOG.md). It is **pre-1.0**: five of the
+eighteen v1 acceptance criteria are still open, each listed under
+[Known limits](#known-limits), where they are tracked rather than implied.
 
-Verified by execution on this machine:
+What is proven on every pull request, measured by the gate rather than asserted
+(evidence: [`docs/qa/`](docs/qa/00-index.md)):
 
-- `./tools/logosc.sh test tests` runs 309 cases across eight categories at
-  `-O0` and `-O2` and compares the two optimisation levels with each other, not
-  only with the expected output. 0 failures, 10 deliberate leaks, 0 baseline
-  regressions.
-- The compiler's own suites run through the same binary: 361 `body_test` cases,
-  81 `check_test` cases and 38 `resolve_test` cases, each at both levels.
-- `bash tools/accept.sh` runs seven sections and all pass: the harness, a
-  differential oracle against gcc, three example programs whose output matches
-  `wc`, `jq` and a C reference byte for byte, formatter idempotency over every
-  `.logos` file, and a compile-speed floor.
-- 47 contract tests pass: the gate list, the C runtime, the self-hosting
-  summary, and the CLI contract (`tests/test_cli.py`: exit codes, per-verb
-  help, JSON diagnostics for every failing phase, and compiling from a
-  directory outside the checkout). The suites that diffed the compiler against
-  the Python implementation went with it.
-- `bash tools/selfhost.sh` proves the fixed point: the stage-0 binary builds
-  `gen2` from `src/`, `gen2` builds `gen3`, the two binaries are identical, and
-  their IR agrees on the compiler's own source.
+- **The six documented gates pass**: the contract tests and all nine compiler
+  suites; the corpus at `-O0` and `-O2` compared against each other, not only
+  against expected output; `tools/accept.sh` (the gcc differential oracle, the
+  example programs against `wc`, `jq` and a C reference, formatter idempotency
+  and a compile-speed floor); the generated manual's drift check; formatting;
+  and self-hosting.
+- **Self-hosting is measured, not claimed.** The stage-0 builds `gen2` from
+  `src/`, `gen2` builds `gen3`, the two binaries are byte-identical, and
+  `gen2`'s `fmt` reproduces every tracked `.logos` file byte for byte. The gate
+  also requires the stage-0 to be *what this source produces*, so a stale
+  bootstrap fails by name.
+- **Every negative fixture is judged by the compiler** (`tests/test_qa.py`,
+  inside `make test`): each `*.expect` sidecar is built through `build --json`
+  and compared with the code the compiler actually emits, published-code
+  coverage and corpus floors are enforced, and repeated runs must agree.
+- **The artifact is reproducible.** `tools/dist.sh` fixes file order,
+  ownership, mtime and the gzip header; the release workflow rebuilds the
+  tarball on a second runner and requires the two SHA-256 sums to be equal.
+- **A failure is machine-readable**: `--json` gives an agent a stable `code`
+  and a `node_path` it can hand back to `logosc show`.
+
+Not done, and why this is 0.2.0 rather than 1.0.0:
+
+- **Names are global** across a whole program: two modules cannot both declare
+  `point`. The design for module-qualified names exists; the change does not.
+- **`logosc test` prints text only** — no `test --json`, so an agent gating a
+  pull request cannot read per-case results as data.
+- **No `logosc doctor`** (an install self-check) and **no `patch` verb**.
+- **The standard library is 21 functions**: no `str` → integer parsing, and
+  `map` is `:str` keys with `:i64` values only.
+- **One platform**: x86_64 Linux with `clang` 14 at build time of every
+  program.
+
+Read the status as: *you can hand a compiler to somebody else today, and you
+can see exactly which corners are unfinished.*
+
+## Quickstart
+
+Install the tarball and compile a program — the consumer path, no checkout
+([`docs/install.md`](docs/install.md)):
+
+```sh
+gh release download v0.2.0 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf logos-0.2.0-x86_64-linux.tar.gz && cd logos-0.2.0-x86_64-linux
+cat > hello.logos <<'EOF'
+(mod hello)
+
+(fn main :void ()
+  (println "hello from logos"))
+EOF
+./bin/logosc build hello.logos -o hello && ./hello     # hello from logos
+```
+
+Or work from a checkout, on x86_64 Linux with clang:
+
+```sh
+./tools/logosc.sh version                       # builds the compiler on first use
+./tools/logosc.sh build hello.logos             # writes build/hello.ll and build/hello
+./build/hello                                   # hello from logos
+```
+
+The full path — including the error case, the cheap `check` loop, the corpus
+and the manifest — is [`docs/quickstart.md`](docs/quickstart.md), with every
+output copied from a real run.
+
+## Requirements
+
+| Need | For |
+|---|---|
+| x86_64 Linux (verified: Ubuntu 22.04) | the only target; arm64 and Darwin are untested, and `bootstrap/logosc` is an x86_64 Linux binary |
+| glibc 2.35 or newer | the shipped binary is dynamically linked against it |
+| clang 14 or newer | compiles the IR and links every binary — at build time of **every program**, not only of the compiler; `apt-get install -y clang-14 lld-14` |
+| GNU make | the `make test` / `make suites-all` targets |
+| gcc 11 and jq 1.6 | only for `tools/accept.sh`: gcc builds its C reference programs, jq is the JSON example's oracle |
+| Python 3.10 or newer | only for the contract tests; no gate runs a compiler written in Python |
+
+An installed compiler needs none of the checkout: the tarball ships the runtime
+and the standard library beside `bin/logosc`, and Python is not required at all.
+
+## Using it
+
+Eight verbs. The reference is [`docs/reference/cli.md`](docs/reference/cli.md);
+these are the ones you will use:
+
+```sh
+./tools/logosc.sh version                      # logos 0.2.0
+./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
+./build/hello                                  # hello
+./tools/logosc.sh check FILE                   # the cheap validation call (hidden verb)
+./tools/logosc.sh show FILE PATH               # print one node, e.g. hello/main/2
+./tools/logosc.sh test FILE                    # build and run its (test ...) nodes
+./tools/logosc.sh test tests --only regress    # the fast corpus subset
+./tools/logosc.sh guide                        # the generated manual
+./tools/logosc.sh guide --json                 # the machine-readable manifest
+./tools/logosc.sh guide --check                # fail if docs/LOGOS.md is stale
+bash tools/accept.sh                           # corpus, gcc oracle, examples, fmt
+```
+
+Two things to know before scripting against it:
+
+- **Exit codes are three, not two.** `0` success · `2` the source or the command
+  line is wrong · `1` the environment is wrong (missing file, missing runtime,
+  clang failure). The table is in [`docs/reference/cli.md`](docs/reference/cli.md#global-behaviour).
+- **There is no per-verb `-h`.** `logosc -h` is an invalid choice, exit 2. Read
+  the reference.
+
+`tools/logosc.sh` is a thin wrapper: it checks `bootstrap/logosc` against its
+recorded SHA-256, rebuilds `build/logosc` from `src/` whenever the source is
+newer, and runs that. Use it, not the bootstrap binary, whenever you are
+testing a change to the compiler.
+
+`logosc test` reads the `(expect ...)` directive in each `(test ...)` node and
+the module-level `(expect-error E0xxx)` of a negative case, runs every case at
+`-O0` and `-O2`, and writes to `tests/summary.txt` with `--update-baseline`.
+The baseline records the optimisation levels it ran (`OPTS -O0 -O2`), one line
+per case and the suite's leak total; a case that passed in the baseline and
+fails now is a regression and exits 1, as is a full run that leaks more than
+the baseline recorded at the same levels. A baseline with no `OPTS` line cannot
+be compared and is refused rather than silently leaving the leak total ungated.
+`--update-baseline` with `--only` merges. A `.logos` file outside the known
+categories (`parse`, `type`, `exec`, `mem`, `thread`, `generics`, `regress`,
+`diff`) is reported and fails the run rather than being skipped.
+
+`tools/accept.sh` is the end-to-end gate: the corpus, `tests/diff/run_diff.sh`
+(Logos against gcc at `-O0` and `-O2`, floored by `tests/diff/manifest.txt`),
+the three example programs against `wc`, `jq` and a C reference build,
+`logosc fmt` idempotency over every `.logos` file in the tree, and a generated
+200-function program with structs, a generic and a thread that must compile in
+under five seconds. A section that examined zero items is a failure, and the
+script exits 0 only when all seven sections print PASS.
+
+The IR is always kept beside the binary under `build/`: it is the artefact to
+read when a compiled program misbehaves.
+
+## Learn it
+
+- [`docs/LOGOS.md`](docs/LOGOS.md) — the generated manual: a cheat sheet, then
+  one complete executable chapter per feature in learning order, then the
+  reference tables. Every example is run by the test harness at `-O0` and
+  `-O2`, so it cannot drift from the implementation. **Do not edit it by hand.**
+- [`docs/reference/language.md`](docs/reference/language.md) — the same language
+  as a one-page decision reference: the model, the ten rules with the code each
+  one raises, a verified idiom per feature, and what v1 refuses.
+- `logosc guide --json` — the machine-readable manifest: forms, types,
+  operators, builtins, reserved names, diagnostic codes and test categories.
+- [`docs/reference/stdlib.md`](docs/reference/stdlib.md) — all 21 library
+  functions with signatures and ownership rules.
+- [`docs/reference/limits.md`](docs/reference/limits.md) — every known limit in
+  one place, including the ones this README only summarises.
 
 The language has: integers, floats, booleans and strings; structs with C
 layout; fixed arrays and growable vectors; enums with payloads; results and
 optionals with `try`; generics by monomorphisation; closures confined to their
 frame; manual memory with move checking and a leak tracker; threads, mutexes,
 channels and atomics over pthreads; `extern` declarations for the C ABI; and
-node-addressed tooling (`show`, `fmt`) that treats one subtree as one
-editable unit.
+node-addressed tooling (`show`, `fmt`) that treats one subtree as one editable
+unit.
 
 ### What it refuses, on purpose
 
@@ -97,13 +215,21 @@ reads freed memory, uses an uninitialised value, or behaves differently at
 - shared state must be marked `(shared T)` before it can reach another thread,
   and the marker is checked through aggregates;
 - a form the checker accepts but the backend cannot emit is a bug; the backend
-  never fails silently at run time.
+  never fails silently at run time;
+- a binding nobody reads is `E0107` — an error, not a warning.
 
 ### Known limits
+
+A summary; the full list is
+[`docs/reference/limits.md`](docs/reference/limits.md).
 
 - One target: x86_64 Linux. The target triple is a flag, but arm64 and Darwin
   have not been built or tested. `bootstrap/logosc` is an x86_64 Linux binary,
   so another platform needs a stage-0 built where the compiler already runs.
+- Names are global across a whole program: two modules cannot both declare the
+  same name.
+- `logosc test` prints text only; there is no `test --json`.
+- There are no comments in the language, and no doc form.
 - Release builds do not quarantine freed blocks, so `R0002` in a release build
   is defence in depth. A stale double free cannot be constructed from Logos
   source, because the ownership rules above refuse it.
@@ -111,73 +237,16 @@ reads freed memory, uses an uninitialised value, or behaves differently at
   process exits, and it does not appear in the leak report.
 - A mutex held by a thread that exited stays locked; an unjoined thread's
   allocations may or may not appear in the leak report.
+- `(run …)` gives its child a fixed 90-second budget and reports status 124 on
+  timeout.
 - `examples/wc.logos` matches GNU `wc` through a pipe, which pads to seven
   columns; a regular-file redirect uses a different width.
 - Float literals are converted by libc `strtod`, the same correctly rounded
   conversion Python's `float()` uses; a non-conforming `strtod` would shift the
   bits. A literal with no finite value in its type — `1e999` for `:f64`,
-  `3.5e38` for `:f32` — is refused with `E0106`, not emitted as `inf`. The
-  decision is a decimal digit-string comparison against the type's maximum
-  (`17976931348623157` for `:f64`, `34028234` for `:f32`), so a literal within
-  one ulp of the maximum is refused too.
-
-## Requirements
-
-- Ubuntu 22.04, x86_64
-- clang 14 and lld: `apt-get install -y clang lld` (`lld` is unused so far;
-  clang links through the system linker)
-- gcc 11 and jq 1.6 for `tools/accept.sh`: gcc builds the differential oracle's
-  C twins, jq is the JSON example's reference
-- GNU make
-- Python 3.10 or newer, for the contract tests only — no gate runs a compiler
-  written in Python
-
-## Usage
-
-```sh
-./tools/logosc.sh version                      # logos 0.1.0
-./tools/logosc.sh version --json               # {"schema_version":1,...}
-./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
-./build/hello                                  # hello
-./tools/logosc.sh build bad.logos --json       # diagnostics as JSON on stderr
-./tools/logosc.sh build -h                     # that verb's flags, exit 0
-./tools/logosc.sh guide                        # the generated manual
-./tools/logosc.sh guide --json                 # the machine-readable manifest
-./tools/logosc.sh guide --check                # fail if docs/LOGOS.md is stale
-./tools/logosc.sh test tests                   # run the directive-driven corpus
-./tools/logosc.sh test tests --only exec --opt -O0   # one category, one level
-bash tools/accept.sh                           # corpus, gcc oracle, examples, fmt
-```
-
-`tools/logosc.sh` is a thin wrapper: it checks `bootstrap/logosc` against its
-recorded SHA-256, rebuilds `build/logosc` from `src/` whenever the source is
-newer, and runs that. Use it, not the bootstrap binary, whenever you are
-testing a change to the compiler.
-
-`logosc test` reads the `(expect ...)` directive in each `(test ...)` node and
-the module-level `(expect-error E0xxx)` of a negative case, runs every case at
-`-O0` and `-O2`, and writes to `tests/summary.txt` with `--update-baseline`.
-The baseline records the optimisation levels it ran (`OPTS -O0 -O2`), one line
-per case and the suite's leak total; a case that passed in the baseline and
-fails now is a regression and exits 1, as is a full run that leaks more than
-the baseline recorded at the same levels. A baseline that has no `OPTS` line
-cannot be compared and is refused with a request to regenerate it, rather than
-silently leaving the leak total ungated. `--update-baseline` with `--only`
-merges: it rewrites the cases it ran, drops the ones the category no longer
-contains, and keeps the rest. A `.logos` file outside the known categories
-(`parse`, `type`, `exec`, `mem`, `thread`, `generics`, `regress`, `diff`) is
-reported and fails the run rather than being skipped.
-
-`tools/accept.sh` is the end-to-end gate: the corpus, `tests/diff/run_diff.sh`
-(Logos against gcc at `-O0` and `-O2`, floored by `tests/diff/manifest.txt`),
-the three example programs against `wc`, `jq` and a C reference build,
-`logosc fmt` idempotency over every `.logos` file in the tree, and a generated
-200-function program with structs, a generic and a thread that must compile in
-under five seconds. A section that examined zero items is a failure, and the
-script exits 0 only when all seven sections print PASS.
-
-The IR is always kept beside the binary under `build/`: it is the artefact to
-read when a compiled program misbehaves.
+  `3.5e38` for `:f32` — is refused with `E0106`. The check compares decimal
+  digit strings against the type's maximum, so a literal within one ulp of the
+  maximum is refused too: the safe direction.
 
 ## Examples
 
@@ -203,12 +272,33 @@ acceptance script feeds to both the program and jq; `examples/inputs/` holds
 the Unicode word-separator inputs and the duplicate-key and malformed JSON
 documents the script also compares.
 
+## Done means these six commands pass
+
+Run them from the repository root, in this order:
+
+```sh
+make test
+./tools/logosc.sh test tests
+bash tools/accept.sh
+./tools/logosc.sh guide --check
+./tools/logosc.sh fmt $(git diff --name-only main...HEAD -- '*.logos')
+bash tools/selfhost.sh
+```
+
+`bash tools/pr_gate.sh` runs exactly this list, prints PASS or FAIL for each
+gate, and exits non-zero if any failed. Every commit must carry a `Signed-off-by`
+trailer matching its author; the gate list checks that first and stops if it
+fails. Do not weaken a gate, skip one, or change its expected result to make a
+change pass. The full contract, the invariants and the bootstrap rule are in
+[`AGENTS.md`](AGENTS.md).
+
 ## Development
 
 ```sh
-make test    # 24 contract tests, then the compiler's own suites at -O0 and -O2
-make fmt     # ./tools/logosc.sh fmt .
-make clean   # remove build output and caches
+make test          # the contract tests, then all nine compiler suites at -O0
+make suites-all    # the same suites at -O0 and -O2 (not run by the gate: ~90 min)
+make fmt           # ./tools/logosc.sh fmt .
+make clean         # remove build output and caches
 ```
 
 After changing `src/logosc/`, rebuild the stage-0 binary in the same commit:
@@ -221,34 +311,36 @@ cp build/logosc bootstrap/logosc
 
 ## Contribute
 
-Read `AGENTS.md` first if you are an AI agent, or `CONTRIBUTING.md` if you are a
-person; `tools/pr_gate.sh` runs every gate a pull request must pass. The
-repository accepts pull requests from humans and from AI agents acting through
-their operator's account. Every commit must carry a `Signed-off-by` trailer that
-matches its author: `tools/pr_gate.sh` checks that first, and stops before any
-gate if it fails.
+Read [`AGENTS.md`](AGENTS.md) first if you are an AI agent, or
+[`CONTRIBUTING.md`](CONTRIBUTING.md) if you are a person; `tools/pr_gate.sh`
+runs every gate a pull request must pass. The repository accepts pull requests
+from humans and from AI agents acting through their operator's account. Every
+commit must carry a `Signed-off-by` trailer that matches its author.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `src/logosc/` | The compiler, in Logos, one module per file with its `.md` beside it |
-| `src/std/` | The standard library, in Logos |
+| `src/std/` | The standard library, in Logos: `io`, `str`, `map` |
 | `bootstrap/logosc` | Stage-0 binary that builds the compiler; its SHA-256 is recorded |
 | `logos/runtime/rt.h` | Declarations of the C runtime reached through `extern` |
 | `logos/runtime/rt.c` | C runtime implementation, linked into every binary |
 | `examples/` | Three real programs, their input fixture and the matrix reference |
+| `docs/00-index.md` | **The documentation index — start here** |
+| `docs/quickstart.md` | Checkout → running binary, verified end to end |
+| `docs/reference/` | CLI, diagnostics, language, stdlib and limits references |
 | `docs/LOGOS.md` | The generated manual: cheat sheet, executable chapters, reference tables |
 | `docs/manual/` | The numbered chapter sources the manual embeds |
+| `docs/01-summary/` | The v1 audit: gap register, findings, 18 acceptance criteria |
+| `docs/history/build-ledger.md` | The rulings behind the design, in order |
 | `tests/` | The directive corpus and the contract tests |
 | `tests/diff/` | Programs with hand-written C twins, compared against gcc |
 | `tools/accept.sh` | The end-to-end acceptance gate |
 | `tools/logosc.sh` | Builds the compiler from source and runs it |
-| `docs/superpowers/` | Design spec and implementation plan |
+| `docs/superpowers/` | Design specs and implementation plans |
 
 ## License
 
-MIT. See `LICENSE`. By opening a pull request you agree to license your
-contribution under these terms.
-
-Not chosen yet.
+MIT. See [`LICENSE`](LICENSE). By opening a pull request you agree to license
+your contribution under these terms.

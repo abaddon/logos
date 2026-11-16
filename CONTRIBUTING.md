@@ -33,10 +33,11 @@ bash tools/selfhost.sh
 one PASS or FAIL line per gate. A pull request must show all six passing and
 every commit signed off.
 
-To run one contract test file:
+To run one contract test file, name it (`CONTRACT_TESTS` in `Makefile` lists
+them all):
 
 ```sh
-python3 -m unittest tests.test_gen2_build -v
+python3 -m unittest tests.test_contributing -v
 ```
 
 To run one compiler suite, or one corpus category at one optimisation level:
