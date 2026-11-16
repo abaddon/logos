@@ -5,11 +5,13 @@
 # scratch directory, and from the unpacked directory — with no repository, no
 # `src/`, no `bootstrap/` and no git — compiles and runs a program, imports the
 # standard library, refuses a program that has a type error with a diagnostic
-# that carries a code, and reports the version the tarball claims. A tarball
-# missing `logos/runtime/rt.c` or `src/std/str.logos`, or holding a binary built
-# from other sources, fails here rather than on a consumer's first build.
+# that carries a code, reports the version the tarball claims, and checks that
+# every relative link in the shipped pages resolves inside the package. A tarball
+# missing `logos/runtime/rt.c` or `src/std/str.logos`, holding a binary built
+# from other sources, or carrying a `README.md` that points at a `docs/` it does
+# not contain, fails here rather than on a consumer's first read.
 #
-# The four checks are the four things a consumer does in the first five minutes.
+# These are the things a consumer does in the first five minutes.
 # Everything runs with the working directory inside the unpacked prefix, which
 # is what `docs/install.md` tells the consumer to do: the compiler resolves its
 # runtime and standard library relative to the working directory today.
@@ -59,13 +61,23 @@ fail() {
 # The prefix must be the whole compiler: a binary, the runtime source clang
 # links, the standard library the loader reads, and the documents it ships.
 for path in bin/logosc logos/runtime/rt.c logos/runtime/rt.h \
-            src/std/io.logos src/std/map.logos src/std/str.logos VERSION INSTALL.md; do
+            src/std/io.logos src/std/map.logos src/std/str.logos VERSION INSTALL.md \
+            README.md CHANGELOG.md LICENSE AGENTS.md docs/00-index.md docs/LOGOS.md; do
     if [[ ! -e "$path" ]]; then
         fail "layout" "$path is missing from the tarball"
     fi
 done
 if (( FAILURES == 0 )); then
     pass "layout: the compiler, the runtime, the standard library and VERSION"
+fi
+
+# The documents are read offline, so every relative link in them must resolve
+# inside the package: `README.md` pointing at a `docs/` that did not ship is a
+# dead end the reader cannot fix.
+if bash "$ROOT/tools/check_doc_links.sh" "$PREFIX" > link-check.log 2>&1; then
+    pass "docs: $(tail -n 1 link-check.log)"
+else
+    fail "docs" "$(head -n 1 link-check.log)"
 fi
 
 # The version the tarball claims is the version the binary reports, so a

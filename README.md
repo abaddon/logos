@@ -23,9 +23,10 @@ compiler is the only compiler here.
 
 ## Status
 
-**v0.2.0 is the first published release.** Obtain it from the releases page or
-with `gh release download` ([`docs/install.md`](docs/install.md)); what it
-contains is [`CHANGELOG.md`](CHANGELOG.md). It is **pre-1.0**: five of the
+**v0.2.1 is the current release** — 0.2.0 was the first published one. Obtain it
+from the releases page or with `gh release download`
+([`docs/install.md`](docs/install.md)); what it contains is
+[`CHANGELOG.md`](CHANGELOG.md). It is **pre-1.0**: five of the
 eighteen v1 acceptance criteria are still open, each listed under
 [Known limits](#known-limits), where they are tracked rather than implied.
 
@@ -53,7 +54,7 @@ What is proven on every pull request, measured by the gate rather than asserted
 - **A failure is machine-readable**: `--json` gives an agent a stable `code`
   and a `node_path` it can hand back to `logosc show`.
 
-Not done, and why this is 0.2.0 rather than 1.0.0:
+Not done, and why this is 0.2.x rather than 1.0.0:
 
 - **Names are global** across a whole program: two modules cannot both declare
   `point`. The design for module-qualified names exists; the change does not.
@@ -74,9 +75,9 @@ Install the tarball and compile a program — the consumer path, no checkout
 ([`docs/install.md`](docs/install.md)):
 
 ```sh
-gh release download v0.2.0 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+gh release download v0.2.1 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.0-x86_64-linux.tar.gz && cd logos-0.2.0-x86_64-linux
+tar -xzf logos-0.2.1-x86_64-linux.tar.gz && cd logos-0.2.1-x86_64-linux
 cat > hello.logos <<'EOF'
 (mod hello)
 
@@ -118,7 +119,7 @@ Eight verbs. The reference is [`docs/reference/cli.md`](docs/reference/cli.md);
 these are the ones you will use:
 
 ```sh
-./tools/logosc.sh version                      # logos 0.2.0
+./tools/logosc.sh version                      # logos 0.2.1
 ./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
 ./build/hello                                  # hello
 ./tools/logosc.sh check FILE                   # the cheap validation call (hidden verb)

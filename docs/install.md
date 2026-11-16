@@ -45,8 +45,8 @@ or take the tarball and `SHA256SUMS` from the release page with any HTTP client.
 
 ```sh
 sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.0-x86_64-linux.tar.gz
-cd logos-0.2.0-x86_64-linux
+tar -xzf logos-0.2.1-x86_64-linux.tar.gz
+cd logos-0.2.1-x86_64-linux
 ```
 
 The tarball unpacks to a single directory holding:
@@ -55,11 +55,20 @@ The tarball unpacks to a single directory holding:
 bin/logosc                     the compiler
 logos/runtime/rt.c rt.h        the C runtime clang links into every program
 src/std/{io,map,str}.logos     the standard library source the loader reads
-share/doc/LOGOS.md             the generated manual
-share/doc/{LICENSE,README,CHANGELOG}
 INSTALL.md                     this page
+README.md                      the front page: what Logos is, and the route in
+CHANGELOG.md                   what each version changed
+LICENSE                        MIT
+AGENTS.md, CONTRIBUTING.md     the contributor contract, and the short human route
+docs/                          the manual (docs/LOGOS.md) and every page the README links to
 VERSION                        version, commit, and the toolchain it was built with
 ```
+
+The pages sit where they sit in the repository, so a link that works in the
+checkout works in the unpacked directory with nothing online: `README.md` links
+`docs/00-index.md`, `docs/reference/cli.md` and `AGENTS.md` by those paths, and
+they are all there. `tools/check_doc_links.sh` is the check that says so, and
+`tools/verify_install.sh` runs it on the tarball.
 
 ## Use it
 
@@ -102,7 +111,7 @@ that holds `bin/logosc`**, not from the working directory. Unpack the tarball
 anywhere, call it from anywhere, and both work:
 
 ```sh
-$ cd /tmp && ~/logos-0.2.0-x86_64-linux/bin/logosc build ~/greet.logos -o greet
+$ cd /tmp && ~/logos-0.2.1-x86_64-linux/bin/logosc build ~/greet.logos -o greet
 $ ./greet
 std ok
 ```
@@ -131,7 +140,7 @@ cat VERSION                 # version, commit, the clang and ld recorded in the 
 ## Uninstall
 
 ```sh
-rm -rf logos-0.2.0-x86_64-linux
+rm -rf logos-0.2.1-x86_64-linux
 ```
 
 Nothing else was modified: no files outside the directory, no `PATH` entry, no

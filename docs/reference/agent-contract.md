@@ -40,7 +40,7 @@ runtime and stdlib tree beside it, because that is how it finds them.
 ### Five commands that work
 
 ```sh
-logosc version                          # logos 0.2.0
+logosc version                          # logos 0.2.1
 logosc build examples/hello.logos       # build/hello.ll + build/hello
 ./build/hello                           # hello
 logosc check FILE                       # the cheap validation call, no codegen

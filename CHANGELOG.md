@@ -8,6 +8,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 the minor number carries features and the patch number carries fixes.
 
+## 0.2.1 — 2026-11-16
+
+A packaging fix. The compiler is unchanged; the tarball is not, which is why
+this is a patch release and not a rebuild of 0.2.0 under the digest that release
+already published.
+
+### Fixed
+
+- **The documentation in the tarball is self-contained.** 0.2.0 shipped
+  `share/doc/README.md` — the repository's front page — while the `docs/` tree
+  every one of its links pointed into was not in the artifact. Twelve `docs/…`
+  links, plus the `AGENTS.md`, `CONTRIBUTING.md` and `CHANGELOG.md` links beside
+  them, resolved to nothing for anyone who unpacked it; `INSTALL.md` told the
+  reader to consult `AGENTS.md` and `docs/release.md`, neither of which shipped.
+  The documentation now ships where the links point: `README.md`,
+  `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `CONTRIBUTING.md` and the `docs/` tree
+  at the prefix root, with `INSTALL.md` beside them, so a page that links
+  `docs/reference/cli.md` finds it offline and without a checkout.
+- **`tools/check_doc_links.sh`** walks every `*.md` in a tree, resolves each
+  relative link against the page that holds it, and reports what does not
+  resolve. `tools/dist.sh` runs it on the staging tree before writing the
+  tarball and refuses to build on a broken link; `tools/verify_install.sh` runs
+  it on the unpacked artifact, and now also requires the shipped pages
+  (`README.md`, `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `docs/00-index.md`,
+  `docs/LOGOS.md`) by name. The artifact stays byte-reproducible: the pages are
+  copied from the git index in a fixed order, and two builds of one commit still
+  produce one SHA-256.
+
 ## 0.2.0 — 2026-11-16
 
 The first published release. The compiler is self-hosting: `src/logosc/*.logos`
