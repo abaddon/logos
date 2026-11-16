@@ -76,6 +76,6 @@ publish:
 	bash tools/release.sh --publish
 
 clean:
-	rm -rf build dist *.egg-info
+	rm -rf build dist
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
 	rm -f *.o *.ll *.out

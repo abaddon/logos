@@ -28,7 +28,7 @@ body:
     attributes:
       label: Command
       description: The exact command that triggers the problem.
-      placeholder: python3 -m logos build repro.logos
+      placeholder: ./tools/logosc.sh build repro.logos
     validations:
       required: true
 

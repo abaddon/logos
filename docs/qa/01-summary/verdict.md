@@ -33,7 +33,7 @@ Legend: **PASS** measured this pass · **PARTIAL** measured, with a named gap ·
 | # | Criterion | Verdict | Evidence on this tree |
 |---|---|---|---|
 | V1-01 | Obtainable in one command from a public artifact, no clone | **NOT ON MAIN** | `tools/dist.sh` + `tools/verify_install.sh` exist and `release.yml` runs them; nothing is published and `bootstrap/toolchain.txt` gates the build to one toolchain. Owner: release (t_7c51cf28). |
-| V1-02 | `version` and `version --json` agree with the artifact | **PASS** | `tests/test_cli.py::Version` (3 tests): text form is `logos 0.1.0`, JSON carries `schema_version`, name and semver. |
+| V1-02 | `version` and `version --json` agree with the artifact | **PASS** | `tests/test_cli.py::Version` (3 tests): text form is `logos 0.2.0`, JSON carries `schema_version`, name and semver. |
 | V1-03 | Compiles and runs from any working directory | **PASS** | `tests/test_cli.py::Portability::test_build_and_run_outside_the_checkout` — builds in a temp dir, runs the binary, gets `hello`. |
 | V1-04 | Every stdlib module resolves from the installation | **PASS** | `tests/test_cli.py::Portability::test_stdlib_modules_resolve_from_the_installation` — `(use map)` outside the checkout, builds and prints 7. |
 | V1-05 | An install self-check exists (`logosc doctor` or equivalent) | **FAIL** | No such verb. `tools/verify_install.sh` is the closest thing and is not reachable from the compiler. Owner: release/compiler. |
@@ -52,7 +52,7 @@ Legend: **PASS** measured this pass · **PARTIAL** measured, with a named gap ·
 | # | Criterion | Verdict | Evidence on this tree |
 |---|---|---|---|
 | V1-10 | Every compiler failure can be emitted as JSON, with a published schema | **PASS** | **144 of 147 fixtures** built with `build --json`, each producing exactly one diagnostic with the seven published fields (`tests/test_qa.py::NegativeFixtureSweep`; the other 3 are registered), plus one probe per phase in `tests/test_cli.py::JsonDiagnostics`. Schemas in `docs/schemas/`. |
-| V1-11 | The exit-code contract is published as a table and tested | **PASS** | `docs/CLI.md` publishes 0/1/2; `tests/test_cli.py::ExitCodes` has a test per row, including a missing file and a directory for every reading verb. |
+| V1-11 | The exit-code contract is published as a table and tested | **PASS** | `docs/reference/cli.md` publishes 0/1/2; `tests/test_cli.py::ExitCodes` has a test per row, including a missing file and a directory for every reading verb. |
 | V1-12 | `logosc test --json` with per-case results and totals | **FAIL** | `logosc test` prints `PASS ‹id› ‹detail›` only; `test -h` has no `--json`. This is audit gap C3 and it is a compiler change (`src/logosc/harness.logos`), deliberately left to a compiler owner: this pass's boundary is tests and gates. |
 | V1-13 | `guide --json` carries a `schema_version` | **PASS** | `tests/test_cli.py::Guide::test_manifest_is_versioned` — `schema_version: 1` plus the seven keys. |
 
@@ -109,13 +109,13 @@ so each row names the check that fails if the behaviour goes away.
 | E1 — JSON diagnostics + schema | `build/check/resolve/fmt --json` | `tests/test_cli.py::JsonDiagnostics` (5 tests) and **144 fixtures** through `tests/test_qa.py::NegativeFixtureSweep` |
 | D2 — runtime found from the executable | `/proc/self/exe` lookup | `test_cli.Portability::test_build_and_run_outside_the_checkout` |
 | D3 — stdlib resolved from the installation | same | `test_cli.Portability::test_stdlib_modules_resolve_from_the_installation` |
-| E2 — exit-code table | `docs/CLI.md` + one test per row | `test_cli.ExitCodes` (8 tests) |
+| E2 — exit-code table | `docs/reference/cli.md` + one test per row | `test_cli.ExitCodes` (8 tests) |
 | E3 — per-verb help | every verb has `-h` | `test_cli.Help::test_every_verb_has_its_own_help` |
 | E4 — `resolve`/`check` unhidden | verb list | `test_cli.Help::test_invalid_choice_names_every_verb` |
 | E5 — `version --json` | `schema_version` + name + semver | `test_cli.Version` (3 tests) |
 | E9 — `guide --json` schema_version | manifest version | `test_cli.Guide::test_manifest_is_versioned` |
 | A3 — non-finite float literals | `E0106` for `:f64` and `:f32` | `test_cli.FloatLiterals`, `tests/regress/float-range`, `float-range-f32`, `float-finite` |
-| B2 — a CLI reference | `docs/CLI.md` | not a test; see the merge note about the duplicate `docs/reference/cli.md` |
+| B2 — a CLI reference | `docs/reference/cli.md` | not a test; see the merge note about the duplicate `docs/reference/cli.md` |
 
 | Defect found while closing them | Pinned by |
 |---|---|
@@ -133,7 +133,7 @@ so each row names the check that fails if the behaviour goes away.
   `docs/release.md` and `.github/workflows/release.yml`. **Merge `main` into the
   gap-closure branch (or take this branch, which has already done it) before
   merging either.** This is the largest merge hazard in the v1 release.
-- `docs/CLI.md` (gap closure) and `docs/reference/cli.md` (docs branch) are two
+- `docs/reference/cli.md` (gap closure) and `docs/reference/cli.md` (docs branch) are two
   CLI references. One must survive.
 - `AGENTS.md` still says `make test` runs the compiler's suites "at `-O0` and
   `-O2`" and names three of them. The gate has always run one level, and now

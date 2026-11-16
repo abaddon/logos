@@ -45,8 +45,8 @@ or take the tarball and `SHA256SUMS` from the release page with any HTTP client.
 
 ```sh
 sha256sum -c SHA256SUMS
-tar -xzf logos-1.0.0-x86_64-linux.tar.gz
-cd logos-1.0.0-x86_64-linux
+tar -xzf logos-0.2.0-x86_64-linux.tar.gz
+cd logos-0.2.0-x86_64-linux
 ```
 
 The tarball unpacks to a single directory holding:
@@ -93,32 +93,29 @@ EOF
 ./greet
 ```
 
-## Run it from the unpacked directory
+## Run it from anywhere
 
-The compiler resolves two paths relative to the **working directory**, not
-relative to its own binary: the runtime at `logos/runtime/rt.c` and the standard
-library at `src/std/<name>.logos`. That is why the tarball ships them at those
-exact paths and why the examples above are run with the prefix as the working
-directory.
+The compiler finds its own parts: the runtime at `logos/runtime/rt.c` (or
+`share/logos/runtime/rt.c` in an installed tree) and the standard library at
+`src/std/<name>.logos` (or `share/logos/std/`), resolved **from the directory
+that holds `bin/logosc`**, not from the working directory. Unpack the tarball
+anywhere, call it from anywhere, and both work:
 
-Run `bin/logosc` from outside the directory with a file that imports anything,
-and you get a diagnostic that looks like a typo rather than a path problem:
-
-```
-$ cd /tmp && ~/logos-1.0.0-x86_64-linux/bin/logosc build ~/greet.logos -o greet
-greet.logos/0: E0005: unknown module 'str'
+```sh
+$ cd /tmp && ~/logos-0.2.0-x86_64-linux/bin/logosc build ~/greet.logos -o greet
+$ ./greet
+std ok
 ```
 
-Resolving those two paths relative to `/proc/self/exe` (with `LOGOS_ROOT` and
-`LOGOS_PATH` overrides) is the compiler change that lifts this constraint, and
-it is tracked in the v1.1 workstream. Until it lands, either run the compiler
-with the unpacked directory as the working directory, or keep a copy of
-`logos/runtime/` and `src/std/` beside the program you are building.
+Neither path needs an environment variable or a `cd`. What does not work is
+splitting the tree up: `bin/logosc` on its own has no runtime to link against
+and no standard library to resolve, and reports
+`logos: runtime not found: …`, exit 1.
 
 Two consequences worth knowing:
 
-- the compiler writes its IR to `build/<stem>.ll` in the working directory, so
-  a build inside the unpacked prefix creates `build/` there;
+- the compiler writes its IR to `build/<stem>.ll` in the **working** directory,
+  so a build run from inside the unpacked prefix creates `build/` there;
 - `.logos` files beside the source you build shadow the standard library of the
   same name, which is the documented shadowing rule, not a bug.
 
@@ -134,7 +131,7 @@ cat VERSION                 # version, commit, the clang and ld recorded in the 
 ## Uninstall
 
 ```sh
-rm -rf logos-1.0.0-x86_64-linux
+rm -rf logos-0.2.0-x86_64-linux
 ```
 
 Nothing else was modified: no files outside the directory, no `PATH` entry, no
