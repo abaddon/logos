@@ -27,7 +27,7 @@ Entries are flat with a fixed stride, and `g-lookup`/`g-field` read them:
 
 | function | entry | stride | source |
 |---|---|---|---|
-| `g-codes` | code, message | 2 | `diag.CODES` (35, insertion order) |
+| `g-codes` | code, message | 2 | `diag.CODES` (36, insertion order) |
 | `g-form-docs` | name, arity, meaning | 3 | `guide.FORM_DOCS` (88, manual order) |
 | `g-type-arity` | name, arity | 2 | `guide.TYPE_ARITY` (12) |
 | `g-type-meaning` | name, meaning | 2 | `guide.TYPE_MEANING` (12) |
@@ -160,6 +160,9 @@ A chapter that cannot be read, lexed, parsed, or that lacks a test or its
 Python raises a `ValueError` there and lets the traceback print; the line is the
 port's, and it is the only place the two diverge outside the diff counts. The
 files it reads are resolved against the working directory — `docs/manual` and
-`docs/LOGOS.md`, as every verb in this binary resolves its paths — where Python
+`docs/LOGOS.md`, as every other path a verb takes from the command line does —
+where Python
 finds the repository from its own file. That is why `guide --check` runs from
-the checkout root, as the gate and `tests/test_gen2_guide.py` do.
+the checkout root, as the gate and `tests/test_gen2_guide.py` do. The two paths
+the compiler resolves from its own location are the runtime and the standard
+library (`sys.md`), not this one.

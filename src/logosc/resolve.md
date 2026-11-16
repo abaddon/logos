@@ -191,25 +191,53 @@ an import reaches a file in a subdirectory (see the loader).
 
 ## Imports and the loader
 
-`(use name)` asks the loader for `<dir>/<name>.logos`, where `<dir>` is the
-directory of the file that asked, and then for `src/std/<name>.logos`. The
-asking file's directory is tried first, so a local module shadows the library
-module of the same name; the standard library is the one fixed second
-directory, and there is no third. The path is built by string work:
-`resolve-dir` finds the final `/`, and `resolve-sibling` appends `/<name>.logos`
-(or `<name>.logos` when there is no directory). `resolve-stdlib` is
-`resolve-sibling` with the fixed directory `src/std`. Because the name is an
-atom and atoms may contain `/`, `(use left/left)` reads `left/left.logos` and
-puts the imported module's own imports in the `left` directory.
+`(use name)` asks the loader for a list of candidate files, in this order, and
+takes the first regular one:
+
+1. `<dir>/<name>.logos`, where `<dir>` is the directory of the file that asked —
+   a local module shadows everything.
+2. `<entry>/<name>.logos` for each entry of `LOGOS_PATH`, colon-separated, in
+   order. Unset is no entries; empty entries are dropped.
+3. `<root>/src/std/<name>.logos`, where `<root>` is `LOGOS_ROOT` when set and
+   non-empty, otherwise the parent of the directory holding `/proc/self/exe`.
+4. `src/std/<name>.logos` — the working directory, last.
+
+The path is built by string work: `resolve-dir` finds the final `/`,
+`resolve-sibling` appends `/<name>.logos` (or `<name>.logos` when there is no
+directory), and `resolve-candidates` pushes the four groups above.
+`resolve-first` walks the list and `resolve-exists` judges each entry. Because
+the name is an atom and atoms may contain `/`, `(use left/left)` reads
+`left/left.logos` and puts the imported module's own imports in the `left`
+directory.
 
 A file in any subdirectory therefore reaches the standard library without a
 path of its own: `docs/manual/20-modules.logos` has no `docs/manual/map.logos`,
-so `(use map)` lands on `src/std/map.logos`. The `src/std` spelling is relative
-to the process's working directory, as every other resolver path is; `gen2`
-must be run from the repository root, the same contract the fixtures use. The
-Python compiler anchors the same directory at its repository root
-(`driver.STDLIB`, derived from `driver.ROOT` beside the C runtime), so a build
-started anywhere finds it.
+so `(use map)` lands on `src/std/map.logos`. Before this change that spelling
+was relative to the process's working directory and nothing else, so an
+installed `gen2` only found its library when it was started inside the prefix
+it was unpacked into; `sys.md` owns the prefix rule and
+`docs/superpowers/specs/2026-11-15-runtime-and-library-lookup.md` the reasons
+for the order. The working directory stays last because the repository's gates,
+fixtures and `tests/` build with relative paths — and because a stale `src/std/`
+beside the caller must not win over the library the binary shipped with.
+
+A name no candidate answers is `E0005 unknown module '<name>'; searched:
+<the list>` at the `use` node. The list is the whole order, printed, because the
+one thing a reader needs after a failed import is which files were tried: the
+old message named the module and nothing else, so a missing directory and a
+misspelled module read the same. `resolve-unknown` builds that message, and it
+falls back to the short spelling on the single path where no candidate was
+computed at all (a module the caller's own file list already mapped, gone from
+disk). The existence probe is a shortcut, and it is deliberate:
+
+> Logos has no `stat` form. `(read-file path)` panics `R0007` on a missing file,
+> which cannot become a resolver diagnostic, and this wave may not change the
+> Python compiler or its runtime. The loader therefore asks the POSIX `test`
+> program: `(run "test" (["-f", path]))`, and treats status 0 as "a regular file
+> answers this name". The cost is up to three child processes per uncached import
+> — the sibling, the prefix's library and then the working directory — and a
+> dependency on `test` being on `PATH`; neither is on the gen2 gate's path, which
+> formats sources and never imports anything.
 
 The loader's answer is cached once per **(name, asking directory)**, keyed by
 `dir + "\0" + name`, and the file-system loader caches the parsed tree per
@@ -219,18 +247,6 @@ directories asking for one name each load their own file: the `origins`
 fixture's `left` and `right` reach `left/dup.logos` and `right/dup.logos`, and
 the second claim is the `E0003` above. Caching by name alone would silently
 reuse the first answer and hide that collision.
-
-A name neither directory answers is `E0005 unknown module '<name>'` at the
-`use` node. The existence probe is a shortcut, and it is deliberate:
-
-> Logos has no `stat` form. `(read-file path)` panics `R0007` on a missing file,
-> which cannot become a resolver diagnostic, and this wave may not change the
-> Python compiler or its runtime. The loader therefore asks the POSIX `test`
-> program: `(run "test" (["-f", path]))`, and treats status 0 as "a regular file
-> answers this name". The cost is up to two child processes per uncached import
-> — the sibling and then the library — and a dependency on `test` being on
-> `PATH`; neither is on the gen2 gate's path, which formats sources and never
-> resolves imports.
 
 The loaded file is read with `read-file`, lexed with `(lex …)` and parsed with
 `tree-parse` into fresh arenas, then resolved recursively under the expected
@@ -501,7 +517,7 @@ every resolver-owned fixture:
 | `nontrans/root.logos` | exit 0 |
 | `self/self.logos` | `self/0: E0004: circular import: self -> self` |
 | `cycle/a.logos` | `b/0: E0004: circular import: a -> b -> a` |
-| `missing/root.logos` | `root/0: E0005: unknown module 'nope'` |
+| `missing/root.logos` | `root/0: E0005: unknown module 'nope'; searched: <the order>` |
 | `wrong/root.logos` | `root/0: E0005: module 'wrong' declares itself 'other'` |
 | `merge/local.logos` | `merge-local/1: E0003: duplicate definition 'f': merge-local/f and other/f` |
 | `merge/imported.logos` | `merge-imported/f: E0003: duplicate definition 'f': other/f and merge-imported/f` |

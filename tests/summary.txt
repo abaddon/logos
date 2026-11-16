@@ -311,6 +311,7 @@ PASS regress/ref-to-function-value -
 PASS regress/reserved-name -
 PASS regress/result-foreign-enum/program/program -
 PASS regress/rt-definition -
+PASS regress/runtime-locate/runtime-locate -
 PASS regress/str-concat-overflow/concatenation-keeps-every-byte -
 PASS regress/struct-owner-mismatch/program -
 PASS regress/vec-foreign-struct/program/program -

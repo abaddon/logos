@@ -1,0 +1,13 @@
+(mod runtime-locate)
+
+(extern fn rt_exe_path :str ())
+
+(extern fn rt_getenv :str ((name :str)))
+
+(test runtime-locate
+  (expect (out "0\ntrue\ntrue\n")
+    (code 0)
+    (leaks 0))
+  (println (str-len (rt_getenv "LOGOS_NO_SUCH_VARIABLE_42")))
+  (println (> (str-len (rt_getenv "PATH")) 0))
+  (println (> (str-len (rt_exe_path)) 0)))

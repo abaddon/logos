@@ -11,10 +11,15 @@
 # from other sources, or carrying a `README.md` that points at a `docs/` it does
 # not contain, fails here rather than on a consumer's first read.
 #
-# These are the things a consumer does in the first five minutes.
-# Everything runs with the working directory inside the unpacked prefix, which
-# is what `docs/install.md` tells the consumer to do: the prefix is the layout
-# the compiler resolves its runtime and standard library out of.
+# These are the things a consumer does in the first five minutes. Everything runs
+# with the working directory inside the unpacked prefix, which is the layout the
+# compiler resolves its runtime and standard library out of. The last check is
+# the one that makes the others mean "installable": it builds the same
+# standard-library program again from a directory that is *not* the prefix, with
+# `LOGOS_ROOT` and `LOGOS_PATH` unset, because the compiler must decide which
+# runtime and library it uses from its own path. Running from inside the prefix
+# used to be the whole contract, and a tarball can satisfy that and still be
+# unusable.
 #
 # Usage: bash tools/verify_install.sh dist/logos-<version>-x86_64-linux.tar.gz
 
@@ -116,6 +121,18 @@ elif head -n 1 bad.err | grep -Eq 'E[0-9]{4}'; then
     pass "diagnostics: $(head -n 1 bad.err)"
 else
     fail "diagnostics" "no diagnostic code in: $(head -n 1 bad.err)"
+fi
+
+# The compiler must work from anywhere: same program, same binary, run from a
+# directory that is not the prefix and with neither override set. This is D2/D3
+# of the v1 readiness audit, and it is the difference between "unpacks" and
+# "installs".
+if ( cd "$WORK" && env -u LOGOS_ROOT -u LOGOS_PATH "$PREFIX/bin/logosc" \
+        build "$PREFIX/hello-std.logos" -o "$WORK/hello-std" 2> "$WORK/outside.err" ) \
+        && [[ "$("$WORK/hello-std")" == "std ok" ]]; then
+    pass "elsewhere: builds from a directory that is not the prefix"
+else
+    fail "elsewhere" "a build from outside the prefix failed: $(head -n 1 "$WORK/outside.err")"
 fi
 
 if (( FAILURES > 0 )); then

@@ -556,7 +556,7 @@ eight keys:
 | `operators` | array | 17 | `{"symbol": "+", "arity": str, "meaning": str}` |
 | `builtins` | array | 2 | `{"name": "println", "meaning": str}` |
 | `reserved` | object | 3 | `{"forms": [str], "prefixes": [str], "variants": [str]}` |
-| `codes` | object | 35 | `{"E0100": "type mismatch", …}` — code → one-sentence meaning |
+| `codes` | object | 36 | `{"E0100": "type mismatch", …}` — code → one-sentence meaning |
 | `categories` | array | 8 | `["parse", "type", "exec", "mem", "thread", "generics", "regress", "diff"]` |
 
 ```sh
@@ -577,8 +577,8 @@ compiler lives**, not from where it is run:
 
 | Path | Used for | When absent |
 |---|---|---|
-| `logos/runtime/rt.c` (`share/logos/runtime/rt.c` when installed) | linked into every binary | `logos: runtime not found: …`, exit 1 |
-| `src/std/<name>.logos` (`share/logos/std/<name>.logos` when installed) | a `(use map)`, `(use str)`, `(use io)` the asking file cannot satisfy beside itself | `E0005: unknown module 'map'`, exit 2 |
+| `logos/runtime/rt.c` (`share/logos/runtime/rt.c` when installed) | linked into every binary | `E0800: runtime not found; searched: …`, exit 1 |
+| `src/std/<name>.logos` (`share/logos/std/<name>.logos` when installed) | a `(use map)`, `(use str)`, `(use io)` the asking file cannot satisfy beside itself | `E0005: unknown module 'map'; searched: …`, exit 2 |
 
 The lookup walks three candidates under the compiler's root — the parent of the
 `bin` directory holding the executable: the installed layout (`share/logos/…`),
@@ -587,6 +587,13 @@ working-directory paths, kept so an existing script keeps working. So
 `cd /tmp && logosc build hello.logos` works, and so does `(use map)`, from any
 directory — `tests/test_cli.py::Portability` pins both. The three candidates are
 tried in that order and the first that exists wins.
+
+Two environment variables are read before that: `LOGOS_ROOT` replaces the root
+derived from the executable, and `LOGOS_PATH` is a colon-separated list of extra
+module directories tried after the asking file's own directory and before the
+shipped library. Both are empty by default, and a diagnostic that cannot find a
+path prints the whole list it tried, so a failure names the layout the compiler
+looked for rather than only the one it wanted.
 
 `(use name)` first looks for `name.logos` **beside the asking file**, then in
 the installation's standard library. A module sees the definitions of the

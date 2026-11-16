@@ -6,10 +6,28 @@
 
 (use resolve)
 
+(fn head :str ((s :str))
+  (let n :i64 (str-len s))
+  (letmut i :i64 0)
+  (letmut at :i64 n)
+  (while (< i n)
+    (if (and (= at n)
+          (= (cast :i64 (str-byte s i)) 59))
+      (set at i)
+      (resolve-nothing))
+    (set i (+ i 1)))
+  (ret (str-slice s 0 at)))
+
+(fn tail :str ((s :str) (n :i64))
+  (ret (if (>= (str-len s) n)
+         (str-slice s
+           (- (str-len s) n)
+           (str-len s)) "")))
+
 (fn show-fail :void ((e resolve-error))
   (println (resolve-code (get e code)))
   (println (get e path))
-  (println (get e message)))
+  (println (head (get e message))))
 
 (fn show :void ((e resolve-error))
   (if (resolve-ok e)

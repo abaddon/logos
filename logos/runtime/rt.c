@@ -1012,6 +1012,64 @@ unsigned char *rt_path_error(const unsigned char *path, size_t n, size_t *out_le
     return s.data;
 }
 
+static rt_slice rt_slice_empty(void) {
+    rt_str s = rt_str_new(0);
+
+    s.len = 0;
+    return (rt_slice){s.data, 0};
+}
+
+rt_slice rt_exe_path(void) {
+    size_t cap = 4096;
+
+    for (;;) {
+        rt_str s = rt_str_new(cap);
+        ssize_t n = readlink("/proc/self/exe", (char *)s.data, cap);
+
+        if (n <= 0) {
+            /* No procfs, or a kernel that would not answer. Free the
+             * unused buffer: an empty path is a real answer and a
+             * caller waits for none. */
+            free(s.data);
+            return rt_slice_empty();
+        }
+        if ((size_t)n < cap) {
+            /* readlink does not terminate, and the path may hold any
+             * byte but NUL, so the length is the only thing that says
+             * where it ends. */
+            s.len = (size_t)n;
+            return (rt_slice){s.data, (size_t)n};
+        }
+        /* The result filled the buffer, so it may be truncated: retry
+         * with twice the room rather than return a prefix of a path. */
+        free(s.data);
+        if (cap > ((size_t)-1) / 2) {
+            return rt_slice_empty();
+        }
+        cap *= 2;
+    }
+}
+
+rt_slice rt_getenv(const unsigned char *name, size_t n) {
+    char *key = rt_cstr(name, n);
+    const char *value = NULL;
+    size_t len;
+    rt_str s;
+
+    if (key != NULL) {
+        value = getenv(key);
+        free(key);
+    }
+    /* An environment value cannot contain NUL, so strlen is the count. */
+    len = value == NULL ? 0 : strlen(value);
+    s = rt_str_new(len);
+    s.len = len;
+    if (len != 0) {
+        memcpy(s.data, value, len);
+    }
+    return (rt_slice){s.data, len};
+}
+
 /* The command line, filled once by a constructor so the emitted `main` keeps
  * its fixed signature. Both the bytes and the array of pairs live until the
  * process exits; they are plain malloc for the reason in the section comment

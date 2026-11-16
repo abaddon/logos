@@ -8,12 +8,14 @@ LOGOSC ?= ./tools/logosc.sh
 # would fail on them. Everything else that judged the compiler is a Logos suite
 # below, or the corpus.
 CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_cli \
-	tests.test_qa tests.test_selfhost tests.test_docs
+	tests.test_qa tests.test_selfhost tests.test_docs tests.test_install
 
 # The seconds-scale loop: everything that judges a change without building the
 # compiler twice or running a corpus. `make test` is the gate; this is what an
 # agent runs between edits. tests.test_selfhost is the sixth gate end to end
-# (about seven minutes) and stays out of it.
+# (about seven minutes) and stays out of it, and tests.test_install builds
+# compilers and links programs, so it is a `make contract` test and not a fast
+# one.
 FAST_TESTS = tests.test_contributing tests.test_runtime tests.test_cli \
 	tests.test_qa tests.test_docs
 
@@ -21,16 +23,16 @@ LOGOS_SUITES = src/logosc/body_test.logos src/logosc/check_test.logos \
 	src/logosc/resolve_test.logos src/logosc/lex_test.logos \
 	src/logosc/tree_test.logos src/logosc/types_test.logos \
 	src/logosc/emit_test.logos src/logosc/fmt_test.logos \
-	src/logosc/harness_test.logos
+	src/logosc/harness_test.logos src/logosc/sys_test.logos
 
 .PHONY: test contract fast suites suites-all fmt dist verify-install release publish clean
 
 # Every tracked `src/logosc/*_test.logos` file is listed above, and
-# tests/test_qa.py fails when one is not: six of these nine suites (206 cases:
+# tests/test_qa.py fails when one is not: six of these ten suites (206 cases:
 # lexer, tree, types, emitter, formatter, harness) were in the repository and
 # run by nothing until this list grew, which is a suite that cannot fail.
 # They run at `-O0` in the gate because every case lowers and links its whole
-# module, which makes two levels a ninety-minute gate: the nine suites are about
+# module, which makes two levels a ninety-minute gate: the ten suites are about
 # four minutes at one level. The corpus already runs every language case at both
 # levels, and `make suites-all` is the two-level form. Measure a level
 # difference here when you change lowering or the emitter.

@@ -79,6 +79,8 @@
   (vec-push out "unhandled result")
   (vec-push out "E0700")
   (vec-push out "shared state not marked")
+  (vec-push out "E0800")
+  (vec-push out "runtime not found")
   (vec-push out "R0006")
   (vec-push out "a program could not be started")
   (vec-push out "R0007")
