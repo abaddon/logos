@@ -11,6 +11,18 @@
 # outside a checkout. When that change lands, this layout stays valid: it is the
 # same two paths, only found by a different rule.
 #
+# The documentation ships laid out exactly as the repository lays it out:
+# `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `CHANGELOG.md` and `LICENSE` at
+# the prefix root with `docs/` beside them, so a relative link in a shipped page
+# means in the package what it meant in the checkout. The README points at
+# `docs/00-index.md`, `docs/reference/cli.md` and `AGENTS.md` by those paths;
+# mirroring the tree keeps all of them, and keeps the pages honest offline,
+# where rewriting them to github.com URLs would not. `INSTALL.md` is the same
+# root-level spelling of `docs/install.md`. `tools/check_doc_links.sh` then
+# proves the staged tree has no relative link the package cannot answer, so a
+# page that points outside the artifact fails the build here and not on a
+# consumer's first read.
+#
 # The tarball is deterministic. File order, ownership and mtime are fixed, the
 # commit date is the timestamp (never the wall clock), gzip compression is
 # filename- and time-free (`-n`), and the recorded toolchain — not the host's —
@@ -54,7 +66,7 @@ STAGE="$OUT/$NAME"
 EPOCH="$(git log -1 --format=%ct 2>/dev/null || echo 0)"
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/bin" "$STAGE/logos/runtime" "$STAGE/src/std" "$STAGE/share/doc" ||
+mkdir -p "$STAGE/bin" "$STAGE/logos/runtime" "$STAGE/src/std" ||
     { echo "dist: could not create the staging tree" >&2; exit 2; }
 
 install -m 755 "$BIN" "$STAGE/bin/logosc"
@@ -63,12 +75,21 @@ for module in io map str; do
     install -m 644 "src/std/$module.logos" "$STAGE/src/std/$module.logos" ||
         { echo "dist: missing src/std/$module.logos" >&2; exit 2; }
 done
-install -m 644 LICENSE "$STAGE/share/doc/LICENSE"
-install -m 644 README.md "$STAGE/share/doc/README.md"
-install -m 644 docs/LOGOS.md "$STAGE/share/doc/LOGOS.md"
+
+# The pages go in at the paths they link to each other by. The file list is the
+# index's, not a `cp -R` of the working tree, so an untracked file cannot make
+# one build differ from the next.
+install -m 644 LICENSE README.md CHANGELOG.md AGENTS.md CONTRIBUTING.md "$STAGE/" ||
+    { echo "dist: could not install the root documentation" >&2; exit 2; }
+while IFS= read -r -d '' page; do
+    install -D -m 644 "$page" "$STAGE/$page" ||
+        { echo "dist: could not install $page" >&2; exit 2; }
+done < <(git ls-files -z docs)
 install -m 644 docs/install.md "$STAGE/INSTALL.md"
-if [[ -f CHANGELOG.md ]]; then
-    install -m 644 CHANGELOG.md "$STAGE/share/doc/CHANGELOG.md"
+
+if ! bash "$ROOT/tools/check_doc_links.sh" "$STAGE"; then
+    echo "dist: a shipped page links to something the package does not contain" >&2
+    exit 2
 fi
 
 # Provenance the consumer can read without git, and the release workflow can

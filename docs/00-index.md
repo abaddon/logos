@@ -5,7 +5,7 @@ doing; each links to one page that answers it.
 
 Logos is a prefix-form language for AI readers, compiled by `logosc` to native
 x86_64 Linux binaries. The compiler is self-hosting and deterministic; it is
-released as a verified tarball ([`install.md`](install.md)) named `v0.2.0`
+released as a verified tarball ([`install.md`](install.md)) named `v0.2.1`
 ([`../CHANGELOG.md`](../CHANGELOG.md), [`release.md`](release.md)). Pre-1.0: the
 [`reference/limits.md`](reference/limits.md) page is the honest list of what it
 cannot do yet.

@@ -29,7 +29,7 @@ clang --version          # clang 14 or newer, x86_64 Linux
 ```
 
 ```text
-logos 0.2.0
+logos 0.2.1
 ```
 
 The first invocation compiles the compiler from `src/` with the stage-0 binary

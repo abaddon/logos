@@ -88,10 +88,22 @@ logos-<version>-x86_64-linux/
 ├── bin/logosc
 ├── logos/runtime/rt.c, rt.h
 ├── src/std/{io,map,str}.logos
-├── share/doc/{LOGOS.md,README.md,LICENSE,CHANGELOG.md}
-├── INSTALL.md
+├── docs/                      the generated manual and every page README.md links to
+├── README.md, INSTALL.md
+├── AGENTS.md, CONTRIBUTING.md, CHANGELOG.md, LICENSE
 └── VERSION            version, commit, and the recorded clang and ld
 ```
+
+The documentation ships as the repository lays it out — `docs/` beside the
+pages that link into it — so a relative link in a shipped page resolves in the
+package exactly as it does in a checkout, offline and without a viewer that
+knows github.com. `tools/dist.sh` runs `tools/check_doc_links.sh` over the
+staged tree and refuses to build when a page links to something the artifact
+does not carry; `tools/verify_install.sh` runs the same check on the unpacked
+tarball, so the property is measured on what ships rather than on the staging
+directory. That check is why the artifact holds `docs/` at all: shipping the
+README without the tree it links into is a package whose first page is a set of
+dead ends.
 
 The paths are the compiler's own lookup layout: `bin/logosc` finds the runtime
 at `<root>/logos/runtime/rt.c` and the standard library at
