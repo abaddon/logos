@@ -1,0 +1,12 @@
+(mod test-helper-duplicate)
+
+(fn double :i64 ((x :i64))
+  (ret (* x 2)))
+
+(test uses-a-helper
+  (expect (out "4\n")
+    (code 0)
+    (leaks 0))
+  (println (double 2))
+  (fn double :i64 ((x :i64))
+    (ret (* x 2))))
