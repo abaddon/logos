@@ -40,6 +40,15 @@ jobs:
         run: |
           bash tools/toolchain.sh --install
           bash tools/toolchain.sh --check
+      # The formatting gate inside `pr_gate.sh` diffs against `main`, and a tag
+      # checkout is a detached HEAD with no local branch of that name. Without
+      # this the gate reports "fmt: no local 'main' branch" and the release stops
+      # before it builds anything. Same step as .github/workflows/gate.yml; here
+      # main is the branch the tag was cut from, so the diff is empty unless the
+      # tagged tree holds a .logos file that is not canonical.
+      - name: prepare main for the changed-file format gate
+        run: |
+          git rev-parse --verify --quiet main > /dev/null || git branch main origin/main
       # The six gates, one PASS or FAIL line each: the same script a contributor
       # runs before opening the pull request, so a release cannot ship a commit
       # the pull request gate would have refused.
@@ -76,7 +85,11 @@ jobs:
 
   reproduce:
     name: reproduce
-    needs: verify
+    # `build` as well as `verify`: the artifact this job compares against is
+    # uploaded by `build`, and `download-artifact` fails rather than waits when
+    # the upload has not happened yet. The claim — a second, independent runner
+    # reproduces the digest — is unaffected by the ordering.
+    needs: [verify, build]
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
