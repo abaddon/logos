@@ -114,7 +114,7 @@
   (ret 0))
 
 (fn main-verb-usage :str ((verb :str))
-  (ret (if (str-eq verb "build") " build [-h] [-o OUT] [--opt O] [--keep-ir] FILE [FILE ...]"
+  (ret (if (str-eq verb "build") " build [-h] [-o OUT] [--opt O] [--target TRIPLE] [--keep-ir] FILE [FILE ...]"
          (if (str-eq verb "test") " test [-h] [--only CAT] [--opt O] [--update-baseline] [PATH]"
            (if (str-eq verb "fmt") " fmt [-h] FILE [FILE ...]"
              (if (str-eq verb "show") " show [-h] FILE PATH"
@@ -124,7 +124,7 @@
                      (if (str-eq verb "check") " check [-h] FILE" " [-h] command ..."))))))))))
 
 (fn main-verb-about :str ((verb :str))
-  (ret (if (str-eq verb "build") "compile Logos source files to a native binary\n\npositional arguments:\n  FILE            one or more .logos files; the first is the entry module\n\noptions:\n  -h, --help      show this help message and exit\n  -o OUT          write the binary to OUT (default build/<stem>)\n  --opt O         optimisation level given to clang (default -O0)\n  --keep-ir       keep the generated IR beside the binary\n  --json          emit diagnostics as JSON on stderr\n"
+  (ret (if (str-eq verb "build") "compile Logos source files to a native binary\n\npositional arguments:\n  FILE            one or more .logos files; the first is the entry module\n\noptions:\n  -h, --help      show this help message and exit\n  -o OUT          write the binary to OUT (default build/<stem>)\n  --opt O         optimisation level given to clang (default -O0)\n  --target TRIPLE emit and link for TRIPLE (default x86_64-unknown-linux-gnu)\n  --keep-ir       keep the generated IR beside the binary\n  --json          emit diagnostics as JSON on stderr\n"
          (if (str-eq verb "test") "compile and run the (test ...) nodes in a file, then compare them to\nthe baseline\n\npositional arguments:\n  PATH            a file or a directory of cases (default: the whole corpus)\n\noptions:\n  -h, --help      show this help message and exit\n  --only CAT      run only the cases in one category\n  --opt O         optimisation level (default -O0; repeat for both)\n  --update-baseline  rewrite tests/summary.txt from this run\n"
            (if (str-eq verb "fmt") "rewrite Logos source in canonical form, in place\n\npositional arguments:\n  FILE            one or more .logos files, or - for stdin\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
              (if (str-eq verb "show") "print one node of a Logos file, selected by its node path\n\npositional arguments:\n  FILE            the source file\n  PATH            a node path such as main/2/0\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
@@ -576,7 +576,7 @@
   (unlink out)
   (ret (main-fail (str-concat "runtime not found: " rt))))
 
-(fn main-link :i64 ((ll :str) (out :str) (opt :str) (dbg :i64))
+(fn main-link :i64 ((ll :str) (out :str) (opt :str) (dbg :i64) (target :str))
   (let rt :str (main-runtime))
   (if (main-exists rt)
     (main-nothing)
@@ -589,7 +589,7 @@
     (main-nothing))
   (vec-push argv opt)
   (vec-push argv "-target")
-  (vec-push argv "x86_64-unknown-linux-gnu")
+  (vec-push argv target)
   (vec-push argv ll)
   (vec-push argv rt)
   (vec-push argv "-o")
@@ -666,7 +666,7 @@
              (check-ok me)) 0
          (main-check-diag file me))))
 
-(fn main-built :i64 ((paths (ref (vec :str))) (dest :str) (opt :str) (mqual (ref (vec :i64))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (ewords (ref (vec :i64))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (ptys (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (ops (ref (vec :i64))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (mtriple (ref (vec :str))) (snames (ref (vec :str))) (enames (ref (vec :str))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (pnames (ref (vec :str))) (blabels (ref (vec :str))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (svals (ref (vec :str))) (tnames (ref (vec :str))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (out (ref (vec :str))) (defs (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (tname :str))
+(fn main-built :i64 ((paths (ref (vec :str))) (dest :str) (opt :str) (target :str) (mqual (ref (vec :i64))) (sbase (ref (vec :i64))) (scount (ref (vec :i64))) (sftys (ref (vec :i64))) (ewords (ref (vec :i64))) (dsig (ref (vec :i64))) (dcnt (ref (vec :i64))) (dret (ref (vec :i64))) (sigtys (ref (vec :i64))) (fint (ref (vec :i64))) (fret (ref (vec :i64))) (fbase (ref (vec :i64))) (fcnt (ref (vec :i64))) (fparam (ref (vec :i64))) (fpc (ref (vec :i64))) (ptys (ref (vec :i64))) (bbase (ref (vec :i64))) (bcnt (ref (vec :i64))) (bterm (ref (vec :i64))) (bty (ref (vec :i64))) (bhas (ref (vec :i64))) (ops (ref (vec :i64))) (t1 (ref (vec :i64))) (t2 (ref (vec :i64))) (t3 (ref (vec :i64))) (n1 (ref (vec :i64))) (sst (ref (vec :i64))) (scn (ref (vec :i64))) (tst (ref (vec :i64))) (tcn (ref (vec :i64))) (tvals (ref (vec :i64))) (tags (ref (vec :i64))) (elem (ref (vec :i64))) (extra (ref (vec :i64))) (pbase (ref (vec :i64))) (tptypes (ref (vec :i64))) (pchild (ref (vec :i64))) (mtriple (ref (vec :str))) (snames (ref (vec :str))) (enames (ref (vec :str))) (gnames (ref (vec :str))) (gdata (ref (vec :str))) (dnames (ref (vec :str))) (fnames (ref (vec :str))) (fsyms (ref (vec :str))) (pnames (ref (vec :str))) (blabels (ref (vec :str))) (bv1 (ref (vec :str))) (bv2 (ref (vec :str))) (bv3 (ref (vec :str))) (dests (ref (vec :str))) (sa (ref (vec :str))) (sb (ref (vec :str))) (sc (ref (vec :str))) (sd (ref (vec :str))) (svals (ref (vec :str))) (tnames (ref (vec :str))) (powner (ref (vec :str))) (tpnames (ref (vec :str))) (pvname (ref (vec :str))) (nod (ref (vec node))) (ntx (ref (vec :str))) (out (ref (vec :str))) (defs (ref (vec resolve-def))) (mods (ref (vec resolve-mod))) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (tname :str))
   (let file :str (vec-get paths 0))
   (let src :str (read-file file))
   (let le lex-error (lex src kinds texts lines cols))
@@ -717,7 +717,7 @@
   (if (= bad 0)
     (main-nothing)
     (ret bad))
-  (let lw lower-error (lower-build mtriple mqual snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx mnods mntx mstarts mends tname))
+  (let lw lower-error (lower-build mtriple mqual target snames sbase scount sftys enames ewords gnames gdata dnames dsig dcnt dret sigtys fnames fsyms fint fret fbase fcnt fparam fpc pnames ptys blabels bbase bcnt bterm bty bhas bv1 bv2 bv3 ops dests sa sb sc sd t1 t2 t3 n1 sst scn tst tcn svals tvals tags tnames elem extra pbase powner tpnames tptypes pchild pvname nod ntx mnods mntx mstarts mends tname))
   (vec-free mnods)
   (vec-free mntx)
   (vec-free mstarts)
@@ -736,21 +736,21 @@
     (main-nothing)
     (ret wrote))
   (main-mkdir (main-dir dest))
-  (ret (main-link ll dest opt (if (str-eq tname "") 0 1))))
+  (ret (main-link ll dest opt (if (str-eq tname "") 0 1) target)))
 
 (fn main-flag-next :i64 ((a (ref (vec :str))) (i :i64) (into (ref (vec :str))))
   (vec-push into (vec-get a (+ i 1)))
   (ret (+ i 2)))
 
-(fn main-attached-next :i64 ((s :str) (i :i64) (into (ref (vec :str))))
-  (vec-push into (str-slice s 6 (str-len s)))
+(fn main-attached-next :i64 ((s :str) (off :i64) (i :i64) (into (ref (vec :str))))
+  (vec-push into (str-slice s off (str-len s)))
   (ret (+ i 1)))
 
 (fn main-path-next :i64 ((a (ref (vec :str))) (i :i64) (paths (ref (vec :str))))
   (vec-push paths (vec-get a i))
   (ret (+ i 1)))
 
-(fn main-arg :i64 ((a (ref (vec :str))) (n :i64) (i :i64) (paths (ref (vec :str))) (outs (ref (vec :str))) (opts (ref (vec :str))) (tnames (ref (vec :str))))
+(fn main-arg :i64 ((a (ref (vec :str))) (n :i64) (i :i64) (paths (ref (vec :str))) (outs (ref (vec :str))) (opts (ref (vec :str))) (tnames (ref (vec :str))) (ttargets (ref (vec :str))))
   (let s :str (vec-get a i))
   (ret (if (str-eq s "-o")
          (if (< (+ i 1) n)
@@ -760,15 +760,21 @@
              (main-flag-next a i opts) -1)
            (if (and (> (str-len s) 6)
                  (str-eq (str-slice s 0 6) "--opt="))
-             (main-attached-next s i opts)
-             (if (str-eq s "--test")
+             (main-attached-next s 6 i opts)
+             (if (str-eq s "--target")
                (if (< (+ i 1) n)
-                 (main-flag-next a i tnames) -1)
-               (if (str-eq s "--keep-ir")
-                 (+ i 1)
-                 (if (and (> (str-len s) 0)
-                       (= (cast :i64 (str-byte s 0)) 45)) -1
-                   (main-path-next a i paths)))))))))
+                 (main-flag-next a i ttargets) -1)
+               (if (and (> (str-len s) 9)
+                     (str-eq (str-slice s 0 9) "--target="))
+                 (main-attached-next s 9 i ttargets)
+                 (if (str-eq s "--test")
+                   (if (< (+ i 1) n)
+                     (main-flag-next a i tnames) -1)
+                   (if (str-eq s "--keep-ir")
+                     (+ i 1)
+                     (if (and (> (str-len s) 0)
+                           (= (cast :i64 (str-byte s 0)) 45)) -1
+                       (main-path-next a i paths)))))))))))
 
 (fn main-dest :str ((paths (ref (vec :str))) (outs (ref (vec :str))))
   (ret (if (> (vec-len outs) 0)
@@ -778,6 +784,14 @@
 (fn main-opt :str ((opts (ref (vec :str))))
   (ret (if (> (vec-len opts) 0)
          (vec-get opts (- (vec-len opts) 1)) "-O2")))
+
+(fn main-target-name :str ((ttargets (ref (vec :str))))
+  (ret (if (> (vec-len ttargets) 0)
+         (vec-get ttargets (- (vec-len ttargets) 1)) "x86_64-unknown-linux-gnu")))
+
+(fn main-target-bad :str ((target :str))
+  (ret (if (str-eq target "x86_64-unknown-linux-gnu") ""
+         (str-concat "unsupported target '" (str-concat target "': this compiler emits x86_64-unknown-linux-gnu only")))))
 
 (fn main-build :i64 ((a (ref (vec :str))) (n :i64) (prog :str))
   (letmut paths
@@ -792,13 +806,16 @@
   (letmut tnames
     (vec :str)
     (make (vec :str)))
+  (letmut ttargets
+    (vec :str)
+    (make (vec :str)))
   (letmut i :i64 2)
   (letmut bad :bool false)
   (letmut badat :i64 -1)
   (while (and (not bad)
            (< i n))
     (set badat i)
-    (set i (main-arg a n i paths outs opts tnames))
+    (set i (main-arg a n i paths outs opts tnames ttargets))
     (if (< i 0)
       (set bad true)
       (main-nothing)))
@@ -806,6 +823,11 @@
     (if bad
       (ret (main-bad-flag prog "build" a n badat))
       (ret (main-required prog "build" "FILE")))
+    (main-nothing))
+  (let target :str (main-target-name ttargets))
+  (let tbad :str (main-target-bad target))
+  (if (not (str-eq tbad ""))
+    (ret (main-cli-error prog "build" tbad))
     (main-nothing))
   (letmut status :i64 0)
   (letmut gone :str "")
@@ -819,11 +841,12 @@
       (set status (main-build-all paths
                     (main-dest paths outs)
                     (main-opt opts)
-                    (main-test-name tnames)))))
+                    (main-test-name tnames) target))))
   (vec-free paths)
   (vec-free outs)
   (vec-free opts)
   (vec-free tnames)
+  (vec-free ttargets)
   (ret status))
 
 (fn main-unreadable :str ((paths (ref (vec :str))))
@@ -841,8 +864,9 @@
   (let s :str (vec-get a i))
   (ret (if (or (str-eq s "-o")
              (or (str-eq s "--opt")
-               (or (str-eq s "--test")
-                 (str-eq s "--only"))))
+               (or (str-eq s "--target")
+                 (or (str-eq s "--test")
+                   (str-eq s "--only")))))
          (main-cli-error prog verb (str-concat "argument " (str-concat s ": expected one argument")))
          (main-unrecognized prog s))))
 
@@ -850,7 +874,7 @@
   (ret (if (> (vec-len tnames) 0)
          (vec-get tnames (- (vec-len tnames) 1)) "")))
 
-(fn main-build-all :i64 ((paths (ref (vec :str))) (dest :str) (opt :str) (tname :str))
+(fn main-build-all :i64 ((paths (ref (vec :str))) (dest :str) (opt :str) (tname :str) (target :str))
   (letmut mqual
     (vec :i64)
     (make (vec :i64)))
@@ -1058,7 +1082,7 @@
   (letmut cols
     (vec :i64)
     (make (vec :i64)))
-  (letmut status :i64 (main-built paths dest opt mqual sbase scount sftys ewords dsig dcnt dret sigtys fint fret fbase fcnt fparam fpc ptys bbase bcnt bterm bty bhas ops t1 t2 t3 n1 sst scn tst tcn tvals tags elem extra pbase tptypes pchild mtriple snames enames gnames gdata dnames fnames fsyms pnames blabels bv1 bv2 bv3 dests sa sb sc sd svals tnames powner tpnames pvname nod ntx out defs mods kinds texts lines cols tname))
+  (letmut status :i64 (main-built paths dest opt target mqual sbase scount sftys ewords dsig dcnt dret sigtys fint fret fbase fcnt fparam fpc ptys bbase bcnt bterm bty bhas ops t1 t2 t3 n1 sst scn tst tcn tvals tags elem extra pbase tptypes pchild mtriple snames enames gnames gdata dnames fnames fsyms pnames blabels bv1 bv2 bv3 dests sa sb sc sd svals tnames powner tpnames pvname nod ntx out defs mods kinds texts lines cols tname))
   (vec-free mqual)
   (vec-free sbase)
   (vec-free scount)
