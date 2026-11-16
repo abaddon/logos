@@ -275,3 +275,9 @@ Rulings:
 - Ruling: the gate list lives in ONE place (tools/gate-list) and AGENTS.md, tools/pr_gate.sh and the workflow all read it, so the three cannot drift.
 - Ruling: branch protection requires the `gate` check and one review, with no direct pushes to main, because a rule that admins bypass is not a rule.
 - Deferred to Stefano: public vs private, and the licence (without one, outside contributions are legally unclear).
+
+## Test-local helpers lowered (2026-11-16)
+- The S7 refusal recorded under "Memory-safety wave" above — `_check_test` refusing a `fn` node with E0002 `test-local helper functions are not lowered yet` — is superseded by issue #8 and is kept there as history, not as current behaviour. A `fn` written inside a `(test …)` is now a supported form.
+- Checker: `check-test-helpers` registers every helper in a module before any test body is checked (`check-test-helper`: `rt_` names reserved, `check-test-helper-dup` for a name already defined in the module's visible range, `check-signature` for the rest, `E0101` for type variables), kind 3 with the module as owner, so every test in the module sees every helper regardless of declaration order.
+- Backend: `lo-test-helpers` hands each helper to `lo-one-fn`, giving it the ordinary symbol `lg.<module>.<name>` with `internal` linkage. It is invisible to module-level functions (a call from one is `E0103: unknown function`), has no function value, and cannot be started with `spawn`.
+- Docs amended in the same change: the design spec's "Tests are grammar", `check.md`'s test-body gap note, and `lower.md`'s test mode.

@@ -248,14 +248,20 @@ where the tree keeps the form's head, and the diagnostic follows Python.
   the name resolves, and the E0005 rule only fires for an atom that names
   nothing.
 - **Test bodies, partly.** A `test` body is checked (`check-body-test`, wired
-  from `check-module-tree` after the `fn` bodies), but two shapes Python refuses
-  are skipped rather than refused. A `test`-local `fn` is passed over, so
-  Python's E0002 `test-local helper functions are not lowered yet` is
-  under-reported; a bare token in a test body is not on the tree's child chain
-  at all, so the E0002 `a test body must be a form` it earns at the `test` node
-  is under-reported too. `expect`/`expect-leak` are directives and skipped, as
-  Python skips them. A test is `:void` by construction, so no E0105 is owed and
-  none is checked.
+  from `check-module-tree` after the `fn` bodies). A `test`-local `fn` is no
+  longer passed over: `check-test-helpers` walks each test's children before
+  any test body runs and registers every helper through `check-test-helper` —
+  `rt_` names reserved, `check-test-helper-dup` against every earlier
+  definition in the module's visible range (`E0003`), `check-signature` for the
+  rest, `E0101` for type variables, and kind 3 with the module as owner in the
+  entry tables — so the earlier E0002 `test-local helper functions are not
+  lowered yet` under-report is closed: the lowering emits a helper, and a call
+  to one from a test resolves like any call. One shape Python refuses is still
+  skipped rather than refused: a bare token in a test body is not on the
+  tree's child chain at all, so the E0002 `a test body must be a form` it earns
+  at the `test` node is under-reported. `expect`/`expect-leak` are directives
+  and skipped, as Python skips them. A test is `:void` by construction, so no
+  E0105 is owed and none is checked.
 - **Duplicate `main` across imports.** `check-file` carries
   `_refuse_duplicate_main` and reports it when its module set has two roots
   that each define `main`. `gen2 check` has one root, so for a single-file
