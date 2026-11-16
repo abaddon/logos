@@ -1,0 +1,28 @@
+# Negatively-pinned expectations the compiler does not satisfy yet.
+#
+# Read by `tests/test_qa.py`, which runs every `*.expect` fixture through
+# `logosc build --json` and requires the code the sidecar names. A line here
+# suppresses that requirement for one fixture or one code, so the file is a
+# debt register, not a place to make a gate green:
+#
+#   * every entry is earned — a fixture line must still disagree with the
+#     compiler, and a code line must still have no fixture that emits it;
+#   * an entry that stops being needed fails the suite, so the line is removed
+#     rather than left to rot;
+#   * the total is capped (MAX_KNOWN_GAPS in tests/test_qa.py), so the register
+#     cannot grow to swallow a new failure.
+#
+# Measured at the commit that added each line; re-measure before changing one.
+# Format: kind, subject, then a reason on the same line.
+#
+# kind `code`    — a code in `logosc guide --json` that nothing in `tests/`
+#                  makes the compiler emit.
+# kind `fixture` — a `*.expect` sidecar whose fixture does not emit that code.
+
+code E0201 no emitter: the checker reports a struct field type mismatch as E0100 (measured: `(make point "not a number")` -> E0100 "field 'x' of 'point' expects :i64, found :str"); E0201 is published in the guide's table and emitted by nothing, so the table advertises a code an agent can never see. Owner: compiler (src/logosc/check.logos + guide table).
+
+fixture tests/generics/limit.logos E0500 unreachable from this fixture: `logosc build` and `logosc check` both exit 0 at -O0 and -O2, so the claimed instantiation limit is not reached by the program as written; E0500 itself is real (src/logosc/check_test.logos:790 pins it). The case has never been judged because a `*.expect` sidecar short-circuits the corpus harness (src/logosc/harness.logos h-file-parsed), so it is reported PASS without being compiled.
+
+fixture tests/regress/generic-vector.logos E0402 stale expectation: the compiler reports E0104 "cannot free immutable binding 'w'" first, because the fixture binds `w` with `let` and then calls `(vec-free w)`. The case means to test E0402 (a vector value is not copyable) and never reaches it; it has never been judged (same short-circuit).
+
+fixture tests/regress/owner-place-read.logos E0402 stale expectation: `logosc check` accepts the program (exit 0) and `logosc build` refuses it with E0103 "no 'main' function to build", so E0402 is what neither verb says. The program is valid as written, which suggests the sidecar belongs to a different shape of case; it has never been judged (same short-circuit).

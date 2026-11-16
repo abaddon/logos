@@ -1,0 +1,7 @@
+(mod unknown-field)
+
+(type point (struct (x :i64)))
+
+(fn f :i64 ()
+  (let p (make point 1))
+  (ret (get p z)))

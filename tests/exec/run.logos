@@ -48,6 +48,15 @@
   (let r (run "sh" a))
   (println (run-status r)))
 
+(test an-unstartable-program-panics
+  (expect (code 2)
+    (err-contains "R0006: could not start /nonexistent/logos-run"))
+  (letmut a
+    (vec :str)
+    (make (vec :str)))
+  (let r (run "/nonexistent/logos-run" a))
+  (println (run-status r)))
+
 (test run-across-a-thread
   (expect (out "5\n")
     (code 0)

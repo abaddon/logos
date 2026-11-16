@@ -226,7 +226,11 @@ tests/regress/div-zero.logos
 tests/regress/enum-payload-struct/program.logos
 tests/regress/enum-payload-struct/shapes.logos
 tests/regress/extern-rt/program.logos
+tests/regress/float-finite.logos
+tests/regress/float-leading-zeros.logos
 tests/regress/float-literal-compare.logos
+tests/regress/float-range-f32.logos
+tests/regress/float-range.logos
 tests/regress/generic-vector.logos
 tests/regress/int-overflow.logos
 tests/regress/libc-interposition.logos
@@ -354,6 +358,7 @@ tests/type/try-mismatch.logos
 tests/type/try-nonresult-fn.logos
 tests/type/try-nonresult.logos
 tests/type/unhandled-result.logos
+tests/type/unknown-field.logos
 tests/type/unknown-fn.logos
 tests/type/unknown-name-binding.logos
 tests/type/unknown-name.logos

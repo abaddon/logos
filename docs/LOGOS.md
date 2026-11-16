@@ -30,7 +30,7 @@ The ten rules that decide whether code compiles:
 9. Shared state must carry `(shared ...)`.
 10. A form the checker accepts, the backend can emit.
 
-Machine-readable: `logosc guide --json` prints the manifest (forms, types, operators, builtins, reserved, codes, categories). `logosc guide --check` proves this file matches the compiler.
+Machine-readable: `logosc guide --json` prints the manifest (schema_version, forms, types, operators, builtins, reserved, codes, categories), a stable contract with a published JSON schema in `docs/schemas/`. `logosc guide --check` proves this file matches the compiler.
 
 ## Manual
 
@@ -901,7 +901,7 @@ An `extern fn` may declare an `rt_` symbol — the runtime owns that definition 
 | `E0103` | unknown function |
 | `E0104` | not mutable |
 | `E0105` | missing return |
-| `E0106` | integer literal out of range |
+| `E0106` | literal out of range for its type |
 | `E0107` | unused binding |
 | `E0108` | the entry point is not callable |
 | `E0200` | unknown field |
