@@ -22,7 +22,7 @@ gen2 show <file> <path>
 gen2 fmt <file|dir|->...
 gen2 resolve <file>...
 gen2 check <file>
-gen2 build <file>... [-o <out>] [--opt <O>] [--test <name>] [--keep-ir]
+gen2 build <file>... [-o <out>] [--opt <O>] [--target <triple>] [--test <name>] [--keep-ir]
 gen2 test [<path>] [--only <category>] [--opt <level>]... [--update-baseline]
 gen2 guide [--json|--check]
 ```
@@ -42,11 +42,17 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 
 `build`'s flags may appear anywhere among its files, as Python's `argparse`
 allows: `-o OUT` names the binary, `--opt O` (or `--opt=O`) names the
-optimisation level and defaults to `-O2`, and `--keep-ir` is accepted and
-changes nothing, because the IR is always kept. A word that starts with `-` and
-is not one of those four is a usage error; a file whose name starts with `-`
-would have to be written with a path. A repeated `-o` or `--opt` takes the last
-value, as `argparse` does.
+optimisation level and defaults to `-O2`, `--target TRIPLE` (or
+`--target=TRIPLE`) names the triple the IR header and clang's `-target`
+receive — it defaults to `x86_64-unknown-linux-gnu`, and that is the only value
+accepted today, so any other triple is a usage error naming the value rather
+than a clang failure — and `--keep-ir` is accepted and changes nothing, because
+the IR is always kept. A word that starts with `-` and is not one of those five
+is a usage error; a file whose name starts with `-` would have to be written
+with a path. A repeated `-o`, `--opt` or `--target` takes the last value, as
+`argparse` does. `--target` is value-taking only under `build`, so
+`test --target x` is `unrecognized arguments: --target` — the word `test` never
+had the flag, and no value was supplied to it.
 
 `--test NAME` builds one `(test …)` body of the file as the program's `main`
 instead of the module's own: the third arity above is the only shape Python has
@@ -320,7 +326,7 @@ clang turns that file plus `logos/runtime/rt.c` into a native binary at `-o`, or
 at `build/<first file's stem>` when `-o` is absent:
 
 ```
-clang {opt} -target x86_64-unknown-linux-gnu build/<stem>.ll logos/runtime/rt.c \
+clang {opt} -target {target} build/<stem>.ll logos/runtime/rt.c \
     -o <out> -lpthread -lm
 ```
 
@@ -328,8 +334,12 @@ That is Python's command with Python's arguments (`driver.py:243-254`), which is
 why a build of the same set produces a byte-identical executable: clang embeds
 the IR file's basename and nothing else about the path, and both drivers keep
 the text at `build/<stem>.ll`. `{opt}` is `-O2` unless `--opt` says otherwise,
-and both link flags are unconditional. The build prints nothing to either
-stream on success and exits 0.
+`{target}` is `main-target-name`'s value — the last `--target` on the command
+line, or `x86_64-unknown-linux-gnu` when the flag is absent, checked by
+`main-target-bad` before the build starts and threaded down through
+`main-build-all`, `main-built` and `main-link` so the IR header's
+`target triple` and clang's `-target` cannot disagree — and both link flags are
+unconditional. The build prints nothing to either stream on success and exits 0.
 
 Two paths are created before they are used — `build/` for the IR, and the `-o`
 path's directory — because a fresh checkout has no `build/` directory.
@@ -429,12 +439,14 @@ leaves nothing behind that could be mistaken for a success.
 | `main-build a n prog` | `:i64` | read `build`'s flags and files, then build or report |
 | `main-bad-flag prog verb a n i` | `:i64` | the flag error at `argv[i]`: a missing value or an unknown word |
 | `main-unreadable paths` | `:str` | the first path `path-error` refuses, or `""` |
-| `main-arg a n i paths outs opts` | `:i64` | one argv word: the next index, or -1 for a usage error |
+| `main-arg a n i paths outs opts tnames ttargets` | `:i64` | one argv word: the next index, or -1 for a usage error |
 | `main-flag-next a i into` | `:i64` | push the word after a flag and skip both |
 | `main-attached-next s i into` | `:i64` | push the value of `--opt=…` and skip the word |
 | `main-path-next a i paths` | `:i64` | push a source path and step over it |
 | `main-dest paths outs` | `:str` | `-o`'s last value, or `build/<first stem>` |
 | `main-opt opts` | `:str` | `--opt`'s last value, or `-O2` |
+| `main-target-name ttargets` | `:str` | `--target`'s last value, or `x86_64-unknown-linux-gnu` |
+| `main-target-bad target` | `:str` | the unsupported-triple line for `target`, or `""` |
 | `main-paths a first count paths` | `:void` | copy `count` argv entries into a new `paths` vector |
 | `main-run verb path` | `:i64` | create the six vectors, run, free them, return the status |
 | `main-source verb path …` | `:i64` | read, lex, then parse or report `E0006` |
