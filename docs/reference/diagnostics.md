@@ -1,9 +1,10 @@
 # Diagnostics reference
 
 Every way `logosc` can fail, and how to read it. One diagnostic per run: the
-compiler stops at the first failure and prints exactly one line to stderr.
-There are no warnings — every code below is fatal for the command that produced
-it.
+compiler stops at the first failure and prints one message line to stderr —
+`<location>: <CODE>: <message>` — followed, when the failure names a node, by
+that node's canonical text indented four spaces. There are no warnings — every
+code below is fatal for the command that produced it.
 
 - Command line, streams and exit codes: [`cli.md`](cli.md).
 - What the language accepts: [`../LOGOS.md`](../LOGOS.md).
@@ -34,6 +35,12 @@ Two differences worth internalising:
   a clang failure, and an unwritable IR path. Match on the text prefix
   `logos: ` and the exit status `1`.
 
+Every row whose location is a node path — the resolver's, the checker's,
+lowering's and emit's — continues on the next line with that node's canonical
+text, indented four spaces, exactly as [Node paths](#node-paths) describes. The
+`file:line:col` rows and the `logos: …` row name no node and stop at one line.
+JSON output is unchanged by this: it carries `node_path` and no text.
+
 ## Node paths
 
 A node path locates one form in one file: `mod/function/child/child`. The first
@@ -54,7 +61,21 @@ The measured diagnostic for that file is `t/main/2/0: E0100: …` — "inside
 `main`, the third child, its head". Paths are **positional and stable**: an
 edit in another function does not renumber them, which is why they are a safe
 addressing scheme for tooling. `logosc show FILE PATH` prints exactly the node
-a path names.
+a path names, and the diagnostic prints that same text itself, so a reader does
+not need the second command:
+
+```text
+$ logosc check t.logos
+t/main/2/0: E0100: '+' needs numbers, found :str
+    (+ 1 "x")
+```
+
+The node line is the address's own content, from the renderer `show` uses:
+four spaces, then `show`'s text, whose own continuation lines keep their
+`show` indentation under those four. A diagnostic that names no node — a lexer
+or parser failure, which reports a position instead — has no node line, and
+neither has a path that does not resolve in the file being reported: a node in
+another module of a multi-file `build` prints the message line alone.
 
 A token can be addressed too: the return type is `t/main/1`.
 
@@ -174,9 +195,11 @@ table is meant to be exhaustive.
    means the file parsed and the checker refused it.
 2. **Code → subsystem.** `E0[1-7]xx` groups by rule family (see the tables
    above); `guide --json` holds the same code → meaning map for tooling.
-3. **Node path → the exact form.** `logosc show FILE <path>` prints the node
-   the compiler refused. `logosc show FILE <parent>` prints the enclosing form
-   when the offending node is a token.
+3. **Node → the exact form.** The line under the message is the form itself, so
+   the fix usually needs no other command. When the offending thing is a token
+   inside it, `logosc show FILE <path>` still prints the enclosing element,
+   `logosc show FILE <parent>` the enclosing form — the line and `show` agree by
+   construction.
 4. **Exit status → retry policy.** `2` = fix the source or the command; `1` =
    fix the environment. See [`cli.md`](cli.md#global-behaviour).
 
@@ -186,6 +209,7 @@ table is meant to be exhaustive.
 $ printf '(mod t)\n(fn main :void ()\n  (println (+ 1 "x")))\n' > t.logos
 $ logosc build t.logos
 t/main/2/0: E0100: '+' needs numbers, found :str     # node path, checker, exit 2
+    (+ 1 "x")                                        # the node the path names
 
 $ printf '(mod t)\n(fn main :void ( (println 1))\n' > u.logos
 $ logosc build u.logos
@@ -194,6 +218,10 @@ u.logos:2:1: E0001: unbalanced '('                    # position, parser, exit 2
 $ cd /tmp && logosc build u.logos
 u.logos:2:1: E0001: unbalanced '('                    # position, parser, exit 2
 ```
+
+The annotations after `#` are this page's, not output. A parser failure has no
+tree, so it has no node to print, and the third command prints one line like the
+second.
 
 The compiler resolves its runtime and standard library from its own
 installation, so the same source fails the same way wherever it is run.

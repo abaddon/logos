@@ -201,7 +201,8 @@ class JsonDiagnostics(unittest.TestCase):
             done = run(["build", path])
             self.assertEqual(done.returncode, 2)
             self.assertNotIn("{", done.stderr)
-            self.assertRegex(done.stderr, r"^bad/main/2/0: E0100: .+\n$")
+            self.assertRegex(done.stderr,
+                             r'^bad/main/2/0: E0100: .+\n    \(\+ 1 "x"\)\n$')
 
     def test_a_json_line_is_a_complete_document(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,6 +217,95 @@ class JsonDiagnostics(unittest.TestCase):
             diag = last_json(run(["build", path, "--json"]).stderr)["diagnostics"][0]
             self.assertEqual(diag["code"], "E0006")
             self.assertEqual((diag["line"], diag["col"]), (4, 12))
+
+
+class DiagnosticSubtree(unittest.TestCase):
+    """A plain diagnostic names the offending node, then shows it.
+
+    The second line onwards is the canonical text `logosc show FILE PATH`
+    prints for the path on the first line, indented four spaces, so an agent
+    reads the refused form without a second command. `--json` is unchanged: the
+    `node_path` field is the same path, and the field set is still
+    `schema_version` 1's.
+
+    A diagnostic whose path does not resolve in a fresh parse of the file it
+    names — a node in another module of a multi-file build, a synthetic path —
+    prints the message line alone. The compiler never renders a node it did not
+    find.
+    """
+
+    # (file name, source, the path its diagnostic names)
+    CASES = [
+        ("one-line", "(mod m)\n(fn f :i64 ((a :str)) (+ a 1))\n", "m/f/2"),
+        ("breaking", "(mod m)\n(fn g :i64 ((x :i64) (y :i64)) (ret x))\n"
+                     "(fn f :i64 ((a :i64))\n"
+                     "  (ret (g (+ a 1)\n          (+ a 2)\n          a)))\n",
+         "m/f/2/0"),
+    ]
+
+    def test_check_prints_the_named_node_under_the_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["check", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual(
+            done.stderr,
+            "m/f/2: E0100: '+' needs numbers, found :str\n"
+            "    (+ a 1)\n")
+
+    def test_build_prints_it_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["build", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr.splitlines()[-1], "    (+ a 1)")
+
+    def test_the_rendered_text_is_the_show_renderer(self):
+        """Every line of the trailer is `show`'s line plus four spaces."""
+        for name, source, path in self.CASES:
+            with self.subTest(case=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    write(tmp, name + ".logos", source)
+                    diag = run(["check", name + ".logos"], cwd=tmp)
+                    shown = run(["show", name + ".logos", path], cwd=tmp)
+                self.assertEqual(shown.returncode, 0, shown.stderr)
+                first, _, trailer = diag.stderr.partition("\n")
+                self.assertEqual(first.split(":")[0], path)
+                expected = "".join("    " + line + "\n"
+                                   for line in shown.stdout.splitlines())
+                self.assertEqual(trailer, expected)
+                self.assertEqual(len(shown.stdout.splitlines()) > 1,
+                                 name == "breaking")
+
+    def test_json_output_is_byte_identical(self):
+        expected = (
+            '{"schema_version":1,"diagnostics":[{"severity":"error",'
+            '"code":"E0100","message":"\'+\' needs numbers, found :str",'
+            '"node_path":"m/f/2","file":"p3.logos","line":0,"col":0}]}\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["--json", "check", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr, expected)
+
+    def test_a_path_from_another_module_prints_no_second_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "a.logos", "(mod a)\n(use b)\n(fn main :i64 ()\n"
+                                  "  (ret (h \"q\")))\n")
+            write(tmp, "b.logos", "(mod b)\n(fn h :i64 ((x :str)) (ret (+ x 1)))\n")
+            done = run(["build", "a.logos", "b.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr,
+                         "b/h/2/0: E0100: '+' needs numbers, found :str\n")
+
+    def test_a_parse_error_has_no_node_to_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "unbal.logos", "(mod m)\n(fn main :i64 ()\n  (println 1)\n")
+            done = run(["check", "unbal.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(len(done.stderr.splitlines()), 1, done.stderr)
+        self.assertIn("E0001", done.stderr)
 
 
 class Help(unittest.TestCase):

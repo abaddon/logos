@@ -276,9 +276,10 @@ class DiagnosticTest(unittest.TestCase):
         self.assertIn("greet/0: E0005: unknown module 'str'; searched: ", result.stderr)
         # The asking file's own directory first, the working directory last.
         self.assertIn(str(self.elsewhere / "str.logos"), result.stderr)
-        self.assertTrue(
-            result.stderr.rstrip("\n").endswith(", src/std/str.logos"), result.stderr
-        )
+        first = result.stderr.splitlines()[0]
+        self.assertTrue(first.endswith(", src/std/str.logos"), result.stderr)
+        # And the node the path names follows, indented four spaces.
+        self.assertEqual(result.stderr.splitlines()[1], "    (use str)")
 
     def test_a_missing_runtime_is_a_classified_diagnostic(self):
         path = self.elsewhere / "hello.logos"
