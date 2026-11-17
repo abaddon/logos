@@ -175,7 +175,16 @@ src/std/str.logos
 src/std/str_test.logos
 tests/diff/arith.logos
 tests/diff/arrays.logos
+tests/diff/float_arithmetic.logos
+tests/diff/float_f32_rounding.logos
+tests/diff/shifts_signed.logos
+tests/diff/shifts_unsigned.logos
 tests/diff/strings.logos
+tests/diff/struct_fields.logos
+tests/diff/struct_nested_fields.logos
+tests/diff/threaded_sum.logos
+tests/diff/vector_growth.logos
+tests/diff/vector_growth_repeated.logos
 tests/exec/args.logos
 tests/exec/cast.logos
 tests/exec/closures.logos
