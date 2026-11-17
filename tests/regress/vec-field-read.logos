@@ -1,0 +1,9 @@
+(mod vec-field-read)
+
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
+(fn main :void ()
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (vec-push (get b items) 1)
+  (let c (get b items))
+  (vec-free c))

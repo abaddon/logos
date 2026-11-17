@@ -1,5 +1,7 @@
 (mod vectors)
 
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
 (fn sum :i64 ((v (vec :i64)))
   (letmut i :i64 0)
   (letmut total :i64 0)
@@ -10,7 +12,7 @@
   (ret total))
 
 (test vectors
-  (expect (out "7\n3\n12\n")
+  (expect (out "7\n3\n12\n2\n5\n1\n")
     (code 0)
     (leaks 0))
   (letmut v
@@ -22,4 +24,14 @@
   (vec-set v 0 7)
   (println (vec-get v 0))
   (println (vec-len v))
-  (println (sum v)))
+  (println (sum v))
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (vec-push (get b items) 4)
+  (vec-push (get b items) 5)
+  (println (vec-len (get b items)))
+  (println (vec-get (get b items) 1))
+  (vec-free (get b items))
+  (set-field b items (make (vec :i64)))
+  (vec-push (get b items) 9)
+  (println (vec-len (get b items)))
+  (vec-free (get b items)))

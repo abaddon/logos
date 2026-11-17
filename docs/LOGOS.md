@@ -28,11 +28,12 @@ The ten rules that decide whether code compiles:
 3. A binding is block-scoped: function body, if branch, while body, match arm.
 4. A vector or owner-containing value moves; it is never copied.
 5. A value cannot be read out of a place when it owns memory.
-6. A release inside a loop is refused for a binding declared outside it.
-7. A capturing closure cannot cross a call boundary.
-8. A result must be handled: matched, tried, returned or passed on.
-9. Shared state must carry `(shared ...)`.
-10. A form the checker accepts, the backend can emit.
+6. A vector field is a place: `push`, `set`, `len`, `get` and `free` reach it, a free consumes it, and a record that owns one is moved, never copied.
+7. A release inside a loop is refused for a binding declared outside it.
+8. A capturing closure cannot cross a call boundary.
+9. A result must be handled: matched, tried, returned or passed on.
+10. Shared state must carry `(shared ...)`.
+11. A form the checker accepts, the backend can emit.
 
 Machine-readable: `logosc guide --json` prints the manifest (schema_version, forms, types, operators, builtins, reserved, codes, categories), a stable contract with a published JSON schema in `docs/schemas/`. `logosc guide --check` proves this file matches the compiler.
 
@@ -210,12 +211,14 @@ many
 
 (type segment (struct (from point) (to point)))
 
+(type record (struct (items (vec :i64)) (label :i64)))
+
 (fn total :i64 ((p point))
   (ret (+ (get p x)
          (get p y))))
 
 (test structs
-  (expect (out "3\n7\n7\n")
+  (expect (out "3\n7\n7\n10\n")
     (code 0)
     (leaks 0))
   (letmut p point (make point 1 2))
@@ -226,7 +229,13 @@ many
                    (make point 1 2)
                    (make point 3 4)))
   (let end-point (get s to))
-  (println (total end-point)))
+  (println (total end-point))
+  (letmut r record (make record (make (vec :i64)) 9))
+  (vec-push (get r items) 4)
+  (letmut moved r)
+  (println (+ (vec-len (get moved items))
+             (get moved label)))
+  (vec-free (get moved items)))
 ```
 
 Expected stdout, exit 0:
@@ -235,6 +244,7 @@ Expected stdout, exit 0:
 3
 7
 7
+10
 ```
 
 ### 6. Fixed arrays
@@ -245,7 +255,7 @@ Expected stdout, exit 0:
 (type point (struct (x :i64) (y :i64)))
 
 (test arrays
-  (expect (out "3\n9\n4\n")
+  (expect (out "3\n9\n4\n1\n")
     (code 0)
     (leaks 0))
   (letmut a
@@ -259,7 +269,16 @@ Expected stdout, exit 0:
     (make (arr point 2)
       (make point 1 2)
       (make point 3 4)))
-  (println (get (arr-get ps 1) y)))
+  (println (get (arr-get ps 1) y))
+  (letmut vs
+    (arr (vec :i64) 2)
+    (make (arr (vec :i64) 2)
+      (make (vec :i64))
+      (make (vec :i64))))
+  (vec-push (arr-get vs 0) 8)
+  (println (vec-len (arr-get vs 0)))
+  (vec-free (arr-get vs 1))
+  (vec-free (arr-get vs 0)))
 ```
 
 Expected stdout, exit 0:
@@ -268,6 +287,7 @@ Expected stdout, exit 0:
 3
 9
 4
+1
 ```
 
 ### 7. Strings
@@ -309,6 +329,8 @@ true
 ```logos
 (mod vectors)
 
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
 (fn sum :i64 ((v (vec :i64)))
   (letmut i :i64 0)
   (letmut total :i64 0)
@@ -319,7 +341,7 @@ true
   (ret total))
 
 (test vectors
-  (expect (out "7\n3\n12\n")
+  (expect (out "7\n3\n12\n2\n5\n1\n")
     (code 0)
     (leaks 0))
   (letmut v
@@ -331,7 +353,17 @@ true
   (vec-set v 0 7)
   (println (vec-get v 0))
   (println (vec-len v))
-  (println (sum v)))
+  (println (sum v))
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (vec-push (get b items) 4)
+  (vec-push (get b items) 5)
+  (println (vec-len (get b items)))
+  (println (vec-get (get b items) 1))
+  (vec-free (get b items))
+  (set-field b items (make (vec :i64)))
+  (vec-push (get b items) 9)
+  (println (vec-len (get b items)))
+  (vec-free (get b items)))
 ```
 
 Expected stdout, exit 0:
@@ -340,6 +372,9 @@ Expected stdout, exit 0:
 7
 3
 12
+2
+5
+1
 ```
 
 ### 9. alloc, free, own and ptr
@@ -732,11 +767,12 @@ Expected stdout, exit 0:
 | 3 | A binding is block-scoped: function body, if branch, while body, match arm. | `_Env.block()` pushes one scope per block; a name declared inside is gone at the closing parenthesis. |
 | 4 | A vector or owner-containing value moves; it is never copied. | `_move_only` and `_consume`: binding it or passing it moves it, and a second use is E0300 or E0402. |
 | 5 | A value cannot be read out of a place when it owns memory. | A struct field, an array or vector element and a dereference of an owning type are E0300/E0402 (`_OWNER_PLACE`, `_VEC_PLACE`). |
-| 6 | A release inside a loop is refused for a binding declared outside it. | E0303 `LOOP_MOVE`: the body is checked once, so a second pass would read a slot the first emptied. |
-| 7 | A capturing closure cannot cross a call boundary. | E0502 `CLOSURE_ESCAPE`: its environment is a slot in the creating frame, and `(fn* ...)` is not `(fn ...)`. |
-| 8 | A result must be handled: matched, tried, returned or passed on. | E0602 `UNHANDLED_RESULT` at the binding whose `(res T E)` is dropped in statement position. |
-| 9 | Shared state must carry `(shared ...)`. | E0700 `SHARED_MARKER` at the declaration and at the thread boundary, checked through aggregates. |
-| 10 | A form the checker accepts, the backend can emit. | Every checker branch has a lowerer branch; a form the backend cannot emit is a compiler bug, never a runtime surprise. |
+| 6 | A vector field is a place: `push`, `set`, `len`, `get` and `free` reach it, a free consumes it, and a record that owns one is moved, never copied. | `_VEC_PLACE` names the field or element; a free writes the empty descriptor there, and a second read of it is E0300 `_USE_AFTER_MOVE`. |
+| 7 | A release inside a loop is refused for a binding declared outside it. | E0303 `LOOP_MOVE`: the body is checked once, so a second pass would read a slot the first emptied. |
+| 8 | A capturing closure cannot cross a call boundary. | E0502 `CLOSURE_ESCAPE`: its environment is a slot in the creating frame, and `(fn* ...)` is not `(fn ...)`. |
+| 9 | A result must be handled: matched, tried, returned or passed on. | E0602 `UNHANDLED_RESULT` at the binding whose `(res T E)` is dropped in statement position. |
+| 10 | Shared state must carry `(shared ...)`. | E0700 `SHARED_MARKER` at the declaration and at the thread boundary, checked through aggregates. |
+| 11 | A form the checker accepts, the backend can emit. | Every checker branch has a lowerer branch; a form the backend cannot emit is a compiler bug, never a runtime surprise. |
 
 ### Forms
 

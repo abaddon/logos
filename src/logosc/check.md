@@ -126,7 +126,6 @@ multi-module fixtures needed the set instead of the name.
 | a struct field must be `(name type)` | E0002 | the field |
 | a field needs a name / duplicate field | E0002 / E0003 | the field |
 | owning fields are not supported yet | E0002 | the field |
-| vector fields are not supported yet | E0002 | the field |
 | result fields are not supported yet | E0002 | the field |
 | type variable in a field is unbound | E0501 | the field |
 | an enum needs at least one variant | E0002 | the enum |
