@@ -182,6 +182,13 @@ which is `fmt-form` at column zero for a form and `fmt-token` for a token, plus
 the newline `render` adds. The empty path is the file, and prints the whole
 canonical file exactly as `fmt` would (`fmt 1`).
 
+That rendering is `main-render`, and it is the module's only one: the
+diagnostic trailer below prints through it with a different descriptor and a
+four-space indent, so what a diagnostic shows and what `show` prints cannot
+drift. `fmt-indent` writes the indent and `fmt-form` breaks continuation lines
+at `indent + 2`, which is why a node rendered at 4 is `show`'s text with four
+spaces in front of every line.
+
 The path is the **node path the diagnostics print**: `mod/fn/2/1`. `tree-path`
 already computes it, so `main-find-tree` asks each top-level form for its
 stored path, compares, and descends through `main-find-below` by numbering each
@@ -267,11 +274,29 @@ still panics `R0007` at the `read-file` node path and exits 2, exactly as it
 does for any other Logos program
 (`docs/manual/19-runtime-access.logos`).
 
+A resolver, checker, lowering or emitter diagnostic names a node, so it is not
+one line: `main-diag-trailer` prints the canonical text of the node the path
+names under the message, four spaces in, through `main-render` — the same
+renderer `show` uses. It applies to every plain diagnostic (`check`,
+`resolve`, `build`), never to `--json`, which keeps `node_path` and no text.
+The cost is deliberate: one re-read and re-parse of the file being reported, on
+a failure path only, because the tree the walk held is freed before the message
+is printed and the node model carries no positions to slice source with.
+
+`main-diag-trailer` prints nothing when there is nothing to print: an empty
+path (a lexer or parser failure, which reports a position instead), an
+unreadable file, a source that no longer parses, or a path that does not
+resolve. The last is reachable in a multi-file `build`, where a diagnostic can
+name a node in an imported module (`b/h/2/0`) while the driver holds only the
+entry file's path: the trailer reparses the entry file, the path misses, and the
+reader gets the message line alone. Inventing text, or rendering the wrong node
+because the path happened to prefix-match, would be worse than the missing line.
+
 `gen2 resolve` lexes and parses one file, then runs `resolve-file` instead of
 `fmt`; with several files it runs `resolve-set-of` over all of them, which
 resolves the set as one unit (`resolve.md`). On success it prints nothing to
-either stream and exits 0. On a resolver diagnostic it prints exactly one line
-to stderr and exits 2:
+either stream and exits 0. On a resolver diagnostic it prints a message line
+to stderr, then the node it names (see above), and exits 2:
 
 ```
 <location>: <CODE>: <message>
@@ -302,7 +327,7 @@ stops before the checker, so a file with a type error resolves and exits 0.
 `gen2 check` lexes, parses and resolves the file exactly as `resolve` does,
 then builds `gen2`'s own module set from the resolver's answer and runs
 `check-file`. On success it prints nothing to either stream and exits 0. On a
-checker diagnostic it prints one line and exits 2:
+checker diagnostic it prints a message line, the node it names, and exits 2:
 
 ```text
 <path>: <CODE>: <message>
@@ -394,8 +419,11 @@ path, and `lower-code` renders the number (`2` → `E0002`). An `emit` refusal i
 so the diagnostic names the module (`tree-path` of the root, e.g. `m`) and uses
 `E0002` for "this arena cannot be printed". `main-ir-diag` is the one place
 that decides this; the port-only code is documented because Python's compiler
-raises instead of printing. **Neither is a panic**: a failed emit is a line on
-stderr and exit 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
+raises instead of printing. Every row whose location is a node path prints that
+node under the message (`main-diag-trailer`), the `m` of an emit refusal
+included: it renders `(mod m)`, which is the whole module form the path names
+and not a sentence about the arena. **Neither is a panic**: a failed emit is on
+stderr and exits 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
 
 The IR write and the link have no source location, so they cannot use the
 diagnostic shape above; they use Python's `build` shape instead, one `logos: …`
@@ -429,8 +457,8 @@ leaves nothing behind that could be mistaken for a success.
 | `main-show a n prog` | `:i64` | `show`'s arity, then the file and its path |
 | `main-show-file path target` | `:i64` | check the file, parse it, print one node or the miss |
 | `main-show-nodes path nodes ntexts target` | `:i64` | address the path and print what it names |
-| `main-show-one nodes ntexts id` | `:void` | print one form or one token, plus a newline |
-| `main-show-form`, `main-show-token` | `:void` | the two printer calls |
+| `main-show-one nodes ntexts id` | `:void` | print one form or one token at column zero, plus a newline |
+| `main-render fd nodes ntexts id indent` | `:void` | the one renderer: indent, form or token, newline; `show` passes 1 and 0, the diagnostic trailer 2 and 4 |
 | `main-show-missing path target` | `:i64` | `logos: show: no node at path …`, exit 1 |
 | `main-find-tree nodes ntexts path` | `:i64` | the node id at a path, or -1 |
 | `main-find-at nodes ntexts c path` | `:i64` | one top-level form: its own path, else below it |
@@ -521,6 +549,8 @@ leaves nothing behind that could be mistaken for a success.
 | `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a `logos:` line |
 | `main-spit-bad path` | `:i64` | print the output-file failure line and return 1 |
 | `main-diag path code line col msg` | `:i64` | print one lexer/parser diagnostic and return 2 |
+| `main-diag-trailer file at` | `:void` | re-read and re-parse `file`, then print the node `at` names, four spaces in; nothing when it does not resolve |
+| `main-diag-named at kinds texts lines cols nodes ntexts` | `:void` | tree-parse the reparsed file and render the node at `at` on descriptor 2 |
 | `main-nothing` | `:void` | the empty `else` branch of an early `ret` |
 | `main-usage` | `:i64` | print the usage lines and return 2 |
 | `main-write s` | `:void` | one `fmt-emit` to file descriptor 2 |

@@ -94,8 +94,9 @@ of `argv[0]`, so a binary installed as `logosc` prints `logosc`, and
 
 **Streams.** Success is silent for every verb except `version`, `show`,
 `guide` and `test`, which print their product to **stdout**. Every diagnostic
-and every usage error goes to **stderr**, one classified line, and stdout stays
-empty so `| jq` and `>` are safe.
+and every usage error goes to **stderr**, one classified message line — and,
+when the failure names a node, that node's canonical text on the following
+lines, indented four spaces — and stdout stays empty so `| jq` and `>` are safe.
 
 **`--json`.** On any command line, `--json` changes *diagnostics* and the two
 versioned documents, never the exit code and never stdout. A failing verb then
@@ -242,10 +243,12 @@ the checker refuses the type.
 Use it to answer "do my module names, imports and definitions line up" without
 paying for codegen.
 
-On a resolver diagnostic it prints **one** line to stderr, exit **2**:
+On a resolver diagnostic it prints a message line to stderr, exit **2**, and
+the named node's text under it when the path resolves:
 
 ```text
 <location>: <CODE>: <message>
+    <the node at that path, canonical, four spaces in>
 ```
 
 `<location>` is the node path the resolver named (`m/f`, `m/test/t`, `m/0`,
@@ -288,7 +291,9 @@ error**, not a warning, so a debugging build that leaves a binding unused fails
 to compile; and `check` cannot see anything that only appears at run time
 (leaks, panics, output).
 
-On a checker diagnostic: `<node-path>: <CODE>: <message>` on stderr, exit 2.
+On a checker diagnostic: `<node-path>: <CODE>: <message>` on stderr, exit 2,
+then the node's canonical text indented four spaces — the same text `logosc
+show FILE PATH` prints for that path.
 
 ## `build`
 
@@ -365,6 +370,12 @@ The pipeline stops at the first failure. Each stage has one shape:
 A failed link removes both artefacts, so a failed build never leaves something
 that could be mistaken for a success.
 
+Every row whose shape begins with a node path — resolver, checker, lowering,
+emit, the duplicate-`main` case — continues with that node's canonical text
+indented four spaces, when the path resolves in the file being reported. The
+`file:line:col` and `logos: …` rows name no node and stay one line.
+[`diagnostics.md`](diagnostics.md) is the full account.
+
 ### Worked example
 
 ```sh
@@ -383,13 +394,16 @@ A source error, whole interaction:
 $ printf '(mod t)\n\n(fn main :void ()\n  (println (+ 1 "x")))\n' > t.logos
 $ logosc build t.logos
 t/main/2/0: E0100: '+' needs numbers, found :str
+    (+ 1 "x")
 $ echo $?
 2
 ```
 
-Read that line as: module `t`, function `main`, the third child (`0` is the
-name), the first child of that — the `+` form. `E0100` is `type mismatch`;
-[`diagnostics.md`](diagnostics.md) has the full table.
+Read the first line as: module `t`, function `main`, the third child (`0` is the
+name), the first child of that — the `+` form — and the second line as that
+form's own text, the same bytes `logosc show t.logos t/main/2/0` prints.
+`E0100` is `type mismatch`; [`diagnostics.md`](diagnostics.md) has the full
+table.
 
 ### Running the result
 

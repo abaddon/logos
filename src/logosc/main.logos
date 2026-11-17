@@ -228,22 +228,18 @@
   (fmt-emit 2 (str-concat "logos: show: no node at path '" (str-concat target (str-concat "' in " (str-concat path "\n")))))
   (ret 1))
 
-(fn main-show-form :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
-  (let _ :i64 (fmt-form 1 nodes ntexts id 0))
-  (fmt-emit 1 "\n")
-  (ret))
-
-(fn main-show-token :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
-  (let _ :i64 (fmt-token 1 ntexts
-                (get (vec-get nodes id) tok)
-                (get (vec-get nodes id) text) 0))
-  (fmt-emit 1 "\n")
+(fn main-render :void ((fd :i64) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64) (indent :i64))
+  (let _ :i64 (if (= (get (vec-get nodes id) tok) -1)
+                (fmt-form fd nodes ntexts id (fmt-indent fd indent))
+                (fmt-token fd ntexts
+                  (get (vec-get nodes id) tok)
+                  (get (vec-get nodes id) text)
+                  (fmt-indent fd indent))))
+  (fmt-emit fd "\n")
   (ret))
 
 (fn main-show-one :void ((nodes (ref (vec node))) (ntexts (ref (vec :str))) (id :i64))
-  (if (= (get (vec-get nodes id) tok) -1)
-    (main-show-form nodes ntexts id)
-    (main-show-token nodes ntexts id))
+  (main-render 1 nodes ntexts id 0)
   (ret))
 
 (fn main-show-nodes :i64 ((path :str) (nodes (ref (vec node))) (ntexts (ref (vec :str))) (target :str))
@@ -314,6 +310,56 @@
   (main-write "\n")
   (ret))
 
+(fn main-diag-trailer :void ((file :str) (at :str))
+  (if (or (str-eq file "")
+        (str-eq at ""))
+    (ret)
+    (main-nothing))
+  (if (> (str-len (main-file-why file)) 0)
+    (ret)
+    (main-nothing))
+  (letmut kinds
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut texts
+    (vec :str)
+    (make (vec :str)))
+  (letmut lines
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut cols
+    (vec :i64)
+    (make (vec :i64)))
+  (letmut nodes
+    (vec node)
+    (make (vec node)))
+  (letmut ntexts
+    (vec :str)
+    (make (vec :str)))
+  (let src :str (read-file file))
+  (let e lex-error (lex src kinds texts lines cols))
+  (if (lex-ok e)
+    (main-diag-named at kinds texts lines cols nodes ntexts)
+    (main-nothing))
+  (vec-free kinds)
+  (vec-free texts)
+  (vec-free lines)
+  (vec-free cols)
+  (vec-free nodes)
+  (vec-free ntexts)
+  (ret))
+
+(fn main-diag-named :void ((at :str) (kinds (ref (vec :i64))) (texts (ref (vec :str))) (lines (ref (vec :i64))) (cols (ref (vec :i64))) (nodes (ref (vec node))) (ntexts (ref (vec :str))))
+  (let t tree-error (tree-parse kinds texts lines cols nodes ntexts))
+  (if (not (tree-ok t))
+    (ret)
+    (main-nothing))
+  (let id :i64 (main-find-tree nodes ntexts at))
+  (if (< id 0)
+    (ret)
+    (main-render 2 nodes ntexts id 4))
+  (ret))
+
 (fn main-diag-text :void ((path :str) (code :str) (line :i64) (col :i64) (msg :str))
   (if (main-json-mode)
     (main-diag-json path "" code line col msg)
@@ -340,6 +386,8 @@
   (main-write ": ")
   (main-write (get e message))
   (main-write "\n")
+  (main-diag-trailer (main-diag-file (get e file) file)
+    (get e path))
   (ret 2))
 
 (fn main-diag-file :str ((file :str) (at :str))
@@ -376,6 +424,7 @@
   (main-write ": ")
   (main-write (get e message))
   (main-write "\n")
+  (main-diag-trailer file at)
   (ret 2))
 
 (fn main-check-diag :i64 ((file :str) (e check-error))
@@ -418,6 +467,7 @@
   (main-write ": ")
   (main-write (get e message))
   (main-write "\n")
+  (main-diag-trailer file at)
   (ret 2))
 
 (fn main-lower-diag :i64 ((file :str) (e lower-error))
@@ -433,6 +483,7 @@
   (main-write ": E0002: ")
   (main-write msg)
   (main-write "\n")
+  (main-diag-trailer file at)
   (ret 2))
 
 (fn main-ir-diag :i64 ((file :str) (nod (ref (vec node))) (ntx (ref (vec :str))) (e ir-error))

@@ -74,8 +74,9 @@ binary.
 | `1` | the **environment** is wrong: unreadable/missing file, `runtime not found`, clang failure, unwritable IR, `show` path miss, `test` case failure or baseline regression, stale manual | yes — after fixing the environment |
 
 Success is silent for every verb except `version`, `show`, `guide` and `test`.
-Diagnostics go to stderr only, one line per run. Flags, streams, artefact paths
-and the exact shapes: [`cli.md`](cli.md).
+Diagnostics go to stderr only: one message line per run, plus the offending
+node's own text when the diagnostic names one, indented four spaces. Flags,
+streams, artefact paths and the exact shapes: [`cli.md`](cli.md).
 
 ### Machine-readable surfaces
 
@@ -84,7 +85,7 @@ and the exact shapes: [`cli.md`](cli.md).
 | `--json` diagnostics | one JSON object per line on stderr: `schema_version`, `diagnostics[]` of `{severity, code, message, node_path, file, line, col}` | `schema_version` 1; schema at `../schemas/diagnostic-v1.schema.json` |
 | `logosc version --json` | `{"schema_version":1,"name":"logos","version":"…"}` | `schema_version` 1 |
 | `logosc guide --json` | one object: `schema_version`, `forms` (96), `types` (16), `operators` (17), `builtins` (2), `reserved` {`forms`,`prefixes`,`variants`}, `codes` (36), `categories` (8) | `schema_version` 1: a breaking change bumps it |
-| node paths | every diagnostic names one, e.g. `t/main/2/0`; `show FILE PATH` prints that node | positional and stable across edits elsewhere |
+| node paths | every diagnostic names one, e.g. `t/main/2/0`; `show FILE PATH` prints that node, and a plain diagnostic prints the same text under its message | positional and stable across edits elsewhere |
 | exit codes | `0` success, `2` source or usage error, `1` I/O or toolchain failure | pinned one test per row (`tests/test_cli.py::ExitCodes`) |
 
 With `--json`, diagnostics never change the exit code and never touch stdout.
