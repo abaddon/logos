@@ -34,9 +34,12 @@ native ELF binaries. No hand translation to C at any stage.
 - Self-hosting (`logosc` is Python in v1). It is a later project.
 - Garbage collection, borrow checking, ownership inference, macros,
   metaprogramming, inheritance, operator overloading.
-- Targets other than Linux x86_64. The backend stays target-agnostic: the
-  target triple is a compiler flag, so arm64 and Darwin remain one flag
-  and one runtime build away.
+- Targets other than Linux. The backend stays target-agnostic: the target
+  triple is a compiler flag. arm64 Linux became the second emitted triple
+  (issue #2, `--target aarch64-unknown-linux-gnu`: runtime cross-built in the
+  same clang invocation, static link, gates run the ELF under qemu), so
+  "one flag and one runtime build away" now describes Darwin only, which is
+  issue #10.
 - Optimisation of its own. clang optimises the emitted IR.
 
 An anti-goal: a language that hides behaviour. Implicit conversion, hidden
@@ -465,7 +468,14 @@ constant is rounded to single precision once, at compile time, before its bits
 are written.
 
 Diagnostics carry: path, a code (`E0421`), one sentence, and the minimal
-subtree. No advice, no prose.
+subtree. No advice, no prose. The subtree is the smallest node the path names,
+printed under the sentence and indented four spaces as the canonical text
+`logosc show FILE PATH` prints for that same path — one renderer serves both, so
+the two cannot disagree. A lexer or parser failure names no node and has no
+subtree line; a path that does not resolve in the file being reported prints
+none, because the compiler does not render text it did not find. `--json`
+carries the path as `node_path` and not the text: the machine form keeps one
+address per diagnostic and reads the node with `show`.
 
 Runtime (`runtime/rt.c`, about 400 lines): allocator with leak tracking,
 panic with path and message, string builder, integer and float formatting,
@@ -548,3 +558,15 @@ With no manual step:
 6. Error types are declared enums, and `try` needs an exact type match.
 7. Structs use C layout, enums stay out of C, and `extern` is in v1.
 8. `:int` is dropped in favour of `:i64`.
+
+## Amendments after v1
+
+- 2026-11-17 — arm64 Linux is emitted, not promised. `build --target
+  aarch64-unknown-linux-gnu` writes that triple into the IR header and passes
+  it to clang, which compiles `logos/runtime/rt.c` for the triple in the same
+  invocation that links the program; the foreign triple adds `-static
+  -fuse-ld=lld` because the host linker cannot link an aarch64 ELF. `test
+  --target` runs a corpus with each case built for the triple and executed
+  under `qemu-aarch64`. The default `x86_64-unknown-linux-gnu` command line is
+  unchanged. Evidence and the one emulator-bound corpus case are in the pull
+  request and on issue #2.

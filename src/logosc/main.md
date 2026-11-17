@@ -23,7 +23,7 @@ gen2 fmt <file|dir|->...
 gen2 resolve <file>...
 gen2 check <file>
 gen2 build <file>... [-o <out>] [--opt <O>] [--target <triple>] [--test <name>] [--keep-ir]
-gen2 test [<path>] [--only <category>] [--opt <level>]... [--update-baseline]
+gen2 test [<path>] [--only <category>] [--opt <level>]... [--target <triple>] [--update-baseline]
 gen2 guide [--json|--check]
 ```
 
@@ -44,15 +44,15 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 allows: `-o OUT` names the binary, `--opt O` (or `--opt=O`) names the
 optimisation level and defaults to `-O2`, `--target TRIPLE` (or
 `--target=TRIPLE`) names the triple the IR header and clang's `-target`
-receive — it defaults to `x86_64-unknown-linux-gnu`, and that is the only value
-accepted today, so any other triple is a usage error naming the value rather
-than a clang failure — and `--keep-ir` is accepted and changes nothing, because
-the IR is always kept. A word that starts with `-` and is not one of those five
-is a usage error; a file whose name starts with `-` would have to be written
-with a path. A repeated `-o`, `--opt` or `--target` takes the last value, as
-`argparse` does. `--target` is value-taking only under `build`, so
-`test --target x` is `unrecognized arguments: --target` — the word `test` never
-had the flag, and no value was supplied to it.
+receive — it defaults to `x86_64-unknown-linux-gnu`, and
+`aarch64-unknown-linux-gnu` is the other value accepted, so a third triple is a
+usage error naming the value and the two the compiler can emit, rather than a
+clang failure — and `--keep-ir` is accepted and changes nothing, because the IR
+is always kept. A word that starts with `-` and is not one of those five is a
+usage error; a file whose name starts with `-` would have to be written with a
+path. A repeated `-o`, `--opt` or `--target` takes the last value, as
+`argparse` does. `--target` is value-taking under `build` and under `test`; the
+other verbs do not claim it, so there it is `unrecognized arguments`.
 
 `--test NAME` builds one `(test …)` body of the file as the program's `main`
 instead of the module's own: the third arity above is the only shape Python has
@@ -70,6 +70,14 @@ leak report is compiled in. A repeated `--test` takes the last value. See
 one flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two
 levels, `--opt=-O0` is one, and a run with no `--opt` is both. A second
 positional argument, and any other word starting with `-`, is a usage error.
+`--target TRIPLE` (or `--target=TRIPLE`) builds each case for that triple and
+runs it with the matching runner: `h-execute` passes `--target` to the
+`build --test` child, and for a foreign triple prefixes the run with
+`qemu-aarch64-static` (or `qemu-aarch64`, whichever answers `-version`), so a
+host-built case is never executed as if it were the target's. The triple
+reaches `h-execute` through `h-run` and the file/test walk because
+`harness.logos` has no global to hold it; the chain is one extra argument, not
+a second code path.
 
 `--update-baseline` rewrites `<root>/summary.txt`, the suite's recorded result,
 and is the only way that file is ever written once Python is gone. It is
@@ -82,6 +90,16 @@ one line each and exit 2, e.g.
 logos: test: --update-baseline needs a directory, not a single file
 logos: test: --update-baseline needs the suite root, not the category directory 'tests/exec'
 logos: test: --update-baseline needs the suite root, a directory holding a category such as 'exec'; 'examples' is not one
+```
+
+`main-test-run` refuses one combination before any of those: a foreign triple
+with `--update-baseline`. The file records no target, so an aarch64 run
+rewriting it would leave the host comparison checking ARM numbers against a
+host run — the next host run would then report regressions that are the
+baseline's fault. It is a usage error, one line, exit 2:
+
+```
+logos: test: --update-baseline cannot be combined with --target aarch64-unknown-linux-gnu: summary.txt is the host baseline and records no target
 ```
 
 The run is `harness.logos`'s (`h-run`), and this file gives it the levels and
@@ -182,6 +200,13 @@ which is `fmt-form` at column zero for a form and `fmt-token` for a token, plus
 the newline `render` adds. The empty path is the file, and prints the whole
 canonical file exactly as `fmt` would (`fmt 1`).
 
+That rendering is `main-render`, and it is the module's only one: the
+diagnostic trailer below prints through it with a different descriptor and a
+four-space indent, so what a diagnostic shows and what `show` prints cannot
+drift. `fmt-indent` writes the indent and `fmt-form` breaks continuation lines
+at `indent + 2`, which is why a node rendered at 4 is `show`'s text with four
+spaces in front of every line.
+
 The path is the **node path the diagnostics print**: `mod/fn/2/1`. `tree-path`
 already computes it, so `main-find-tree` asks each top-level form for its
 stored path, compares, and descends through `main-find-below` by numbering each
@@ -267,11 +292,29 @@ still panics `R0007` at the `read-file` node path and exits 2, exactly as it
 does for any other Logos program
 (`docs/manual/19-runtime-access.logos`).
 
+A resolver, checker, lowering or emitter diagnostic names a node, so it is not
+one line: `main-diag-trailer` prints the canonical text of the node the path
+names under the message, four spaces in, through `main-render` — the same
+renderer `show` uses. It applies to every plain diagnostic (`check`,
+`resolve`, `build`), never to `--json`, which keeps `node_path` and no text.
+The cost is deliberate: one re-read and re-parse of the file being reported, on
+a failure path only, because the tree the walk held is freed before the message
+is printed and the node model carries no positions to slice source with.
+
+`main-diag-trailer` prints nothing when there is nothing to print: an empty
+path (a lexer or parser failure, which reports a position instead), an
+unreadable file, a source that no longer parses, or a path that does not
+resolve. The last is reachable in a multi-file `build`, where a diagnostic can
+name a node in an imported module (`b/h/2/0`) while the driver holds only the
+entry file's path: the trailer reparses the entry file, the path misses, and the
+reader gets the message line alone. Inventing text, or rendering the wrong node
+because the path happened to prefix-match, would be worse than the missing line.
+
 `gen2 resolve` lexes and parses one file, then runs `resolve-file` instead of
 `fmt`; with several files it runs `resolve-set-of` over all of them, which
 resolves the set as one unit (`resolve.md`). On success it prints nothing to
-either stream and exits 0. On a resolver diagnostic it prints exactly one line
-to stderr and exits 2:
+either stream and exits 0. On a resolver diagnostic it prints a message line
+to stderr, then the node it names (see above), and exits 2:
 
 ```
 <location>: <CODE>: <message>
@@ -302,7 +345,7 @@ stops before the checker, so a file with a type error resolves and exits 0.
 `gen2 check` lexes, parses and resolves the file exactly as `resolve` does,
 then builds `gen2`'s own module set from the resolver's answer and runs
 `check-file`. On success it prints nothing to either stream and exits 0. On a
-checker diagnostic it prints one line and exits 2:
+checker diagnostic it prints a message line, the node it names, and exits 2:
 
 ```text
 <path>: <CODE>: <message>
@@ -340,6 +383,16 @@ line, or `x86_64-unknown-linux-gnu` when the flag is absent, checked by
 `main-build-all`, `main-built` and `main-link` so the IR header's
 `target triple` and clang's `-target` cannot disagree — and both link flags are
 unconditional. The build prints nothing to either stream on success and exits 0.
+
+`{target}` is also what decides the link's shape. For
+`aarch64-unknown-linux-gnu`, `main-link-cross` pushes `-static` and
+`-fuse-ld=lld` onto the same argv before the inputs: the host `ld` cannot link
+an ELF aarch64 (it answers `unrecognised emulation mode: aarch64linux`), and a
+static binary needs no aarch64 loader when it is run under `qemu-aarch64`. The
+runtime is not a separate build — `rt.c` is an input of that same clang command,
+so it is compiled for `{target}` in the invocation that links it and a
+host-built object can never enter a foreign ELF. The host triple pushes neither
+flag, so the default command line is byte-for-byte what it was.
 
 Two paths are created before they are used — `build/` for the IR, and the `-o`
 path's directory — because a fresh checkout has no `build/` directory.
@@ -394,8 +447,11 @@ path, and `lower-code` renders the number (`2` → `E0002`). An `emit` refusal i
 so the diagnostic names the module (`tree-path` of the root, e.g. `m`) and uses
 `E0002` for "this arena cannot be printed". `main-ir-diag` is the one place
 that decides this; the port-only code is documented because Python's compiler
-raises instead of printing. **Neither is a panic**: a failed emit is a line on
-stderr and exit 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
+raises instead of printing. Every row whose location is a node path prints that
+node under the message (`main-diag-trailer`), the `m` of an emit refusal
+included: it renders `(mod m)`, which is the whole module form the path names
+and not a sentence about the arena. **Neither is a panic**: a failed emit is on
+stderr and exits 2, and a bad `-o` path is `logos: cannot write <path>`, exit 1.
 
 The IR write and the link have no source location, so they cannot use the
 diagnostic shape above; they use Python's `build` shape instead, one `logos: …`
@@ -429,8 +485,8 @@ leaves nothing behind that could be mistaken for a success.
 | `main-show a n prog` | `:i64` | `show`'s arity, then the file and its path |
 | `main-show-file path target` | `:i64` | check the file, parse it, print one node or the miss |
 | `main-show-nodes path nodes ntexts target` | `:i64` | address the path and print what it names |
-| `main-show-one nodes ntexts id` | `:void` | print one form or one token, plus a newline |
-| `main-show-form`, `main-show-token` | `:void` | the two printer calls |
+| `main-show-one nodes ntexts id` | `:void` | print one form or one token at column zero, plus a newline |
+| `main-render fd nodes ntexts id indent` | `:void` | the one renderer: indent, form or token, newline; `show` passes 1 and 0, the diagnostic trailer 2 and 4 |
 | `main-show-missing path target` | `:i64` | `logos: show: no node at path …`, exit 1 |
 | `main-find-tree nodes ntexts path` | `:i64` | the node id at a path, or -1 |
 | `main-find-at nodes ntexts c path` | `:i64` | one top-level form: its own path, else below it |
@@ -441,12 +497,13 @@ leaves nothing behind that could be mistaken for a success.
 | `main-unreadable paths` | `:str` | the first path `path-error` refuses, or `""` |
 | `main-arg a n i paths outs opts tnames ttargets` | `:i64` | one argv word: the next index, or -1 for a usage error |
 | `main-flag-next a i into` | `:i64` | push the word after a flag and skip both |
-| `main-attached-next s i into` | `:i64` | push the value of `--opt=…` and skip the word |
+| `main-attached-next s off i into` | `:i64` | push the value after `off` in `--opt=…`/`--target=…` |
 | `main-path-next a i paths` | `:i64` | push a source path and step over it |
 | `main-dest paths outs` | `:str` | `-o`'s last value, or `build/<first stem>` |
 | `main-opt opts` | `:str` | `--opt`'s last value, or `-O2` |
 | `main-target-name ttargets` | `:str` | `--target`'s last value, or `x86_64-unknown-linux-gnu` |
-| `main-target-bad target` | `:str` | the unsupported-triple line for `target`, or `""` |
+| `main-target-bad target` | `:str` | the unsupported-triple line for `target`, or `""`; x86_64 and aarch64 Linux are supported |
+| `main-link-cross argv target` | `:void` | push the `-static -fuse-ld=lld` a foreign triple needs; host triple untouched |
 | `main-paths a first count paths` | `:void` | copy `count` argv entries into a new `paths` vector |
 | `main-run verb path` | `:i64` | create the six vectors, run, free them, return the status |
 | `main-source verb path …` | `:i64` | read, lex, then parse or report `E0006` |
@@ -464,7 +521,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-fmt-bad path msg` | `:i64` | print `logos: <path>: <msg>` and return 1 |
 | `main-fmt-twice` | `:i64` | print the repeated-`-` line and return 2 |
 | `main-test a n prog` | `:i64` | read `test`'s path and flags, then run the harness or report |
-| `main-test-arg a i n path only flags` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
+| `main-test-arg a i n path only levels flags ttargets` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
 | `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
 | `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
 | `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
@@ -472,7 +529,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-test-opt-eq s next levels` | `:i64` | push an attached `--opt=-O0`'s value and skip the word |
 | `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
 | `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
-| `main-test-run path only levels flags` | `:i64` | check the baseline root, validate `--only`, call `h-run` |
+| `main-test-run path only levels flags target` | `:i64` | refuse a foreign triple with `--update-baseline`, check the baseline root, validate `--only` and the triple, call `h-run` |
 | `main-test-baseline root` | `:i64` | run Python's `_baseline_argument_problem`; 0 when the root is a suite |
 | `main-baseline-problem path` | `:str` | why the root cannot own a baseline, or `""` |
 | `main-baseline-root-problem path` | `:str` | the directory half: a suite root, not a category or a stray |
@@ -499,7 +556,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
-| `main-build-all paths dest opt` | `:i64` | create the arena, run the pipeline over the files, free it, return the status |
+| `main-build-all paths dest opt tname target` | `:i64` | create the arena, run the pipeline over the files, free it, return the status |
 | `main-built paths dest opt …` | `:i64` | read, lex and parse the first root, resolve the set, check it, load every other module, lower the unit, emit, write `build/<stem>.ll`, link |
 | `main-stem path` | `:str` | the file name without its directory and last extension |
 | `main-ir-path path` | `:str` | `build/<stem>.ll`, where the IR always goes |
@@ -510,7 +567,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-exists path` | `:bool` | whether `path` is a regular file (`test -f`) |
 | `main-mkdir dir` | `:void` | `(mkdirs dir)`, ignoring the status |
 | `main-joined argv` | `:str` | the command line as one line, for the failure message |
-| `main-link ll out opt` | `:i64` | link `ll` and the runtime into `out`; 0 or the failure line |
+| `main-link ll out opt dbg file target` | `:i64` | link `ll` and the runtime into `out`; 0 or the failure line |
 | `main-link-bad text r ll out` | `:i64` | print clang's failure, remove both artefacts, return 1 |
 | `main-link-missing ll out rt` | `:i64` | print the missing-runtime line, remove both artefacts, return 1 |
 | `main-fail msg` | `:i64` | print one `logos: …` line and return 1 |
@@ -521,6 +578,8 @@ leaves nothing behind that could be mistaken for a success.
 | `main-spit path text` | `:i64` | open `path`, write `text`, close it; 0 or a `logos:` line |
 | `main-spit-bad path` | `:i64` | print the output-file failure line and return 1 |
 | `main-diag path code line col msg` | `:i64` | print one lexer/parser diagnostic and return 2 |
+| `main-diag-trailer file at` | `:void` | re-read and re-parse `file`, then print the node `at` names, four spaces in; nothing when it does not resolve |
+| `main-diag-named at kinds texts lines cols nodes ntexts` | `:void` | tree-parse the reparsed file and render the node at `at` on descriptor 2 |
 | `main-nothing` | `:void` | the empty `else` branch of an early `ret` |
 | `main-usage` | `:i64` | print the usage lines and return 2 |
 | `main-write s` | `:void` | one `fmt-emit` to file descriptor 2 |

@@ -87,7 +87,7 @@
   (letmut err
     (vec :str)
     (make (vec :str)))
-  (h-baseline-lines 1 "tests/summary.txt" baseline run leaks opts full scope out err)
+  (h-baseline-lines 1 "tests/summary.txt" baseline run leaks opts full scope out err "x86_64-unknown-linux-gnu")
   (bt-print out)
   (bt-print err)
   (vec-free run)
@@ -109,7 +109,7 @@
   (letmut err
     (vec :str)
     (make (vec :str)))
-  (h-baseline-lines 0 "tests/summary.txt" "" run 0 "-O0 -O2" 1 scope out err)
+  (h-baseline-lines 0 "tests/summary.txt" "" run 0 "-O0 -O2" 1 scope out err "x86_64-unknown-linux-gnu")
   (bt-print out)
   (bt-print err)
   (vec-free run)

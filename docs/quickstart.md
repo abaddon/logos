@@ -87,11 +87,15 @@ EOF
 
 ```text
 broken/main/2/0: E0100: '+' needs numbers, found :str
+    (+ 1 "x")
 ```
 
-Exit status **2** — "the source is wrong". The line is `<node path>: <code>:
-<message>`; `broken/main/2/0` is the module, `main`, its third child, that
-child's head. `logosc show` prints the node a path names:
+Exit status **2** — "the source is wrong". The first line is `<node path>:
+<code>: <message>`; `broken/main/2/0` is the module, `main`, its third child,
+that child's head. The line under it is that node, rendered: the diagnostic
+names the offending form and shows it, so the broken expression is in front of
+you. `logosc show` prints the same text for any path, including the enclosing
+form:
 
 ```sh
 ./tools/logosc.sh show broken.logos broken/main/2
@@ -111,6 +115,7 @@ Codes, shapes and the retry policy: [`reference/diagnostics.md`](reference/diagn
 
 ```text
 broken/main/2/0: E0100: '+' needs numbers, found :str
+    (+ 1 "x")
 ```
 
 `check` is the same source diagnosis without codegen or clang — the call to

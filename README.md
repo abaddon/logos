@@ -1,7 +1,8 @@
 # Logos
 
 Logos is a prefix-form language built for AI readers, with `logosc`, a compiler
-that turns Logos source into native x86_64 Linux binaries.
+that turns Logos source into native Linux binaries: x86_64 by default, and
+arm64 with `build --target aarch64-unknown-linux-gnu`.
 
 The design goal is that a model can read and write the language without
 guessing. There is no implicit conversion, no hidden allocation, no hidden
@@ -63,8 +64,9 @@ Not done, and why this is 0.2.x rather than 1.0.0:
 - **No `logosc doctor`** (an install self-check) and **no `patch` verb**.
 - **The standard library is 21 functions**: no `str` → integer parsing, and
   `map` is `:str` keys with `:i64` values only.
-- **One platform**: x86_64 Linux with `clang` 14 at build time of every
-  program.
+- **Two targets**: x86_64 Linux by default, arm64 Linux with
+  `--target aarch64-unknown-linux-gnu`, which needs the aarch64 cross
+  toolchain. clang is still required at build time of every program.
 
 Read the status as: *you can hand a compiler to somebody else today, and you
 can see exactly which corners are unfinished.*
@@ -103,7 +105,7 @@ output copied from a real run.
 
 | Need | For |
 |---|---|
-| x86_64 Linux (verified: Ubuntu 22.04) | the only target; arm64 and Darwin are untested, and `bootstrap/logosc` is an x86_64 Linux binary |
+| x86_64 Linux (verified: Ubuntu 22.04) | where the compiler runs and the default target; arm64 output needs `gcc-aarch64-linux-gnu` and `libc6-dev-arm64-cross`, and running it needs `qemu-user-static` |
 | glibc 2.35 or newer | the shipped binary is dynamically linked against it |
 | clang 14 or newer | compiles the IR and links every binary — at build time of **every program**, not only of the compiler; `apt-get install -y clang-14 lld-14` |
 | GNU make | the `make test` / `make suites-all` targets |
@@ -224,9 +226,10 @@ reads freed memory, uses an uninitialised value, or behaves differently at
 A summary; the full list is
 [`docs/reference/limits.md`](docs/reference/limits.md).
 
-- One target: x86_64 Linux. The target triple is a flag, but arm64 and Darwin
-  have not been built or tested. `bootstrap/logosc` is an x86_64 Linux binary,
-  so another platform needs a stage-0 built where the compiler already runs.
+- Default target x86_64 Linux; `--target aarch64-unknown-linux-gnu` emits arm64
+  Linux ELFs (needs the aarch64 cross toolchain) and `test --target` runs the
+  corpus under qemu. Darwin is not built. `bootstrap/logosc` is an x86_64 Linux
+  binary, so another host needs a stage-0 built where the compiler already runs.
 - Names are global across a whole program: two modules cannot both declare the
   same name.
 - `logosc test` prints text only; there is no `test --json`.

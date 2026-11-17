@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -202,7 +203,8 @@ class JsonDiagnostics(unittest.TestCase):
             done = run(["build", path])
             self.assertEqual(done.returncode, 2)
             self.assertNotIn("{", done.stderr)
-            self.assertRegex(done.stderr, r"^bad/main/2/0: E0100: .+\n$")
+            self.assertRegex(done.stderr,
+                             r'^bad/main/2/0: E0100: .+\n    \(\+ 1 "x"\)\n$')
 
     def test_a_json_line_is_a_complete_document(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -217,6 +219,95 @@ class JsonDiagnostics(unittest.TestCase):
             diag = last_json(run(["build", path, "--json"]).stderr)["diagnostics"][0]
             self.assertEqual(diag["code"], "E0006")
             self.assertEqual((diag["line"], diag["col"]), (4, 12))
+
+
+class DiagnosticSubtree(unittest.TestCase):
+    """A plain diagnostic names the offending node, then shows it.
+
+    The second line onwards is the canonical text `logosc show FILE PATH`
+    prints for the path on the first line, indented four spaces, so an agent
+    reads the refused form without a second command. `--json` is unchanged: the
+    `node_path` field is the same path, and the field set is still
+    `schema_version` 1's.
+
+    A diagnostic whose path does not resolve in a fresh parse of the file it
+    names — a node in another module of a multi-file build, a synthetic path —
+    prints the message line alone. The compiler never renders a node it did not
+    find.
+    """
+
+    # (file name, source, the path its diagnostic names)
+    CASES = [
+        ("one-line", "(mod m)\n(fn f :i64 ((a :str)) (+ a 1))\n", "m/f/2"),
+        ("breaking", "(mod m)\n(fn g :i64 ((x :i64) (y :i64)) (ret x))\n"
+                     "(fn f :i64 ((a :i64))\n"
+                     "  (ret (g (+ a 1)\n          (+ a 2)\n          a)))\n",
+         "m/f/2/0"),
+    ]
+
+    def test_check_prints_the_named_node_under_the_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["check", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual(
+            done.stderr,
+            "m/f/2: E0100: '+' needs numbers, found :str\n"
+            "    (+ a 1)\n")
+
+    def test_build_prints_it_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["build", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr.splitlines()[-1], "    (+ a 1)")
+
+    def test_the_rendered_text_is_the_show_renderer(self):
+        """Every line of the trailer is `show`'s line plus four spaces."""
+        for name, source, path in self.CASES:
+            with self.subTest(case=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    write(tmp, name + ".logos", source)
+                    diag = run(["check", name + ".logos"], cwd=tmp)
+                    shown = run(["show", name + ".logos", path], cwd=tmp)
+                self.assertEqual(shown.returncode, 0, shown.stderr)
+                first, _, trailer = diag.stderr.partition("\n")
+                self.assertEqual(first.split(":")[0], path)
+                expected = "".join("    " + line + "\n"
+                                   for line in shown.stdout.splitlines())
+                self.assertEqual(trailer, expected)
+                self.assertEqual(len(shown.stdout.splitlines()) > 1,
+                                 name == "breaking")
+
+    def test_json_output_is_byte_identical(self):
+        expected = (
+            '{"schema_version":1,"diagnostics":[{"severity":"error",'
+            '"code":"E0100","message":"\'+\' needs numbers, found :str",'
+            '"node_path":"m/f/2","file":"p3.logos","line":0,"col":0}]}\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "p3.logos", self.CASES[0][1])
+            done = run(["--json", "check", "p3.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr, expected)
+
+    def test_a_path_from_another_module_prints_no_second_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "a.logos", "(mod a)\n(use b)\n(fn main :i64 ()\n"
+                                  "  (ret (h \"q\")))\n")
+            write(tmp, "b.logos", "(mod b)\n(fn h :i64 ((x :str)) (ret (+ x 1)))\n")
+            done = run(["build", "a.logos", "b.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr,
+                         "b/h/2/0: E0100: '+' needs numbers, found :str\n")
+
+    def test_a_parse_error_has_no_node_to_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(tmp, "unbal.logos", "(mod m)\n(fn main :i64 ()\n  (println 1)\n")
+            done = run(["check", "unbal.logos"], cwd=tmp)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(len(done.stderr.splitlines()), 1, done.stderr)
+        self.assertIn("E0001", done.stderr)
 
 
 class Help(unittest.TestCase):
@@ -341,10 +432,14 @@ class Targets(unittest.TestCase):
     These tests hold the plumbing: the flag is parsed in both spellings, its
     value reaches the IR *and* clang, the default is unchanged, and a triple
     this compiler cannot emit is refused as a usage error rather than handed
-    to clang. What they do not hold is arm64 codegen (issue #10).
+    to clang. Since issue #2's second half, `aarch64-unknown-linux-gnu` is a
+    triple it *can* emit, so three more tests hold the artifact itself: the
+    header says ARM aarch64, it runs under qemu, and it prints what the host
+    build prints. Those three need a cross toolchain and skip without one.
     """
 
     HOST = "x86_64-unknown-linux-gnu"
+    CROSS = "aarch64-unknown-linux-gnu"
 
     def build_with(self, args, name="host"):
         tmp = tempfile.mkdtemp()
@@ -381,16 +476,17 @@ class Targets(unittest.TestCase):
     def test_an_unsupported_triple_is_a_usage_error(self):
         """Refused by the driver, naming the target — not a clang crash.
 
-        The backend and the runtime still assume this host (issue #10), so a
-        triple it cannot honour must exit 2 with the offending value in the
-        message. A clang failure would be exit 1 and would say nothing about
-        the flag the user typed.
+        Two triples are emitted now; a third must still exit 2 with the
+        offending value in the message, and must not be reported as if
+        aarch64 were unsupported. A clang failure would be exit 1 and would
+        say nothing about the flag the user typed.
         """
-        triple = "aarch64-unknown-linux-gnu"
+        triple = "riscv64-unknown-linux-gnu"
         done, _ = self.build_with(["--target", triple])
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn(triple, done.stderr)
         self.assertIn("usage:", done.stderr)
+        self.assertIn(self.CROSS, done.stderr)
 
     def test_a_missing_target_value_is_a_usage_error(self):
         done = run(["build", "x.logos", "--target"])
@@ -398,19 +494,99 @@ class Targets(unittest.TestCase):
         self.assertIn("--target", done.stderr)
         self.assertIn("expected one argument", done.stderr)
 
-    def test_the_test_verb_does_not_claim_the_target_flag(self):
-        """`test` never had `--target`, so there it is an unknown word.
+    def test_the_test_verb_accepts_the_target_flag(self):
+        """`test --target` runs the corpus for that triple (issue #2).
 
-        `main-bad-flag` (`src/logosc/main.logos`) is shared by every verb;
-        classifying `--target` as value-taking there made `test --target X`
-        answer "expected one argument" for a flag `test` does not accept, where
-        `main` answered "unrecognized arguments". Both refusals exit 2; the
-        message is the contract, and it must name the real fault.
+        Both spellings must reach the driver's target check; a triple it
+        cannot emit is a usage error naming the value, which proves the flag
+        was parsed here and not treated as an unknown word.
         """
-        done = run(["test", "--target", self.HOST, "tests/regress"])
+        for args in (["--target", "riscv64-unknown-linux-gnu"],
+                     ["--target=riscv64-unknown-linux-gnu"]):
+            with self.subTest(args=args):
+                done = run(["test"] + args + ["tests/regress"])
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("riscv64-unknown-linux-gnu", done.stderr)
+                self.assertIn("usage:", done.stderr)
+
+    def test_test_help_lists_the_target_flag(self):
+        done = run(["test", "--help"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("--target", done.stdout)
+
+    def test_test_target_without_a_value_is_a_usage_error(self):
+        done = run(["test", "tests/regress", "--target"])
         self.assertEqual(done.returncode, 2, done.stderr)
-        self.assertIn("unrecognized arguments: --target", done.stderr)
-        self.assertNotIn("expected one argument", done.stderr)
+        self.assertIn("--target", done.stderr)
+        self.assertIn("expected one argument", done.stderr)
+
+    def test_update_baseline_refuses_a_foreign_target(self):
+        """`test --target X --update-baseline` must not touch the host baseline.
+
+        `<root>/summary.txt` is the host baseline and records no target, so an
+        aarch64 run rewriting it would leave the host comparison checking ARM
+        numbers against a host run. The combination is a usage error (exit 2)
+        rather than a silent rewrite, and the host triple is still accepted.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        write(tmp, "case.logos", program("case", ""))
+        done = run(["test", "--target", self.CROSS, "--update-baseline", tmp])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("--update-baseline", done.stderr)
+        self.assertIn(self.CROSS, done.stderr)
+        self.assertFalse(os.path.exists(os.path.join(tmp, "summary.txt")),
+                         "a foreign-target run wrote the host baseline")
+        host = run(["test", "--target", self.HOST, "--update-baseline", tmp])
+        self.assertNotIn("--update-baseline cannot be combined", host.stderr)
+
+    def cross(self):
+        """The qemu runner to use, or a skip when the box cannot cross-build.
+
+        clang finds the aarch64 sysroot through the `aarch64-linux-gnu` GCC
+        triplet, so `gcc-aarch64-linux-gnu` and `libc6-dev-arm64-cross` are
+        the build requirement; `qemu-user-static` is the run requirement.
+        `make test` is run by contributors who have only the host toolchain,
+        so its absence is a skip, not a failure; CI installs all three and
+        `tools/accept.sh` fails by name without them.
+        """
+        qemu = shutil.which("qemu-aarch64-static") or shutil.which("qemu-aarch64")
+        if not os.path.exists("/usr/aarch64-linux-gnu/lib/libc.a") or not qemu:
+            self.skipTest("needs gcc-aarch64-linux-gnu, libc6-dev-arm64-cross "
+                          "and qemu-user-static")
+        return qemu
+
+    def test_the_cross_target_emits_an_aarch64_elf_that_runs(self):
+        """Issue #2's claim: a real ARM ELF, not a triple in a header only."""
+        qemu = self.cross()
+        done, tmp = self.build_with(["--target", self.CROSS, "-o", "cross.a64"],
+                                    name="cross")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('target triple = "%s"' % self.CROSS, self.ir(tmp, "cross"))
+        elf = os.path.join(tmp, "cross.a64")
+        with open(elf, "rb") as handle:
+            head = handle.read(20)
+        self.assertEqual(head[:4], b"\x7fELF")
+        self.assertEqual(head[4], 2, "not ELFCLASS64")
+        self.assertEqual(head[5], 1, "not little endian")
+        self.assertEqual(struct.unpack_from("<H", head, 18)[0], 0xB7,
+                         "e_machine is not EM_AARCH64")
+        host = os.path.join(tmp, "cross.x64")
+        self.assertEqual(run(["build", "cross.logos", "-o", host],
+                             cwd=tmp).returncode, 0)
+        native = subprocess.run([host], capture_output=True, text=True)
+        emulated = subprocess.run([qemu, elf], capture_output=True, text=True)
+        self.assertEqual(emulated.returncode, native.returncode)
+        self.assertEqual(emulated.stdout, native.stdout)
+        self.assertEqual(emulated.stderr, "")
+
+    def test_the_default_build_is_still_x86_64(self):
+        done, tmp = self.build_with(["-o", "host.elf"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with open(os.path.join(tmp, "host.elf"), "rb") as handle:
+            head = handle.read(20)
+        self.assertEqual(struct.unpack_from("<H", head, 18)[0], 0x3E,
+                         "e_machine is not EM_X86_64")
 
 
 if __name__ == "__main__":
