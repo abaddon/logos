@@ -32,6 +32,12 @@ jobs:
       # because the surviving contract tests are written in it — no gate runs a
       # compiler written in Python.
       #
+      # gcc-aarch64-linux-gnu and libc6-dev-arm64-cross are the sysroot clang
+      # cross-links `--target aarch64-unknown-linux-gnu` against, and
+      # qemu-user-static runs the result. accept.sh's target section fails by
+      # name without them; the arm64 cases in tests/test_cli.py skip rather
+      # than fail, so a contributor's machine needs them only to check arm64.
+      #
       # clang is pinned rather than taken from PATH. The image ships several
       # LLVM releases, `bootstrap/logosc` carries the clang that built it in
       # `.comment`, and the self-hosting gate requires the compiler built from
@@ -42,7 +48,7 @@ jobs:
       - name: install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-14 lld-14 gcc jq python3
+          sudo apt-get install -y --no-install-recommends clang-14 lld-14 gcc jq python3 gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
           bash tools/toolchain.sh --install
       - name: toolchain provenance
         run: |

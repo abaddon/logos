@@ -1,6 +1,10 @@
 # Logos: the generated manual
 
-A prefix-form language for AI readers, compiled by `logosc` to native x86_64 Linux binaries. Generated from the compiler's tables and `docs/manual/*.logos`; do not edit.
+A prefix-form language for AI readers, compiled by `logosc` to native x86_64 Linux binaries, and to aarch64 Linux ELF binaries with `build --target aarch64-unknown-linux-gnu`. Generated from the compiler's tables and `docs/manual/*.logos`; do not edit.
+
+## Targets
+
+`logosc build` emits for one of two triples, chosen by `--target` and defaulting to the host's: `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. The arm64 ELF is cross-built in the same clang invocation that links the program, so `logos/runtime/rt.c` is compiled for that triple and no host-built object is linked into it; the build needs `gcc-aarch64-linux-gnu` and `libc6-dev-arm64-cross` installed, and links `-static -fuse-ld=lld`, because the host linker cannot link an aarch64 ELF. `logosc test --target aarch64-unknown-linux-gnu` runs a corpus that way, each case executed under `qemu-aarch64` (`qemu-user-static`). Any other triple is a usage error naming the value and the two the compiler can emit.
 
 ## Cheat sheet
 
