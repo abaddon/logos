@@ -118,7 +118,7 @@ The schema is published at [`../schemas/diagnostic-v1.schema.json`](../schemas/d
 | Status | Meaning | Examples |
 |---|---|---|
 | `0` | success | build, check, resolve, fmt, guide, version, a green `test` run |
-| `2` | **the source or the command line is wrong.** Fix the code or the invocation and retry. | lexer / parser / resolver / checker / lowering / emit diagnostic; unknown verb; bad flag; missing required argument; unknown `--only` category; `--update-baseline` pointed at a file, a category directory or a non-suite directory; no `main` in the set; two `main`s |
+| `2` | **the source or the command line is wrong.** Fix the code or the invocation and retry. | lexer / parser / resolver / checker / lowering / emit diagnostic; unknown verb; bad flag; missing required argument; unknown `--only` category; `--update-baseline` pointed at a file, a category directory or a non-suite directory, or combined with a foreign `--target`; no `main` in the set; two `main`s |
 | `1` | **the environment is wrong.** Fix the machine, the paths or the checkout. | file cannot be read or written; `logos/runtime/rt.c` not found; clang failed; IR cannot be written; `show` path names nothing; `fmt` could not parse the file; a `test` run with a failing case, a leaked case count above baseline, a skipped `.logos` file outside the categories, or a baseline regression; `guide --check` when the manual is stale |
 
 The two meanings of `2` are a deliberate choice inherited from `argparse`
@@ -429,7 +429,14 @@ file, it is the fastest end-to-end check there is.
 
 A foreign-triple run still compares against the same `summary.txt`: the corpus
 declares output and exit codes, not architecture, so an aarch64 run that
-passes every case is the claim that the corpus is target-independent.
+passes every case is the claim that the corpus is target-independent. It cannot
+**rewrite** that file, though: `summary.txt` records no target, so
+`--update-baseline` with a foreign `--target` is refused (exit 2) rather than
+leaving the host comparison holding ARM numbers.
+
+```text
+logos: test: --update-baseline cannot be combined with --target aarch64-unknown-linux-gnu: summary.txt is the host baseline and records no target
+```
 
 ### What a run prints
 
@@ -514,9 +521,10 @@ problem it finds, verbatim.
 
 `--update-baseline` merges when `--only` is given: it rewrites the cases that
 category ran, drops the ones it no longer contains, and keeps the rest. It
-refuses three shapes, each exit 2:
+refuses four shapes, each exit 2:
 
 ```text
+logos: test: --update-baseline cannot be combined with --target aarch64-unknown-linux-gnu: summary.txt is the host baseline and records no target
 logos: test: --update-baseline needs a directory, not a single file
 logos: test: --update-baseline needs the suite root, not the category directory 'tests/exec'
 logos: test: --update-baseline needs the suite root, a directory holding a category such as 'exec'; 'examples' is not one

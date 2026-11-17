@@ -4,9 +4,10 @@
 # The Logos side is compiled by the project's own driver, which emits LLVM IR
 # and hands it to clang. The C side is compiled by gcc, deliberately not by the
 # same compiler family: an oracle that shares clang's optimiser would agree
-# with a miscompilation that clang and the oracle both make. Both programs are
-# run at -O0 and -O2, and both levels must print the same bytes and leave the
-# same exit status as the C twin.
+# with a miscompilation that clang and the oracle both make. The Logos binary
+# is built and run at -O0 and at -O2; the C twin is built once at -O2 and run
+# once, and each Logos run must print the same bytes and leave the same exit
+# status as that one C run.
 #
 # The corpus only uses operations C defines. Signed overflow, shifting by the
 # width or more, and float-to-integer conversion out of range are undefined in
@@ -76,7 +77,7 @@ fi
 # The floor: the manifest names the cases this oracle must run.
 # ---------------------------------------------------------------------------
 MANIFEST="$DIR/manifest.txt"
-MIN_CASES=3
+MIN_CASES=12
 if [[ ! -f "$MANIFEST" ]]; then
     echo "run_diff: no manifest at tests/diff/manifest.txt" >&2
     exit 1
@@ -129,7 +130,7 @@ for source in "${sources[@]}"; do
         fail "$name" "no C twin at tests/diff/$name.c"
         continue
     fi
-    if ! "$CC" -std=c11 -O2 -Wall -Wextra -Werror "$twin" -o "$OUT/$name.c-bin" \
+    if ! "$CC" -std=c11 -O2 -Wall -Wextra -Werror -pthread "$twin" -o "$OUT/$name.c-bin" \
             > "$OUT/$name.c-build.log" 2>&1; then
         fail "$name" "the C twin did not build (see build/diff/$name.c-build.log)"
         continue

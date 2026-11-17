@@ -602,6 +602,14 @@ hi2
     (code 0)
     (leaks 0))
   (println (square 3)))
+
+(test helper
+  (expect (out "6\n")
+    (code 0)
+    (leaks 0))
+  (println (twice 3))
+  (fn twice :i64 ((n :i64))
+    (ret (* 2 n))))
 ```
 
 Expected stdout, exit 0:

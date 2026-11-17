@@ -785,6 +785,18 @@ lowers the test, and the sweep is what makes the copy existent. And it defers
 `lo-inst-drain` for module 0, because the copies the sweep queued are drained by
 the entry-point pass, in the order Python's breadth-first drain gives.
 
+A `fn` written inside a test is lowered by `lo-test-helpers`, which the module
+loop runs under `--test` for every `(test …)` node it finds, before
+`lo-test-sweep`: it walks the test's children and hands each `fn` to
+`lo-one-fn`, the same path a module-level `fn` takes, so a helper gets the
+ordinary signature, body pipeline and symbol. `lo-one-fn` qualifies by the
+current module, so that symbol is `lg.<module>.<name>` with `internal` linkage
+— the same name in another module cannot collide, and the linker's global
+namespace is untouched. Nothing in the IR marks it as a helper: the checker has
+already refused its undocumented shapes (see `check.md`), and a test's call to
+it is an ordinary `call`. A build without `--test` never reaches any of this —
+test nodes are dropped, and the helpers inside them with them.
+
 `lo-test-entry` closes the mode after the module loop: it refills the node slice
 to module 0, finds the named test with `lo-test-find` (`E0002: no test named
 '…'` otherwise), sets `cl[1]` to that module's name so symbols are qualified

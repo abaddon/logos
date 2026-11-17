@@ -385,12 +385,17 @@ refuse and, across modules, one the linker already owns.
 ### Tests are grammar
 
 `(test ...)` and its directives are ordinary module-level nodes, not a
-second grammar. `(test name checks...)` may hold `(expect ...)` nodes. A
-test-local helper `fn` is E0002 `test-local helper functions are not lowered
-yet`, and it is refused for the same reason an imported function is: the
-backend emits a definition only for a module-level `fn`, so a helper's symbol
-would never exist. The refusal is at the node, not at a call, so a helper
-that nothing calls is reported too. `logosc build` compiles a file that
+second grammar. `(test name checks...)` may hold `(expect ...)` nodes. A `fn`
+written inside a test is a helper: it is module-private, lowered as
+`lg.<module>.<name>` with `internal` linkage, visible to every test in the
+module regardless of declaration order, and invisible to ordinary module
+functions — a module `fn` that calls one is refused as an unknown function, and
+so is a helper used as a value or started with `spawn`. A helper is refused
+when it carries type variables (`E0101`) or when its name is already defined in
+the module's visible range (`E0003`; `rt_` names are reserved). A helper may
+not reuse the name of an imported function either: names are global across the
+whole program, so a module-level `fn` that does is refused the same `E0003`.
+`logosc build` compiles a file that
 contains tests and drops every test node. `logosc test` compiles the same file
 with tests kept and runs each one in its own process. Directive nodes:
 `(expect (out S) (code N))`, `(expect-leak N)`, and module-level

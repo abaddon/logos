@@ -430,6 +430,26 @@ class Targets(unittest.TestCase):
         self.assertIn("--target", done.stderr)
         self.assertIn("expected one argument", done.stderr)
 
+    def test_update_baseline_refuses_a_foreign_target(self):
+        """`test --target X --update-baseline` must not touch the host baseline.
+
+        `<root>/summary.txt` is the host baseline and records no target, so an
+        aarch64 run rewriting it would leave the host comparison checking ARM
+        numbers against a host run. The combination is a usage error (exit 2)
+        rather than a silent rewrite, and the host triple is still accepted.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        write(tmp, "case.logos", program("case", ""))
+        done = run(["test", "--target", self.CROSS, "--update-baseline", tmp])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("--update-baseline", done.stderr)
+        self.assertIn(self.CROSS, done.stderr)
+        self.assertFalse(os.path.exists(os.path.join(tmp, "summary.txt")),
+                         "a foreign-target run wrote the host baseline")
+        host = run(["test", "--target", self.HOST, "--update-baseline", tmp])
+        self.assertNotIn("--update-baseline cannot be combined", host.stderr)
+
     def cross(self):
         """The qemu runner to use, or a skip when the box cannot cross-build.
 

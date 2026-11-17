@@ -22,6 +22,7 @@ Gaps are cited from [`../01-summary/gap-register.md`](../01-summary/gap-register
 | Limit | Why |
 |---|---|
 | **Two targets, one compiler.** x86_64 Linux (default) and arm64 Linux via `build --target aarch64-unknown-linux-gnu`; Darwin is not built. `bootstrap/logosc` is an x86_64 Linux ELF, so another host needs a stage-0 built where the compiler already runs | the triple is a flag and the runtime is compiled for it in the same clang invocation; the arm64 path needs the aarch64 cross toolchain, and is run under qemu in `tools/accept.sh` |
+| **arm64 runs under qemu here, and qemu's `posix_spawn` is not glibc's.** `test --target aarch64-unknown-linux-gnu exec/run/an-unstartable-program-panics` fails | starting a path that does not exist returns `rc=0` and a child that exits 127, where glibc reports the exec failure as `rc=2`, so the case's `R0006` assertion cannot hold under emulation. The case passes natively and as a static x86_64 build, so static linking is not the cause. It is neither skipped nor weakened: `tools/accept.sh` section 8 runs the `regress` category, not `exec`, and the difference is the emulator's, not the compiler's |
 | Built and verified on Ubuntu 22.04 with clang 14, gcc 11, jq 1.6 | `tools/accept.sh` uses gcc and jq as differential oracles; the glibc floor is 2.35 |
 
 ## The language

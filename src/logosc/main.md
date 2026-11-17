@@ -23,7 +23,7 @@ gen2 fmt <file|dir|->...
 gen2 resolve <file>...
 gen2 check <file>
 gen2 build <file>... [-o <out>] [--opt <O>] [--target <triple>] [--test <name>] [--keep-ir]
-gen2 test [<path>] [--only <category>] [--opt <level>]... [--update-baseline]
+gen2 test [<path>] [--only <category>] [--opt <level>]... [--target <triple>] [--update-baseline]
 gen2 guide [--json|--check]
 ```
 
@@ -90,6 +90,16 @@ one line each and exit 2, e.g.
 logos: test: --update-baseline needs a directory, not a single file
 logos: test: --update-baseline needs the suite root, not the category directory 'tests/exec'
 logos: test: --update-baseline needs the suite root, a directory holding a category such as 'exec'; 'examples' is not one
+```
+
+`main-test-run` refuses one combination before any of those: a foreign triple
+with `--update-baseline`. The file records no target, so an aarch64 run
+rewriting it would leave the host comparison checking ARM numbers against a
+host run — the next host run would then report regressions that are the
+baseline's fault. It is a usage error, one line, exit 2:
+
+```
+logos: test: --update-baseline cannot be combined with --target aarch64-unknown-linux-gnu: summary.txt is the host baseline and records no target
 ```
 
 The run is `harness.logos`'s (`h-run`), and this file gives it the levels and
@@ -483,7 +493,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-fmt-bad path msg` | `:i64` | print `logos: <path>: <msg>` and return 1 |
 | `main-fmt-twice` | `:i64` | print the repeated-`-` line and return 2 |
 | `main-test a n prog` | `:i64` | read `test`'s path and flags, then run the harness or report |
-| `main-test-arg a i n path only flags ttargets` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
+| `main-test-arg a i n path only levels flags ttargets` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
 | `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
 | `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
 | `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
@@ -491,7 +501,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-test-opt-eq s next levels` | `:i64` | push an attached `--opt=-O0`'s value and skip the word |
 | `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
 | `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
-| `main-test-run path only levels flags target` | `:i64` | check the baseline root, validate `--only` and the triple, call `h-run` |
+| `main-test-run path only levels flags target` | `:i64` | refuse a foreign triple with `--update-baseline`, check the baseline root, validate `--only` and the triple, call `h-run` |
 | `main-test-baseline root` | `:i64` | run Python's `_baseline_argument_problem`; 0 when the root is a suite |
 | `main-baseline-problem path` | `:str` | why the root cannot own a baseline, or `""` |
 | `main-baseline-root-problem path` | `:str` | the directory half: a suite root, not a category or a stray |
