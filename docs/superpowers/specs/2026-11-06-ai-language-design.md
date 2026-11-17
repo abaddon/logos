@@ -468,7 +468,14 @@ constant is rounded to single precision once, at compile time, before its bits
 are written.
 
 Diagnostics carry: path, a code (`E0421`), one sentence, and the minimal
-subtree. No advice, no prose.
+subtree. No advice, no prose. The subtree is the smallest node the path names,
+printed under the sentence and indented four spaces as the canonical text
+`logosc show FILE PATH` prints for that same path — one renderer serves both, so
+the two cannot disagree. A lexer or parser failure names no node and has no
+subtree line; a path that does not resolve in the file being reported prints
+none, because the compiler does not render text it did not find. `--json`
+carries the path as `node_path` and not the text: the machine form keeps one
+address per diagnostic and reads the node with `show`.
 
 Runtime (`runtime/rt.c`, about 400 lines): allocator with leak tracking,
 panic with path and message, string builder, integer and float formatting,
