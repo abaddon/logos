@@ -15,6 +15,7 @@ Exit codes (see docs/reference/cli.md):
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -416,6 +417,90 @@ class JsonSchemas(unittest.TestCase):
                 self.assertEqual(schema["$schema"],
                                  "https://json-schema.org/draft/2020-12/schema")
                 self.assertIn("schema_version", json.dumps(schema))
+
+
+class Targets(unittest.TestCase):
+    """The target triple is a flag, not a constant (issue #2).
+
+    `docs/superpowers/specs/2026-11-06-ai-language-design.md:38` promises that
+    "target triple is a compiler flag, so arm64 and Darwin remain one flag".
+    The flag did not exist: `build --help` did not list it, and both the IR
+    header (`src/logosc/lower.logos` -> `src/logosc/emit.logos`) and clang's
+    `-target` (`src/logosc/main.logos`) took a hard-coded x86_64 literal.
+
+    These tests hold the plumbing: the flag is parsed in both spellings, its
+    value reaches the IR *and* clang, the default is unchanged, and a triple
+    this compiler cannot emit is refused as a usage error rather than handed
+    to clang. What they do not hold is arm64 codegen (issue #10).
+    """
+
+    HOST = "x86_64-unknown-linux-gnu"
+
+    def build_with(self, args, name="host"):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        write(tmp, name + ".logos", program(name, '  (println "hi")\n'))
+        done = run(["build", name + ".logos"] + args, cwd=tmp)
+        return done, tmp
+
+    def ir(self, tmp, name="host"):
+        with open(os.path.join(tmp, "build", name + ".ll"),
+                  encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_build_help_lists_the_target_flag(self):
+        done = run(["build", "--help"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("--target", done.stdout)
+
+    def test_an_explicit_host_triple_reaches_the_ir(self):
+        done, tmp = self.build_with(["--target", self.HOST, "--keep-ir"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('target triple = "%s"' % self.HOST, self.ir(tmp))
+
+    def test_the_attached_spelling_is_equivalent(self):
+        done, tmp = self.build_with(["--target=" + self.HOST])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('target triple = "%s"' % self.HOST, self.ir(tmp))
+
+    def test_the_default_is_still_the_host_triple(self):
+        done, tmp = self.build_with([])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('target triple = "%s"' % self.HOST, self.ir(tmp))
+
+    def test_an_unsupported_triple_is_a_usage_error(self):
+        """Refused by the driver, naming the target — not a clang crash.
+
+        The backend and the runtime still assume this host (issue #10), so a
+        triple it cannot honour must exit 2 with the offending value in the
+        message. A clang failure would be exit 1 and would say nothing about
+        the flag the user typed.
+        """
+        triple = "aarch64-unknown-linux-gnu"
+        done, _ = self.build_with(["--target", triple])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn(triple, done.stderr)
+        self.assertIn("usage:", done.stderr)
+
+    def test_a_missing_target_value_is_a_usage_error(self):
+        done = run(["build", "x.logos", "--target"])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("--target", done.stderr)
+        self.assertIn("expected one argument", done.stderr)
+
+    def test_the_test_verb_does_not_claim_the_target_flag(self):
+        """`test` never had `--target`, so there it is an unknown word.
+
+        `main-bad-flag` (`src/logosc/main.logos`) is shared by every verb;
+        classifying `--target` as value-taking there made `test --target X`
+        answer "expected one argument" for a flag `test` does not accept, where
+        `main` answered "unrecognized arguments". Both refusals exit 2; the
+        message is the contract, and it must name the real fault.
+        """
+        done = run(["test", "--target", self.HOST, "tests/regress"])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("unrecognized arguments: --target", done.stderr)
+        self.assertNotIn("expected one argument", done.stderr)
 
 
 if __name__ == "__main__":

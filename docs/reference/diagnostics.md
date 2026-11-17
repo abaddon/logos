@@ -102,7 +102,7 @@ message text is **best-effort**, the code is the contract.
 | Code | Meaning | Measured message |
 |---|---|---|
 | `E0100` | type mismatch | `'+' needs numbers, found :str`; also `cannot infer the result type of 'ok': annotate the binding or the return type` and `function 'main' returns (res :i64 e), found :i64` |
-| `E0101` | unknown type | a type name that is not declared and not primitive |
+| `E0101` | unknown type | a type name that is not declared and not primitive; also a function that cannot have type variables (`main`, or a helper written inside a `(test …)`) |
 | `E0102` | wrong arity | `function 'f' takes 1 argument, got 2` |
 | `E0103` | unknown function | `unknown function 'nope'`; also `no 'main' function to build` when a build set has no entry point |
 | `E0104` | not mutable | assigning to, or taking `(ref …)` of, a `let` binding |

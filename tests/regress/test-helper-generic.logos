@@ -1,0 +1,9 @@
+(mod test-helper-generic)
+
+(test uses-a-generic-helper
+  (expect (out "7\n")
+    (code 0)
+    (leaks 0))
+  (println (identity 7))
+  (fn identity :T ((x :T))
+    (ret x)))
