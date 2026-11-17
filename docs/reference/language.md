@@ -151,12 +151,52 @@ writes a `letmut`.
 7
 ```
 
-A struct field may be a scalar, `:str`, a fixed array, an enum, an `(opt T)` or a
-function value. It may **not** hold a vector, a result or an owner — those three
-are `E0002`, with messages that name the rejected field
-(`vector fields are not supported yet`, `result fields are not supported yet`,
-`owning fields are not supported yet`). That restriction is what makes every
-struct copy safe.
+A struct field may be a scalar, `:str`, a fixed array, an enum, an `(opt T)`, a
+function value or a `(vec T)`. It may **not** hold a result or an owner — those
+two are `E0002`, with messages that name the rejected field (`result fields are
+not supported yet`, `owning fields are not supported yet`).
+
+A vector field makes the record the owner of a buffer, so the field is reached
+through a **place**, and the five vector operations take that place:
+`(vec-push (get b items) x)`, `(vec-set (get b items) i x)`,
+`(vec-len (get b items))`, `(vec-get (get b items) i)` and
+`(vec-free (get b items))`. The record must be a `letmut` (or a `(ref …)`
+parameter) for the operations that write it to be legal.
+
+```logos
+(mod records)
+
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
+(fn main :void ()
+  (letmut empty (vec :i64) (make (vec :i64)))
+  (letmut b bucket (make bucket empty 0))
+  (vec-push (get b items) 4)
+  (vec-push (get b items) 5)
+  (println (vec-len (get b items)))
+  (vec-free (get b items))
+  (set-field b items (make (vec :i64)))
+  (println (vec-len (get b items)))
+  (vec-free (get b items)))
+```
+
+```text
+2
+0
+```
+
+Freeing through the field **moves** it: the field is uninitialised afterwards,
+a read of it is `E0300` (use after move), and `set-field` is how it is filled
+again — `set-field` writes without reading, so it works on a field that was
+freed. Reading a live vector field as a value (`(let c (get b items))`) is
+`E0402`: a descriptor is never copied out of a place.
+
+A struct that holds a vector, at any depth, is **moved, never copied**, exactly
+like a bare vector: `(let c b)` moves `b`, passing it by value moves it, and any
+attempt to copy it is `E0402`. `(ref b)` borrows the record instead, and a vector
+operation through `(get r items)` mutates the caller's record. A record that
+holds a vector is a `letmut`, because a `let` binding can be neither written nor
+freed (`E0104`) and its buffer would leak.
 
 ### Vectors — allocate, fill, free
 
