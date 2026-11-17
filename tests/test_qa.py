@@ -32,6 +32,7 @@ Run it directly with `python3 -m unittest tests.test_qa -v`.
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -512,6 +513,46 @@ class GateWiring(unittest.TestCase):
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0,
                          "tools/qa-known-gaps.txt is not committed")
+
+
+class DifferentialOracle(unittest.TestCase):
+    """The only codegen oracle that does not share clang's optimiser (issue #5).
+
+    Its corpus size is a promise, not a preference, and three places encode it:
+    `tests/diff/manifest.txt` names the cases, `tests/diff/run_diff.sh` floors
+    them with `MIN_CASES`, and `tools/accept.sh` repeats that floor as
+    `MIN_DIFF_CASES`. Tying both floors to the manifest is what stops the
+    corpus shrinking and the two floors drifting apart; that is how issue #5
+    asks for the twelve cases, nine of which PR #11 already carries.
+    """
+
+    FLOOR = 12
+
+    def manifest(self):
+        text = (ROOT / "tests" / "diff" / "manifest.txt").read_text(encoding="utf-8")
+        names = [line.split("#")[0].strip() for line in text.splitlines()]
+        return [name for name in names if name]
+
+    def floor_of(self, name):
+        sources = (ROOT / "tests" / "diff" / "run_diff.sh", ROOT / "tools" / "accept.sh")
+        for source in sources:
+            found = re.search(r"^%s=(\d+)$" % name,
+                              source.read_text(encoding="utf-8"), re.MULTILINE)
+            if found:
+                return int(found.group(1))
+        self.fail("%s is declared in neither run_diff.sh nor accept.sh" % name)
+
+    def test_the_manifest_names_at_least_twelve_cases(self):
+        self.assertGreaterEqual(len(self.manifest()), self.FLOOR,
+                                "tests/diff/manifest.txt names %d case(s), the "
+                                "issue asks for %d" % (len(self.manifest()), self.FLOOR))
+
+    def test_both_floors_match_the_manifest(self):
+        count = len(self.manifest())
+        self.assertEqual(self.floor_of("MIN_CASES"), count,
+                         "tests/diff/run_diff.sh: MIN_CASES is not the manifest length")
+        self.assertEqual(self.floor_of("MIN_DIFF_CASES"), count,
+                         "tools/accept.sh: MIN_DIFF_CASES is not the manifest length")
 
 
 if __name__ == "__main__":
