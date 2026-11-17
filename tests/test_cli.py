@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -341,10 +342,14 @@ class Targets(unittest.TestCase):
     These tests hold the plumbing: the flag is parsed in both spellings, its
     value reaches the IR *and* clang, the default is unchanged, and a triple
     this compiler cannot emit is refused as a usage error rather than handed
-    to clang. What they do not hold is arm64 codegen (issue #10).
+    to clang. Since issue #2's second half, `aarch64-unknown-linux-gnu` is a
+    triple it *can* emit, so three more tests hold the artifact itself: the
+    header says ARM aarch64, it runs under qemu, and it prints what the host
+    build prints. Those three need a cross toolchain and skip without one.
     """
 
     HOST = "x86_64-unknown-linux-gnu"
+    CROSS = "aarch64-unknown-linux-gnu"
 
     def build_with(self, args, name="host"):
         tmp = tempfile.mkdtemp()
@@ -381,16 +386,17 @@ class Targets(unittest.TestCase):
     def test_an_unsupported_triple_is_a_usage_error(self):
         """Refused by the driver, naming the target — not a clang crash.
 
-        The backend and the runtime still assume this host (issue #10), so a
-        triple it cannot honour must exit 2 with the offending value in the
-        message. A clang failure would be exit 1 and would say nothing about
-        the flag the user typed.
+        Two triples are emitted now; a third must still exit 2 with the
+        offending value in the message, and must not be reported as if
+        aarch64 were unsupported. A clang failure would be exit 1 and would
+        say nothing about the flag the user typed.
         """
-        triple = "aarch64-unknown-linux-gnu"
+        triple = "riscv64-unknown-linux-gnu"
         done, _ = self.build_with(["--target", triple])
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertIn(triple, done.stderr)
         self.assertIn("usage:", done.stderr)
+        self.assertIn(self.CROSS, done.stderr)
 
     def test_a_missing_target_value_is_a_usage_error(self):
         done = run(["build", "x.logos", "--target"])
@@ -398,19 +404,79 @@ class Targets(unittest.TestCase):
         self.assertIn("--target", done.stderr)
         self.assertIn("expected one argument", done.stderr)
 
-    def test_the_test_verb_does_not_claim_the_target_flag(self):
-        """`test` never had `--target`, so there it is an unknown word.
+    def test_the_test_verb_accepts_the_target_flag(self):
+        """`test --target` runs the corpus for that triple (issue #2).
 
-        `main-bad-flag` (`src/logosc/main.logos`) is shared by every verb;
-        classifying `--target` as value-taking there made `test --target X`
-        answer "expected one argument" for a flag `test` does not accept, where
-        `main` answered "unrecognized arguments". Both refusals exit 2; the
-        message is the contract, and it must name the real fault.
+        Both spellings must reach the driver's target check; a triple it
+        cannot emit is a usage error naming the value, which proves the flag
+        was parsed here and not treated as an unknown word.
         """
-        done = run(["test", "--target", self.HOST, "tests/regress"])
+        for args in (["--target", "riscv64-unknown-linux-gnu"],
+                     ["--target=riscv64-unknown-linux-gnu"]):
+            with self.subTest(args=args):
+                done = run(["test"] + args + ["tests/regress"])
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("riscv64-unknown-linux-gnu", done.stderr)
+                self.assertIn("usage:", done.stderr)
+
+    def test_test_help_lists_the_target_flag(self):
+        done = run(["test", "--help"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("--target", done.stdout)
+
+    def test_test_target_without_a_value_is_a_usage_error(self):
+        done = run(["test", "tests/regress", "--target"])
         self.assertEqual(done.returncode, 2, done.stderr)
-        self.assertIn("unrecognized arguments: --target", done.stderr)
-        self.assertNotIn("expected one argument", done.stderr)
+        self.assertIn("--target", done.stderr)
+        self.assertIn("expected one argument", done.stderr)
+
+    def cross(self):
+        """The qemu runner to use, or a skip when the box cannot cross-build.
+
+        clang finds the aarch64 sysroot through the `aarch64-linux-gnu` GCC
+        triplet, so `gcc-aarch64-linux-gnu` and `libc6-dev-arm64-cross` are
+        the build requirement; `qemu-user-static` is the run requirement.
+        `make test` is run by contributors who have only the host toolchain,
+        so its absence is a skip, not a failure; CI installs all three and
+        `tools/accept.sh` fails by name without them.
+        """
+        qemu = shutil.which("qemu-aarch64-static") or shutil.which("qemu-aarch64")
+        if not os.path.exists("/usr/aarch64-linux-gnu/lib/libc.a") or not qemu:
+            self.skipTest("needs gcc-aarch64-linux-gnu, libc6-dev-arm64-cross "
+                          "and qemu-user-static")
+        return qemu
+
+    def test_the_cross_target_emits_an_aarch64_elf_that_runs(self):
+        """Issue #2's claim: a real ARM ELF, not a triple in a header only."""
+        qemu = self.cross()
+        done, tmp = self.build_with(["--target", self.CROSS, "-o", "cross.a64"],
+                                    name="cross")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('target triple = "%s"' % self.CROSS, self.ir(tmp, "cross"))
+        elf = os.path.join(tmp, "cross.a64")
+        with open(elf, "rb") as handle:
+            head = handle.read(20)
+        self.assertEqual(head[:4], b"\x7fELF")
+        self.assertEqual(head[4], 2, "not ELFCLASS64")
+        self.assertEqual(head[5], 1, "not little endian")
+        self.assertEqual(struct.unpack_from("<H", head, 18)[0], 0xB7,
+                         "e_machine is not EM_AARCH64")
+        host = os.path.join(tmp, "cross.x64")
+        self.assertEqual(run(["build", "cross.logos", "-o", host],
+                             cwd=tmp).returncode, 0)
+        native = subprocess.run([host], capture_output=True, text=True)
+        emulated = subprocess.run([qemu, elf], capture_output=True, text=True)
+        self.assertEqual(emulated.returncode, native.returncode)
+        self.assertEqual(emulated.stdout, native.stdout)
+        self.assertEqual(emulated.stderr, "")
+
+    def test_the_default_build_is_still_x86_64(self):
+        done, tmp = self.build_with(["-o", "host.elf"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with open(os.path.join(tmp, "host.elf"), "rb") as handle:
+            head = handle.read(20)
+        self.assertEqual(struct.unpack_from("<H", head, 18)[0], 0x3E,
+                         "e_machine is not EM_X86_64")
 
 
 if __name__ == "__main__":

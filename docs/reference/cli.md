@@ -29,7 +29,7 @@ disagree, the measured output on this page and the source are right and
 | `resolve` | `resolve FILE...` | parse and resolve names; no type check | `0` `1` `2` |
 | `check` | `check FILE` | resolve, then the full checker; no codegen | `0` `1` `2` |
 | `build` | `build FILE... [-o OUT] [--opt O] [--target TRIPLE] [--test NAME] [--keep-ir]` | lower, emit IR, link a native binary | `0` `1` `2` |
-| `test` | `test [PATH] [--only CAT] [--opt LEVEL]... [--update-baseline]` | build and run every `(test ...)` node | `0` `1` `2` |
+| `test` | `test [PATH] [--only CAT] [--opt LEVEL]... [--target TRIPLE] [--update-baseline]` | build and run every `(test ...)` node | `0` `1` `2` |
 | `guide` | `guide [--json\|--check]` | print the manual, its manifest, or check it is current | `0` `1` `2` |
 
 All eight are listed by `logosc -h`, and every verb accepts `-h` for its own
@@ -73,7 +73,7 @@ surface, and each block below is a copy of it:
 
 ```sh
 logosc build -h     # usage: logosc build [-h] [-o OUT] [--opt O] [--target TRIPLE] [--keep-ir] FILE [FILE ...]
-logosc test -h      # usage: logosc test [-h] [--only CAT] [--opt O] [--update-baseline] [PATH]
+logosc test -h      # usage: logosc test [-h] [--only CAT] [--opt O] [--target TRIPLE] [--update-baseline] [PATH]
 logosc fmt -h       # usage: logosc fmt [-h] FILE [FILE ...]
 logosc show -h      # usage: logosc show [-h] FILE PATH
 logosc version -h   # usage: logosc version [-h] [--json]
@@ -308,7 +308,7 @@ clang to produce a native binary. Silent on success, exit 0.
 | `-o OUT` | write the binary to `OUT` (default `build/<stem>` of the **first** file). A repeated `-o` takes the last value |
 | `--opt LEVEL` (`--opt=LEVEL`) | clang optimisation level, default `-O2`. A repeated flag takes the last value |
 | `--test NAME` | build one `(test NAME …)` body as the program's `main`, for debugging a single case. Skips the required-`main` rule, writes IR to `build/<stem>.<name>.ll` (`/` and `\` replaced by `_`), and links with `-DLOGOS_DEBUG=1` so the runtime's leak report is compiled in |
-| `--target TRIPLE` (`--target=TRIPLE`) | the target triple written to the IR header and passed to clang's `-target`. Default `x86_64-unknown-linux-gnu`. Only that value is accepted today: the backend, the sizing rules and `logos/runtime/rt.c` all assume x86_64 Linux, so any other triple is a usage error (exit 2) naming the value, not a clang failure. The remaining arm64 Linux work is issue #2; #10 is the macOS target |
+| `--target TRIPLE` (`--target=TRIPLE`) | the target triple written to the IR header and passed to clang's `-target`. Default `x86_64-unknown-linux-gnu`; `aarch64-unknown-linux-gnu` is the second triple this compiler emits. Any other triple is a usage error (exit 2) naming the value, not a clang failure. The arm64 build needs `gcc-aarch64-linux-gnu` and `libc6-dev-arm64-cross` (clang finds `/usr/aarch64-linux-gnu` through the GCC triplet) and links `-static -fuse-ld=lld`, because the host `ld` cannot link an aarch64 ELF and a static ELF needs no aarch64 loader to run. The host triple's command line is unchanged. Darwin is issue #10 |
 | `--keep-ir` | accepted and **changes nothing** — the IR is always kept. It exists for compatibility with the deleted Python tool; ignore it |
 
 Flags may appear anywhere among the files. A word starting with `-` that is not
@@ -334,8 +334,17 @@ direct answer to "what did the compiler actually emit".
 The clang invocation is fixed except for the triple:
 
 ```sh
-clang <opt> -target <triple> build/<stem>.ll logos/runtime/rt.c \
+clang <opt> -target x86_64-unknown-linux-gnu build/<stem>.ll logos/runtime/rt.c \
     -o <out> -lpthread -lm
+```
+
+For `--target aarch64-unknown-linux-gnu` the same line gains `-static` and
+`-fuse-ld=lld` before the inputs, so the runtime is cross-compiled and the
+binary is a static ARM ELF — the shape that runs under `qemu-aarch64`:
+
+```sh
+clang <opt> -target aarch64-unknown-linux-gnu -static -fuse-ld=lld \
+    build/<stem>.ll logos/runtime/rt.c -o <out> -lpthread -lm
 ```
 
 `logos/runtime/rt.c` is resolved **relative to the working directory**, so
@@ -403,7 +412,7 @@ logosc build examples/hello.logos -o /tmp/hello && /tmp/hello
 ## `test`
 
 ```sh
-logosc test [PATH] [--only CATEGORY] [--opt LEVEL]... [--update-baseline]
+logosc test [PATH] [--only CATEGORY] [--opt LEVEL]... [--target TRIPLE] [--update-baseline]
 ```
 
 Builds and runs the `(test …)` nodes of a corpus and reports one line per case
@@ -415,7 +424,12 @@ file, it is the fastest end-to-end check there is.
 | `PATH` | the suite root — a directory holding category directories — or **one file**, which is run as its own `exec` case. Default `tests` |
 | `--only CATEGORY` | run one category. One of `parse`, `type`, `exec`, `mem`, `thread`, `generics`, `regress`, `diff` — anything else is `logos: test: unknown test category '<name>'`, exit 2 |
 | `--opt LEVEL` | an optimisation level: `--opt -O0`, `--opt -O2`, `--opt=-O0`. One flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two levels. **No `--opt` means both `-O0` and `-O2`** |
+| `--target TRIPLE` | build each case for `TRIPLE` and run it with the matching runner: the host binary directly for `x86_64-unknown-linux-gnu` (the default), `qemu-aarch64-static` or `qemu-aarch64` for `aarch64-unknown-linux-gnu`. Needs the same cross toolchain as `build --target` plus `qemu-user-static`. Each case's `--test` build receives the triple, so nothing host-built is linked into a foreign case |
 | `--update-baseline` | after the run, rewrite `<root>/summary.txt` with this run's result |
+
+A foreign-triple run still compares against the same `summary.txt`: the corpus
+declares output and exit codes, not architecture, so an aarch64 run that
+passes every case is the claim that the corpus is target-independent.
 
 ### What a run prints
 

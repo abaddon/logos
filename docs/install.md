@@ -12,7 +12,8 @@ from source, or to cut a release, read `AGENTS.md` and `docs/release.md`.
 
 | Requirement | Why | Version |
 |---|---|---|
-| x86_64 Linux | the only target the compiler emits | — |
+| x86_64 Linux | the host the shipped binary runs on, and the default target | — |
+| (`gcc-aarch64-linux-gnu`, `libc6-dev-arm64-cross`, `qemu-user-static`) | only for `--target aarch64-unknown-linux-gnu` and `test --target`: the sysroot clang links arm64 against, and the emulator that runs it | — |
 | glibc | the shipped binary is dynamically linked against it | 2.35 or newer (built on Ubuntu 22.04) |
 | `clang` | **at build time of every program**, not only of the compiler — `logosc` shells out to clang for each binary it produces | 14, matching the recorded toolchain |
 | `binutils` (`ld`) | clang links with it | 2.38 |
@@ -21,6 +22,10 @@ from source, or to cut a release, read `AGENTS.md` and `docs/release.md`.
 LLVM IR text and then runs `clang {opt} -target x86_64-unknown-linux-gnu
 build/<stem>.ll logos/runtime/rt.c -o <out> -lpthread -lm`. If `clang` is not on
 `PATH`, every build fails with `logos: clang failed:` and the command it tried.
+`--target aarch64-unknown-linux-gnu` keeps that command and adds `-static
+-fuse-ld=lld`; clang finds `/usr/aarch64-linux-gnu` through the
+`aarch64-linux-gnu` GCC triplet, which is why `gcc-aarch64-linux-gnu` and
+`libc6-dev-arm64-cross` are the build requirement for arm64.
 Python is **not** required: the compiler is written in Logos and the C runtime is
 compiled by clang.
 

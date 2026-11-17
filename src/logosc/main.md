@@ -44,15 +44,15 @@ runtime copies it from `/proc/self/cmdline`. So the shape is:
 allows: `-o OUT` names the binary, `--opt O` (or `--opt=O`) names the
 optimisation level and defaults to `-O2`, `--target TRIPLE` (or
 `--target=TRIPLE`) names the triple the IR header and clang's `-target`
-receive — it defaults to `x86_64-unknown-linux-gnu`, and that is the only value
-accepted today, so any other triple is a usage error naming the value rather
-than a clang failure — and `--keep-ir` is accepted and changes nothing, because
-the IR is always kept. A word that starts with `-` and is not one of those five
-is a usage error; a file whose name starts with `-` would have to be written
-with a path. A repeated `-o`, `--opt` or `--target` takes the last value, as
-`argparse` does. `--target` is value-taking only under `build`, so
-`test --target x` is `unrecognized arguments: --target` — the word `test` never
-had the flag, and no value was supplied to it.
+receive — it defaults to `x86_64-unknown-linux-gnu`, and
+`aarch64-unknown-linux-gnu` is the other value accepted, so a third triple is a
+usage error naming the value and the two the compiler can emit, rather than a
+clang failure — and `--keep-ir` is accepted and changes nothing, because the IR
+is always kept. A word that starts with `-` and is not one of those five is a
+usage error; a file whose name starts with `-` would have to be written with a
+path. A repeated `-o`, `--opt` or `--target` takes the last value, as
+`argparse` does. `--target` is value-taking under `build` and under `test`; the
+other verbs do not claim it, so there it is `unrecognized arguments`.
 
 `--test NAME` builds one `(test …)` body of the file as the program's `main`
 instead of the module's own: the third arity above is the only shape Python has
@@ -70,6 +70,14 @@ leak report is compiled in. A repeated `--test` takes the last value. See
 one flag swallows every following `-O<digits>` token, so `--opt -O0 -O2` is two
 levels, `--opt=-O0` is one, and a run with no `--opt` is both. A second
 positional argument, and any other word starting with `-`, is a usage error.
+`--target TRIPLE` (or `--target=TRIPLE`) builds each case for that triple and
+runs it with the matching runner: `h-execute` passes `--target` to the
+`build --test` child, and for a foreign triple prefixes the run with
+`qemu-aarch64-static` (or `qemu-aarch64`, whichever answers `-version`), so a
+host-built case is never executed as if it were the target's. The triple
+reaches `h-execute` through `h-run` and the file/test walk because
+`harness.logos` has no global to hold it; the chain is one extra argument, not
+a second code path.
 
 `--update-baseline` rewrites `<root>/summary.txt`, the suite's recorded result,
 and is the only way that file is ever written once Python is gone. It is
@@ -341,6 +349,16 @@ line, or `x86_64-unknown-linux-gnu` when the flag is absent, checked by
 `target triple` and clang's `-target` cannot disagree — and both link flags are
 unconditional. The build prints nothing to either stream on success and exits 0.
 
+`{target}` is also what decides the link's shape. For
+`aarch64-unknown-linux-gnu`, `main-link-cross` pushes `-static` and
+`-fuse-ld=lld` onto the same argv before the inputs: the host `ld` cannot link
+an ELF aarch64 (it answers `unrecognised emulation mode: aarch64linux`), and a
+static binary needs no aarch64 loader when it is run under `qemu-aarch64`. The
+runtime is not a separate build — `rt.c` is an input of that same clang command,
+so it is compiled for `{target}` in the invocation that links it and a
+host-built object can never enter a foreign ELF. The host triple pushes neither
+flag, so the default command line is byte-for-byte what it was.
+
 Two paths are created before they are used — `build/` for the IR, and the `-o`
 path's directory — because a fresh checkout has no `build/` directory.
 `main-mkdir` is `(mkdirs dir)`, the runtime helper that creates a path and its
@@ -441,12 +459,13 @@ leaves nothing behind that could be mistaken for a success.
 | `main-unreadable paths` | `:str` | the first path `path-error` refuses, or `""` |
 | `main-arg a n i paths outs opts tnames ttargets` | `:i64` | one argv word: the next index, or -1 for a usage error |
 | `main-flag-next a i into` | `:i64` | push the word after a flag and skip both |
-| `main-attached-next s i into` | `:i64` | push the value of `--opt=…` and skip the word |
+| `main-attached-next s off i into` | `:i64` | push the value after `off` in `--opt=…`/`--target=…` |
 | `main-path-next a i paths` | `:i64` | push a source path and step over it |
 | `main-dest paths outs` | `:str` | `-o`'s last value, or `build/<first stem>` |
 | `main-opt opts` | `:str` | `--opt`'s last value, or `-O2` |
 | `main-target-name ttargets` | `:str` | `--target`'s last value, or `x86_64-unknown-linux-gnu` |
-| `main-target-bad target` | `:str` | the unsupported-triple line for `target`, or `""` |
+| `main-target-bad target` | `:str` | the unsupported-triple line for `target`, or `""`; x86_64 and aarch64 Linux are supported |
+| `main-link-cross argv target` | `:void` | push the `-static -fuse-ld=lld` a foreign triple needs; host triple untouched |
 | `main-paths a first count paths` | `:void` | copy `count` argv entries into a new `paths` vector |
 | `main-run verb path` | `:i64` | create the six vectors, run, free them, return the status |
 | `main-source verb path …` | `:i64` | read, lex, then parse or report `E0006` |
@@ -464,7 +483,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-fmt-bad path msg` | `:i64` | print `logos: <path>: <msg>` and return 1 |
 | `main-fmt-twice` | `:i64` | print the repeated-`-` line and return 2 |
 | `main-test a n prog` | `:i64` | read `test`'s path and flags, then run the harness or report |
-| `main-test-arg a i n path only flags` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
+| `main-test-arg a i n path only flags ttargets` | `:i64` | one `test` argv word: the next index, or -1 for a usage error |
 | `main-test-only value next only` | `:i64` | set `--only`'s value and skip the word |
 | `main-test-level s` | `:bool` | whether a word is an `-O<digits>` level |
 | `main-test-digits s i n` | `:bool` | whether `s[i..n)` is all digits |
@@ -472,7 +491,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-test-opt-eq s next levels` | `:i64` | push an attached `--opt=-O0`'s value and skip the word |
 | `main-test-update flags next` | `:i64` | remember `--update-baseline` and skip the word |
 | `main-test-path s next path flags` | `:i64` | take the one positional path; -1 on a second |
-| `main-test-run path only levels flags` | `:i64` | check the baseline root, validate `--only`, call `h-run` |
+| `main-test-run path only levels flags target` | `:i64` | check the baseline root, validate `--only` and the triple, call `h-run` |
 | `main-test-baseline root` | `:i64` | run Python's `_baseline_argument_problem`; 0 when the root is a suite |
 | `main-baseline-problem path` | `:str` | why the root cannot own a baseline, or `""` |
 | `main-baseline-root-problem path` | `:str` | the directory half: a suite root, not a category or a stray |
@@ -499,7 +518,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-checked file nodes ntexts` | `:i64` | run `resolve-set` then `check-file`; free the module set |
 | `main-checked-run file mods nodes ntexts` | `:i64` | run the checker over the resolver's module set |
 | `main-check-diag file e` | `:i64` | print one checker diagnostic and return 2 |
-| `main-build-all paths dest opt` | `:i64` | create the arena, run the pipeline over the files, free it, return the status |
+| `main-build-all paths dest opt tname target` | `:i64` | create the arena, run the pipeline over the files, free it, return the status |
 | `main-built paths dest opt …` | `:i64` | read, lex and parse the first root, resolve the set, check it, load every other module, lower the unit, emit, write `build/<stem>.ll`, link |
 | `main-stem path` | `:str` | the file name without its directory and last extension |
 | `main-ir-path path` | `:str` | `build/<stem>.ll`, where the IR always goes |
@@ -510,7 +529,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-exists path` | `:bool` | whether `path` is a regular file (`test -f`) |
 | `main-mkdir dir` | `:void` | `(mkdirs dir)`, ignoring the status |
 | `main-joined argv` | `:str` | the command line as one line, for the failure message |
-| `main-link ll out opt` | `:i64` | link `ll` and the runtime into `out`; 0 or the failure line |
+| `main-link ll out opt dbg file target` | `:i64` | link `ll` and the runtime into `out`; 0 or the failure line |
 | `main-link-bad text r ll out` | `:i64` | print clang's failure, remove both artefacts, return 1 |
 | `main-link-missing ll out rt` | `:i64` | print the missing-runtime line, remove both artefacts, return 1 |
 | `main-fail msg` | `:i64` | print one `logos: …` line and return 1 |

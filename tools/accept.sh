@@ -9,7 +9,9 @@
 #      a malformed one;
 #   5. examples/matrix.logos against a C reference build at -O0 and -O2;
 #   6. logosc fmt idempotency over every .logos file in the repository;
-#   7. compile speed: a 200-function program under five seconds.
+#   7. compile speed: a 200-function program under five seconds;
+#   8. the aarch64-unknown-linux-gnu target: a real ARM ELF, run under qemu,
+#      printing what the host build prints, plus the regress corpus that way.
 #
 # Every section prints PASS or FAIL, a section that examined zero items is a
 # failure, and the script exits 0 only when all EXPECTED_SECTIONS pass. The
@@ -19,8 +21,11 @@
 # Build products and captured output live under build/accept/, which is
 # ignored; the working tree is never modified.
 #
-# Requirements: clang, gcc, jq, GNU wc, timeout, cmp. The compiler is
-# `tools/logosc.sh`, built from src/ by the bootstrap; no Python is involved.
+# Requirements: clang, lld, gcc, jq, GNU wc, timeout, cmp. Section 8 also needs
+# gcc-aarch64-linux-gnu, libc6-dev-arm64-cross (clang finds /usr/aarch64-linux-gnu
+# through that triplet) and qemu-user-static (`qemu-aarch64-static`); it fails
+# by name without them rather than skipping. The compiler is `tools/logosc.sh`,
+# built from src/ by the bootstrap; no Python is involved.
 
 set -u -o pipefail
 
@@ -32,7 +37,7 @@ FAILURES=0
 SECTIONS=0
 SECTION_REPORTED=0
 
-EXPECTED_SECTIONS=7
+EXPECTED_SECTIONS=8
 MIN_DIFF_CASES=3
 MIN_FORMATTED=37
 MIN_WC_INPUTS=2
@@ -375,6 +380,81 @@ if "$LOGOSC" build "$OUT/speed.logos" -o "$OUT/speed" --opt -O2 \
     fi
 else
     fail "compile speed" "the 200-function program did not build: see build/accept/speed-build.log"
+fi
+
+# ---------------------------------------------------------------------------
+# 8. The aarch64-unknown-linux-gnu target: a real ARM ELF, run under qemu
+#
+# The sections above build for the host triple, and their commands and floors
+# are untouched. This one adds issue #2's second triple: the same
+# examples/hello.logos built with `--target aarch64-unknown-linux-gnu`, its
+# ELF header read at e_machine (offset 18, 0xb7 little-endian = EM_AARCH64)
+# rather than trusted from the file name, run under qemu, and required to print
+# what the host build prints with the same exit code and an empty stderr. The
+# regress corpus adds real programs: it runs every regress case through
+# `logosc test --target`, which builds each case for the triple and executes it
+# under qemu, so a host-built object could not pass it.
+# ---------------------------------------------------------------------------
+section
+QEMU="${QEMU:-$(command -v qemu-aarch64-static || command -v qemu-aarch64 || true)}"
+A64_FAILURES=0
+if [[ ! -f /usr/aarch64-linux-gnu/lib/libc.a ]]; then
+    fail "aarch64-unknown-linux-gnu" "no aarch64 sysroot at /usr/aarch64-linux-gnu; install gcc-aarch64-linux-gnu and libc6-dev-arm64-cross"
+    A64_FAILURES=$((A64_FAILURES + 1))
+elif [[ -z "$QEMU" ]]; then
+    fail "aarch64-unknown-linux-gnu" "no qemu-aarch64 or qemu-aarch64-static on PATH; install qemu-user-static"
+    A64_FAILURES=$((A64_FAILURES + 1))
+fi
+if [[ $A64_FAILURES -eq 0 ]]; then
+    if ! "$LOGOSC" build examples/hello.logos -o "$OUT/hello.x64" \
+            > "$OUT/a64-build.log" 2>&1 \
+            || ! "$LOGOSC" build --target aarch64-unknown-linux-gnu \
+                examples/hello.logos -o "$OUT/hello.a64" >> "$OUT/a64-build.log" 2>&1; then
+        fail "aarch64-unknown-linux-gnu" "hello did not build: see build/accept/a64-build.log"
+        tail -n 10 "$OUT/a64-build.log" | sed 's/^/  /'
+        A64_FAILURES=$((A64_FAILURES + 1))
+    else
+        A64_MACHINE=$(od -An -tx1 -j18 -N2 "$OUT/hello.a64" | tr -d ' \n')
+        HOST_MACHINE=$(od -An -tx1 -j18 -N2 "$OUT/hello.x64" | tr -d ' \n')
+        if [[ "$A64_MACHINE" != "b700" ]]; then
+            fail "aarch64-unknown-linux-gnu" "e_machine of hello.a64 is 0x${A64_MACHINE}, expected 0xb7 (EM_AARCH64)"
+            A64_FAILURES=$((A64_FAILURES + 1))
+        fi
+        if [[ "$HOST_MACHINE" != "3e00" ]]; then
+            fail "aarch64-unknown-linux-gnu" "e_machine of the default build is 0x${HOST_MACHINE}, expected 0x3e (EM_X86_64)"
+            A64_FAILURES=$((A64_FAILURES + 1))
+        fi
+        "$OUT/hello.x64" > "$OUT/hello.x64.out" 2> "$OUT/hello.x64.err"
+        HOST_CODE=$?
+        "$QEMU" "$OUT/hello.a64" > "$OUT/hello.a64.out" 2> "$OUT/hello.a64.err"
+        A64_CODE=$?
+        if [[ $A64_CODE -ne $HOST_CODE ]]; then
+            fail "aarch64-unknown-linux-gnu" "qemu exited $A64_CODE, the host build exited $HOST_CODE"
+            A64_FAILURES=$((A64_FAILURES + 1))
+        elif ! cmp -s "$OUT/hello.x64.out" "$OUT/hello.a64.out"; then
+            fail "aarch64-unknown-linux-gnu" "qemu stdout differs from the host build"
+            diff -u "$OUT/hello.x64.out" "$OUT/hello.a64.out" | sed 's/^/  /' || true
+            A64_FAILURES=$((A64_FAILURES + 1))
+        elif [[ -s "$OUT/hello.a64.err" ]]; then
+            fail "aarch64-unknown-linux-gnu" "qemu wrote to stderr: $(tr '\n' ' ' < "$OUT/hello.a64.err")"
+            A64_FAILURES=$((A64_FAILURES + 1))
+        fi
+    fi
+fi
+if [[ $A64_FAILURES -eq 0 ]] \
+        && ! "$LOGOSC" test --target aarch64-unknown-linux-gnu tests --only regress \
+            > "$OUT/regress.a64.log" 2>&1; then
+    fail "aarch64-unknown-linux-gnu regress" "see build/accept/regress.a64.log"
+    tail -n 10 "$OUT/regress.a64.log" | sed 's/^/  /'
+    A64_FAILURES=$((A64_FAILURES + 1))
+fi
+if [[ $A64_FAILURES -eq 0 ]]; then
+    A64_CASES=$(grep -c '^PASS ' "$OUT/regress.a64.log")
+    if [[ "${A64_CASES:-0}" -eq 0 ]]; then
+        fail "aarch64-unknown-linux-gnu regress" "the run passed no case"
+    else
+        pass "aarch64-unknown-linux-gnu (e_machine 0xb7, qemu stdout '$(tr -d '\n' < "$OUT/hello.a64.out")', $A64_CASES regress cases)"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

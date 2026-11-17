@@ -117,7 +117,7 @@
 
 (fn main-verb-usage :str ((verb :str))
   (ret (if (str-eq verb "build") " build [-h] [-o OUT] [--opt O] [--target TRIPLE] [--keep-ir] FILE [FILE ...]"
-         (if (str-eq verb "test") " test [-h] [--only CAT] [--opt O] [--update-baseline] [PATH]"
+         (if (str-eq verb "test") " test [-h] [--only CAT] [--opt O] [--target TRIPLE] [--update-baseline] [PATH]"
            (if (str-eq verb "fmt") " fmt [-h] FILE [FILE ...]"
              (if (str-eq verb "show") " show [-h] FILE PATH"
                (if (str-eq verb "version") " version [-h] [--json]"
@@ -127,7 +127,7 @@
 
 (fn main-verb-about :str ((verb :str))
   (ret (if (str-eq verb "build") "compile Logos source files to a native binary\n\npositional arguments:\n  FILE            one or more .logos files; the first is the entry module\n\noptions:\n  -h, --help      show this help message and exit\n  -o OUT          write the binary to OUT (default build/<stem>)\n  --opt O         optimisation level given to clang (default -O0)\n  --target TRIPLE emit and link for TRIPLE (default x86_64-unknown-linux-gnu)\n  --keep-ir       keep the generated IR beside the binary\n  --json          emit diagnostics as JSON on stderr\n"
-         (if (str-eq verb "test") "compile and run the (test ...) nodes in a file, then compare them to\nthe baseline\n\npositional arguments:\n  PATH            a file or a directory of cases (default: the whole corpus)\n\noptions:\n  -h, --help      show this help message and exit\n  --only CAT      run only the cases in one category\n  --opt O         optimisation level (default -O0; repeat for both)\n  --update-baseline  rewrite tests/summary.txt from this run\n"
+         (if (str-eq verb "test") "compile and run the (test ...) nodes in a file, then compare them to\nthe baseline\n\npositional arguments:\n  PATH            a file or a directory of cases (default: the whole corpus)\n\noptions:\n  -h, --help      show this help message and exit\n  --only CAT      run only the cases in one category\n  --opt O         optimisation level (default -O0; repeat for both)\n  --target TRIPLE build and run the cases for TRIPLE (default x86_64-unknown-linux-gnu)\n  --update-baseline  rewrite tests/summary.txt from this run\n"
            (if (str-eq verb "fmt") "rewrite Logos source in canonical form, in place\n\npositional arguments:\n  FILE            one or more .logos files, or - for stdin\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
              (if (str-eq verb "show") "print one node of a Logos file, selected by its node path\n\npositional arguments:\n  FILE            the source file\n  PATH            a node path such as main/2/0\n\noptions:\n  -h, --help      show this help message and exit\n  --json          emit diagnostics as JSON on stderr\n"
                (if (str-eq verb "version") "print the compiler version\n\noptions:\n  -h, --help      show this help message and exit\n  --json          print {\"schema_version\":1,\"name\":\"logos\",\"version\":...}\n"
@@ -590,6 +590,15 @@
                   (str-concat msg "\n"))))
   (ret 1))
 
+(fn main-link-cross :void ((argv (ref (vec :str))) (target :str))
+  (if (str-eq target "aarch64-unknown-linux-gnu")
+    (vec-push argv "-static")
+    (main-nothing))
+  (if (str-eq target "aarch64-unknown-linux-gnu")
+    (vec-push argv "-fuse-ld=lld")
+    (main-nothing))
+  (ret))
+
 (fn main-link :i64 ((ll :str) (out :str) (opt :str) (dbg :i64) (file :str) (target :str))
   (letmut cands
     (vec :str)
@@ -613,6 +622,7 @@
   (vec-push argv opt)
   (vec-push argv "-target")
   (vec-push argv target)
+  (main-link-cross argv target)
   (vec-push argv ll)
   (vec-push argv rt)
   (vec-push argv "-o")
@@ -813,8 +823,9 @@
          (vec-get ttargets (- (vec-len ttargets) 1)) "x86_64-unknown-linux-gnu")))
 
 (fn main-target-bad :str ((target :str))
-  (ret (if (str-eq target "x86_64-unknown-linux-gnu") ""
-         (str-concat "unsupported target '" (str-concat target "': this compiler emits x86_64-unknown-linux-gnu only")))))
+  (ret (if (or (str-eq target "x86_64-unknown-linux-gnu")
+             (str-eq target "aarch64-unknown-linux-gnu")) ""
+         (str-concat "unsupported target '" (str-concat target "': this compiler emits x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu only")))))
 
 (fn main-build :i64 ((a (ref (vec :str))) (n :i64) (prog :str))
   (letmut paths
@@ -887,7 +898,8 @@
   (let s :str (vec-get a i))
   (ret (if (or (str-eq s "-o")
              (or (str-eq s "--opt")
-               (or (and (str-eq verb "build")
+               (or (and (or (str-eq verb "build")
+                          (str-eq verb "test"))
                      (str-eq s "--target"))
                  (or (str-eq s "--test")
                    (str-eq s "--only")))))
@@ -1514,7 +1526,7 @@
   (vec-set flags 0 1)
   (ret next))
 
-(fn main-test-arg :i64 ((a (ref (vec :str))) (i :i64) (n :i64) (path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))))
+(fn main-test-arg :i64 ((a (ref (vec :str))) (i :i64) (n :i64) (path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))) (ttargets (ref (vec :str))))
   (let s :str (vec-get a i))
   (ret (if (str-eq s "--only")
          (if (< (+ i 1) n)
@@ -1529,11 +1541,17 @@
              (if (and (> (str-len s) 6)
                    (str-eq (str-slice s 0 6) "--opt="))
                (main-test-opt-eq s (+ i 1) levels)
-               (if (str-eq s "--update-baseline")
-                 (main-test-update flags (+ i 1))
-                 (if (and (> (str-len s) 0)
-                       (= (cast :i64 (str-byte s 0)) 45)) -1
-                   (main-test-path s (+ i 1) path flags)))))))))
+               (if (str-eq s "--target")
+                 (if (< (+ i 1) n)
+                   (main-flag-next a i ttargets) -1)
+                 (if (and (> (str-len s) 9)
+                       (str-eq (str-slice s 0 9) "--target="))
+                   (main-attached-next s 9 i ttargets)
+                   (if (str-eq s "--update-baseline")
+                     (main-test-update flags (+ i 1))
+                     (if (and (> (str-len s) 0)
+                           (= (cast :i64 (str-byte s 0)) 45)) -1
+                       (main-test-path s (+ i 1) path flags)))))))))))
 
 (fn main-test-unknown :i64 ((name :str))
   (fmt-emit 2 (str-concat "logos: test: unknown test category '" (str-concat name "'\n")))
@@ -1588,7 +1606,7 @@
   (fmt-emit 2 (str-concat "logos: test: " (str-concat problem "\n")))
   (ret 2))
 
-(fn main-test-run :i64 ((path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))))
+(fn main-test-run :i64 ((path (ref (vec :str))) (only (ref (vec :str))) (levels (ref (vec :str))) (flags (ref (vec :i64))) (target :str))
   (let root :str (vec-get path 0))
   (let name :str (vec-get only 0))
   (let update :i64 (vec-get flags 2))
@@ -1603,7 +1621,7 @@
         (not (h-known-category name)))
     (ret (main-test-unknown name))
     (main-nothing))
-  (ret (h-run root name levels update)))
+  (ret (h-run root name levels update target)))
 
 (fn main-test :i64 ((a (ref (vec :str))) (n :i64) (prog :str))
   (letmut path
@@ -1623,22 +1641,30 @@
   (vec-push flags 0)
   (vec-push flags 0)
   (vec-push flags 0)
+  (letmut ttargets
+    (vec :str)
+    (make (vec :str)))
   (letmut i :i64 2)
   (letmut badat :i64 -1)
   (while (and (= (vec-get flags 1) 0)
            (< i n))
     (set badat i)
-    (set i (main-test-arg a i n path only levels flags))
+    (set i (main-test-arg a i n path only levels flags ttargets))
     (vec-set flags 1 (if (< i 0) 1
                        (vec-get flags 1))))
+  (let target :str (main-target-name ttargets))
+  (let tbad :str (main-target-bad target))
   (letmut status :i64 0)
   (if (= (vec-get flags 1) 1)
     (set status (main-bad-flag prog "test" a n badat))
-    (set status (main-test-run path only levels flags)))
+    (set status (if (not (str-eq tbad ""))
+                  (main-cli-error prog "test" tbad)
+                  (main-test-run path only levels flags target))))
   (vec-free path)
   (vec-free only)
   (vec-free levels)
   (vec-free flags)
+  (vec-free ttargets)
   (ret status))
 
 (fn main-guide-text :i64 ()
