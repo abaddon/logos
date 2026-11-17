@@ -389,9 +389,10 @@ module regardless of declaration order, and invisible to ordinary module
 functions — a module `fn` that calls one is refused as an unknown function, and
 so is a helper used as a value or started with `spawn`. A helper is refused
 when it carries type variables (`E0101`) or when its name is already defined in
-the module's visible range (`E0003`; `rt_` names are reserved). A helper also
-may not reuse the name of an imported function, though a module-level `fn` may
-shadow one. `logosc build` compiles a file that
+the module's visible range (`E0003`; `rt_` names are reserved). A helper may
+not reuse the name of an imported function either: names are global across the
+whole program, so a module-level `fn` that does is refused the same `E0003`.
+`logosc build` compiles a file that
 contains tests and drops every test node. `logosc test` compiles the same file
 with tests kept and runs each one in its own process. Directive nodes:
 `(expect (out S) (code N))`, `(expect-leak N)`, and module-level
