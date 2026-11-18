@@ -221,11 +221,15 @@ depth **moves instead of copying**, so:
   `check.logos:6292-6299`, which also keeps R6: the argument must be a name);
 - any attempt to *copy* such a struct is `E0402` from `body-transfer`
   (`check.logos:5197`: `a value containing a vector is not copyable`);
-- `(ref rec)` is not a copy: a reference parameter borrows the place, and a
-  vector operation through `(get r items)` mutates the caller's record.
+- `(ref rec)` does **not** exist: `(ref T)` names a vector only, so
+  `(ref rec)` is `E0100` and a record that owns a buffer can be moved but never
+  borrowed. (Corrected 2026-11-18: this note originally said a reference
+  parameter borrows the record; the checker never accepted it —
+  `check-resolve-ref`, `check.logos:881`.)
 
 So a record that owns a buffer behaves exactly like a bare vector: you can move
-it, borrow it, mutate its fields and free its buffer, and you cannot copy it.
+it, mutate its fields through a place and free its buffer, and you can neither
+copy it nor borrow it.
 The field ban was protecting the same property with a sledgehammer; R1 protects
 it precisely, and it is already implemented and already tested.
 
