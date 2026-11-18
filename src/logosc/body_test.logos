@@ -977,7 +977,7 @@
   (dump-src "(fn f :i64 ((v (vec :i64))) (ret (vec-get v \"0\")))"))
 
 (test vec-place-copy
-  (expect (out "E0402\nm/f/4/1\na vector cannot be read out of a place yet\n")
+  (expect (out "E0402\nm/f/4/1\na vector cannot be read out of a place\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :void () (letmut o (vec (vec :i64)) (make (vec (vec :i64)))) (vec-push o (make (vec :i64))) (let w (vec-get o 0)) (vec-free w) (vec-free o))"))
@@ -1289,7 +1289,7 @@
   (dump-src "(fn f :i64 () (letmut w (make (vec (vec :i64)))) (letmut v (make (vec :i64))) (vec-push w v) (vec-push w v) (ret 0))"))
 
 (test move-vec-free-twice
-  (expect (out "OK\n")
+  (expect (out "E0300\nm/f/4\nuse after move of 'v'\n")
     (code 0)
     (leaks 0))
   (dump-src "(fn f :i64 () (letmut v (make (vec :i64))) (vec-free v) (vec-free v) (let n (vec-len v)) (ret n))"))

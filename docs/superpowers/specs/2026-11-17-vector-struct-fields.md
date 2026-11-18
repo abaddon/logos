@@ -115,10 +115,13 @@ Two levels, and the note is only unambiguous if both are stated:
 
 - **Value level.** A vector value is three words. `(vec-free p)` stores the
   *empty descriptor* — `{ null, 0, 0 }` — into the place, which is the same
-  value `(make (vec T))` builds (`lo-empty-vec`). A consumed place and an empty
+  value `(make (vec T))` builds (`lo-empty-vec`). A freed place and an empty
   vector are therefore indistinguishable in memory, and that is deliberate: it
-  keeps the descriptor three words, and it makes a write to a consumed place
-  mean exactly what the same write means to a fresh empty vector.
+  keeps the descriptor three words, and it makes a write to a freed place mean
+  exactly what the same write means to a fresh empty vector. A **move** is not
+  that: it stores the descriptor into the destination and leaves the source slot
+  holding a copy, so a moved-from place holds a stale `{ p, len, cap }` whose
+  buffer the destination now owns. A write there is refused (§3.3).
 - **Checker level.** A consumed place is *uninitialised*: no operation may read
   it. `vec-len`, `vec-get`, `vec-free`, reading the field as a value
   (`(get b items)` outside a place position), moving it, pushing it into another
@@ -130,21 +133,34 @@ So "uninitialised, not empty" is a checker-level claim, and it is the claim that
 matters: nothing reads a released buffer, and the second
 `(vec-free (get b items))` is E0300 rather than a second free.
 
-### 3.3 Writes initialise
+### 3.3 Writes initialise a freed place
 
-A write to a consumed place is legal and initialises it:
+A write to a place emptied by a **free** is legal and initialises it:
 
-- `vec-push` appends to what the place holds; on a consumed place that is the
+- `vec-push` appends to what the place holds; on a freed place that is the
   empty vector, so the push produces a one-element vector. No liveness check is
   performed and none is needed, because "append to the empty vector" is the only
   meaning a write can have there.
-- `vec-set` requires a live element index; on a consumed (empty) place its
+- `vec-set` requires a live element index; on a freed (empty) place its
   bounds check panics `R0003` exactly as it would on a fresh empty vector.
 - `set-field` / `arr-set` store a whole descriptor, clearing the consumed bit.
 
-This is not a loophole, it is the same rule as `set` on a moved binding being
-E0300 (`check.logos:3530`) read in the other direction: the language has always
-let a write move a consumed place forward. What it forbids is reading one.
+At a branch join the freed bit survives only if no arm left the place stale: a
+move clears it, so a free in one arm cannot mask a move in the other, and a
+write after the join is refused when either path could still hold the stale
+descriptor.
+
+A place emptied by a **move** is dead, not empty, and a write to it is E0300
+`use after move of '<name>'` — `vec-push` and `vec-set` refuse it for the same
+reason `set` refuses a moved binding (`check.logos:3530`). The free is what makes
+the write well defined, because the free is the operation that stores the empty
+descriptor; the move only copies, so the source slot still names the buffer the
+destination owns. Accepting the write would grow from the stale length, free the
+buffer the new owner holds, and the program would die `R0002` on the owner's
+`vec-free`: a program the checker accepted, reading and releasing memory it does
+not own. Refusing it costs nothing a program wants — a push after a move is
+always a mistake, since the data the program wanted went to the destination —
+and it is the direction `set` already takes.
 
 `set-field` over a **live** vector field overwrites the descriptor and strands
 the buffer it pointed at. That is allowed, and it is not silent: the stranded
@@ -597,11 +613,15 @@ shapes, five operations, one function each side; the `direct`/`lo-ref-load`
 special case in the four vector lowerings folds into it. Cost if wrong: four call
 sites to fix instead of one.
 
-**D3. Reads are refused, writes initialise.** Stated in §3.2-§3.3. This is what
-keeps `lo-refill` (`lower.logos:5710`) legal and unchanged. Cost if wrong: a
-forgotten free-then-read is caught, a deliberate free-then-push is legal — a
-program that frees and then pushes gets an empty vector, which is the only
-meaning appending to nothing can have.
+**D3. Reads are refused, writes initialise a *freed* place.** Stated in
+§3.2-§3.3. This is what keeps `lo-refill` (`lower.logos:5710`) legal and
+unchanged. Cost if wrong: a forgotten free-then-read is caught, a deliberate
+free-then-push is legal — a program that frees and then pushes gets an empty
+vector, which is the only meaning appending to nothing can have. A place emptied
+by a *move* is not freed and not empty, so `vec-push` and `vec-set` refuse it
+with the E0300 `set` already gives a moved binding; the free's `bv` handled bit
+is what tells the two apart, because the free is the only operation that stores
+the empty descriptor into the place.
 
 **D4. `set-field` over a live vector field is allowed and leaks visibly.** Same
 trade as `set` over a live owner; the leak report names the stranded block. Cost

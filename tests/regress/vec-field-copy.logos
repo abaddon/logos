@@ -1,0 +1,10 @@
+(mod vec-field-copy)
+
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
+(fn main :void ()
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (letmut c b)
+  (letmut d b)
+  (vec-free (get c items))
+  (vec-free (get d items)))

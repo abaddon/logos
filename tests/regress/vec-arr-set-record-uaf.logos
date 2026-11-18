@@ -1,0 +1,20 @@
+(mod vec-arr-set-record-uaf)
+
+(type rec (struct (items (vec :i64)) (n :i64)))
+
+(fn main :void ()
+  (letmut b rec (make rec (make (vec :i64)) 0))
+  (vec-push (get b items) 7)
+  (vec-push (get b items) 8)
+  (vec-push (get b items) 9)
+  (letmut a
+    (arr rec 2)
+    (make (arr rec 2)
+      (make rec (make (vec :i64)) 0)
+      (make rec (make (vec :i64)) 0)))
+  (arr-set a 0 b)
+  (vec-free (get b items))
+  (println (vec-len (get (arr-get a 0) items)))
+  (vec-push (get (arr-get a 0) items) 99)
+  (println (vec-get (get (arr-get a 0) items) 3))
+  (println (vec-get (get (arr-get a 0) items) 0)))

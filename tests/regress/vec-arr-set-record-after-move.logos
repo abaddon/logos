@@ -1,0 +1,13 @@
+(mod vec-arr-set-record-after-move)
+
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
+(fn main :void ()
+  (letmut a
+    (arr bucket 2)
+    (make (arr bucket 2)
+      (make bucket (make (vec :i64)) 0)
+      (make bucket (make (vec :i64)) 0)))
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (arr-set a 0 b)
+  (vec-free (get b items)))
