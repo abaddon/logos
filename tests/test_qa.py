@@ -68,10 +68,10 @@ CATEGORY_FLOORS = {
     "mem": 7,
     "thread": 8,
     "generics": 2,
-    "regress": 54,
+    "regress": 55,
 }
 
-TOTAL_FLOOR = 332
+TOTAL_FLOOR = 333
 
 DIAGNOSTIC_FIELDS = {
     "severity",

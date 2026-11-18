@@ -276,6 +276,7 @@ tests/regress/vec-arr-set-after-move.logos
 tests/regress/vec-arr-set-move.logos
 tests/regress/vec-arr-set-record-after-move.logos
 tests/regress/vec-arr-set-record-uaf.logos
+tests/regress/vec-arr-set-reinit.logos
 tests/regress/vec-array-element.logos
 tests/regress/vec-field-after-free.logos
 tests/regress/vec-field-copy.logos
