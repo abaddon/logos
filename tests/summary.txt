@@ -317,6 +317,10 @@ PASS regress/struct-owner-mismatch/program -
 PASS regress/test-helper-duplicate -
 PASS regress/test-helper-generic -
 PASS regress/test-local-helper/uses-a-helper -
+PASS regress/vec-arr-set-after-move -
+PASS regress/vec-arr-set-move/move-a-vector-into-an-element-then-free-it -
+PASS regress/vec-arr-set-record-after-move -
+PASS regress/vec-arr-set-record-uaf -
 PASS regress/vec-array-element/push-one-element-and-free-both -
 PASS regress/vec-field-after-free -
 PASS regress/vec-field-copy -

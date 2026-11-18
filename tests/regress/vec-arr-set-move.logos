@@ -1,0 +1,20 @@
+(mod vec-arr-set-move)
+
+(test move-a-vector-into-an-element-then-free-it
+  (expect (out "1\n7\n")
+    (code 0)
+    (leaks 0))
+  (letmut a
+    (arr (vec :i64) 2)
+    (make (arr (vec :i64) 2)
+      (make (vec :i64))
+      (make (vec :i64))))
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push v 7)
+  (arr-set a 0 v)
+  (println (vec-len (arr-get a 0)))
+  (println (vec-get (arr-get a 0) 0))
+  (vec-free (arr-get a 1))
+  (vec-free (arr-get a 0)))
