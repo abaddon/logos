@@ -5,7 +5,7 @@ doing; each links to one page that answers it.
 
 Logos is a prefix-form language for AI readers, compiled by `logosc` to native
 x86_64 Linux binaries. The compiler is self-hosting and deterministic; it is
-released as a verified tarball ([`install.md`](install.md)) named `v0.2.1`
+released as a verified tarball ([`install.md`](install.md)) named `v0.2.2`
 ([`../CHANGELOG.md`](../CHANGELOG.md), [`release.md`](release.md)). Pre-1.0: the
 [`reference/limits.md`](reference/limits.md) page is the honest list of what it
 cannot do yet.
@@ -17,17 +17,20 @@ cannot do yet.
 | I want to… | Read | Time |
 |---|---|---|
 | install it and compile something | [`install.md`](install.md) — download, checksum, unpack, hello world | 5 min |
-| follow it from a checkout, command by command | [`quickstart.md`](quickstart.md) — twelve commands, every output verified | 10 min |
+| follow it command by command | [`quickstart.md`](quickstart.md) — **the canonical quickstart**: both routes in five commands each, then a diagnostic, a test run, the corpus and the gates; every output verified | 10 min |
+| point an agent at this repository, with no human in the loop | [`../llms.txt`](../llms.txt) — the one-file index: install, start-here docs, language, examples, contribution | 2 min |
 | write Logos correctly the first time | [`reference/language.md`](reference/language.md) — v1 subset, rules, verified idioms | 20 min |
 | drive the compiler from a script | [`reference/cli.md`](reference/cli.md) — verbs, flags, exit codes, JSON documents, artefacts | 15 min |
-| understand a failure | [`reference/diagnostics.md`](reference/diagnostics.md) — the shapes, all 35 codes | 10 min |
+| understand a failure | [`reference/diagnostics.md`](reference/diagnostics.md) — the shapes, all 36 codes | 10 min |
 | know what it cannot do | [`reference/limits.md`](reference/limits.md) — one page, every limit | 5 min |
 | use the standard library | [`reference/stdlib.md`](reference/stdlib.md) — all 21 functions | 5 min |
 | be an agent in this repository | [`reference/agent-contract.md`](reference/agent-contract.md) — consumer contract and the index to the contributor one | 15 min |
 | change the compiler | [`../AGENTS.md`](../AGENTS.md) — gates, invariants, bootstrap, regress rule | 20 min |
-| cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
+| join the Logos Agent Challenge | [`challenge/01-summary/program.md`](challenge/01-summary/program.md) — three tracks, entry form, dated timeline, rubric | 10 min |
 | know how v1 quality was measured | [`qa/00-index.md`](qa/00-index.md) — the gate, the coverage, the sign-off | 20 min |
 | know the gap history | [`01-summary/gap-register.md`](01-summary/gap-register.md) — 46 gaps, 18 release criteria, what closed | 30 min |
+| cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
+| check the docs against the compiler | [`distribution/00-index.md`](distribution/00-index.md) — what was verified, by what command, and the result | 10 min |
 
 ## Reference — the v1 doc set
 
@@ -36,7 +39,7 @@ example was executed against the compiler on this tree.
 
 | Page | Covers | Gaps closed |
 |---|---|---|
-| [`quickstart.md`](quickstart.md) | checkout → build → run → diagnose → corpus → manifest, end to end | B6, D6, V1-18 |
+| [`quickstart.md`](quickstart.md) | **the canonical quickstart** — release tarball and checkout, five commands each, then a diagnostic read as data, a test run, the language manifest and the gates, end to end | B6, D6, V1-18 |
 | [`reference/agent-contract.md`](reference/agent-contract.md) | the consumer contract in one page: what works, exit codes, machine-readable surfaces, determinism, traps, and the docs a change obliges you to update | B6 |
 | [`reference/cli.md`](reference/cli.md) | eight verbs, per-verb help, flags, exit-code contract, `--json` diagnostics and the two versioned JSON documents, artefact paths, the installation lookup | B2, E2, E3, E4, E5, E9 |
 | [`reference/language.md`](reference/language.md) | the v1 subset: model, ten rules → codes, verified idiom per feature, what v1 lacks | B2 |
@@ -50,7 +53,7 @@ example was executed against the compiler on this tree.
 |---|---|
 | [`LOGOS.md`](LOGOS.md) | **generated** — cheat sheet, 20 executable chapters in learning order, and the reference tables (forms, types, operators, builtins, reserved names, codes, test categories). The ground truth for what the language accepts. **Never edit by hand.** |
 | [`manual/`](manual/) | the 20 numbered chapter sources the manual embeds; each is a complete module whose `(test …)` node declares its output |
-| `logosc guide --json` | the same tables as a machine-readable manifest (96 forms, 16 types, 17 operators, 2 builtins, 35 codes, 8 categories) |
+| `logosc guide --json` | the same tables as a machine-readable manifest (96 forms, 16 types, 17 operators, 2 builtins, 36 codes, 8 categories) |
 | `logosc guide --check` | proves the committed manual is current; a gate |
 
 ## v1 audit — why the release is blocked
@@ -85,6 +88,7 @@ commands and outputs are in the dossiers.
 | Path | Covers |
 |---|---|
 | [`../README.md`](../README.md) | what Logos is, requirements, status, gates, layout |
+| [`../llms.txt`](../llms.txt) | the one-file machine-readable index for an agent that has just arrived: an install block, the start-here docs, the language references, the examples and the contribution route |
 | [`../AGENTS.md`](../AGENTS.md) | the contributor contract: the six gates, invariants, regress rule, bootstrap rule, PR rules. **One stale claim:** it says the compiler's own suites run at `-O0` and `-O2`; the gate runs them at `-O0` and `make suites-all` is the two-level form (`Makefile`). Everything else in it is accurate |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | the shorter human route through `AGENTS.md` |
 | `../src/logosc/*.md` | per-module contracts, the authoritative statement of what each compiler stage does |

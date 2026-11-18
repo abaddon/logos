@@ -81,7 +81,7 @@ class Version(unittest.TestCase):
     def test_text_form_is_stable(self):
         done = run(["version"])
         self.assertEqual(done.returncode, 0)
-        self.assertEqual(done.stdout, "logos 0.2.1\n")
+        self.assertEqual(done.stdout, "logos 0.2.2\n")
 
     def test_json_form_is_machine_readable(self):
         done = run(["version", "--json"])

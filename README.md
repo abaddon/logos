@@ -1,32 +1,77 @@
 # Logos
 
-Logos is a prefix-form language built for AI readers, with `logosc`, a compiler
-that turns Logos source into native Linux binaries: x86_64 by default, and
-arm64 with `build --target aarch64-unknown-linux-gnu`.
+**Code an agent can read, write, and prove.**
 
-The design goal is that a model can read and write the language without
-guessing. There is no implicit conversion, no hidden allocation, no hidden
-global state and no silent error swallowing. A call that allocates shows it. A
-call that can fail declares it. Release is manual through `free`.
+Logos is a small compiled language for software an agent writes and a human
+still has to trust. Allocation, fallible calls and release are visible in the
+source; the compiler refuses the rest. A failure arrives as a code and a node
+path, programs carry their own expectations, and the same source builds the same
+bytes. MIT, two targets, pre-1.0.
 
-The compiler is written in Logos. `src/logosc/` is the whole of it: lexer,
-parser, resolver, checker, lowering and emitter, each module paired with a
-`.md` beside it that carries its contract. The compiler lowers a typed syntax
-tree to a small flat IR, prints it as LLVM IR text, and `clang` compiles that
-text and links it against the C runtime in `logos/runtime/`.
+The compiler is written in Logos and self-hosting: `src/logosc/` is the whole of
+it, and a gate builds it twice from `src/` and refuses to land the change unless
+the two binaries are byte-identical.
 
-It is self-hosting. `bootstrap/logosc` is a stage-0 binary whose only job is to
-build the compiler from `src/`; the result builds itself again, and the two
-binaries are byte-identical. No Python is involved in building anything: the
-compiler is the only compiler here.
+- **Install it and compile something** — five commands below, every output
+  pasted from a real run; the long form is
+  [`docs/quickstart.md`](docs/quickstart.md).
+- **Build something with it** — the
+  [Logos Agent Challenge](docs/challenge/01-summary/program.md): three tracks —
+  build a program, land a pull request, or port/teach — opening 2026-12-01, no
+  prizes but a showcase page and a co-authored commit.
+- **Point an agent at it** — [`llms.txt`](llms.txt) is the one-file index,
+  [`AGENTS.md`](AGENTS.md) is the contributor contract, and
+  [`docs/reference/agent-contract.md`](docs/reference/agent-contract.md) is the
+  consumer contract: exit codes, JSON shapes, determinism, traps.
+- **Everything else** — [`docs/00-index.md`](docs/00-index.md).
 
-**Documentation index: [`docs/00-index.md`](docs/00-index.md).**
+## Quickstart
+
+The consumer path, on x86_64 Linux with `clang` 14 or newer — no checkout, no
+Python:
+
+```sh
+gh release download v0.2.2 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
+cat > hello.logos <<'EOF'
+(mod hello)
+
+(fn main :void ()
+  (println "hello from logos"))
+EOF
+./bin/logosc build hello.logos -o hello && ./hello     # hello from logos
+```
+
+```
+SHA256SUMS: OK
+hello from logos
+```
+
+Or work from a checkout — the compiler's own source, and the route to changing
+it:
+
+```sh
+git clone https://github.com/abaddon/logos && cd logos
+./tools/logosc.sh version                     # logos 0.2.2; builds the compiler on first use (~50 s)
+./tools/logosc.sh build examples/hello.logos  # writes build/hello.ll and build/hello
+./build/hello                                 # hello
+```
+
+The program to copy when starting something new is
+[`examples/agent-gate/`](examples/agent-gate/README.md): one 174-line file, nine
+`(test …)` nodes, and the rough edges its author hit. The full path — both
+routes, the error case, the cheap `check` loop, the corpus and the manifest — is
+[`docs/quickstart.md`](docs/quickstart.md), with every command and output copied
+from a real run (transcripts:
+[`docs/distribution/03-dossiers/verification-log-2026-11-18.md`](docs/distribution/03-dossiers/verification-log-2026-11-18.md)).
 
 ## Status
 
-**v0.2.1 is the current release** — 0.2.0 was the first published one. Obtain it
-from the releases page or with `gh release download`
-([`docs/install.md`](docs/install.md)); what it contains is
+**v0.2.2 is the current release** — 0.2.0 was the first published one, and
+0.2.1 was tagged but never released: its packaging gate refused the artifact,
+which is what 0.2.2 repairs. Obtain it from the releases page or with
+`gh release download` ([`docs/install.md`](docs/install.md)); what it contains is
 [`CHANGELOG.md`](CHANGELOG.md). It is **pre-1.0**: five of the
 eighteen v1 acceptance criteria are still open, each listed under
 [Known limits](#known-limits), where they are tracked rather than implied.
@@ -34,7 +79,7 @@ eighteen v1 acceptance criteria are still open, each listed under
 What is proven on every pull request, measured by the gate rather than asserted
 (evidence: [`docs/qa/`](docs/qa/00-index.md)):
 
-- **The six documented gates pass**: the contract tests and all nine compiler
+- **The six documented gates pass**: the contract tests and all ten compiler
   suites; the corpus at `-O0` and `-O2` compared against each other, not only
   against expected output; `tools/accept.sh` (the gcc differential oracle, the
   example programs against `wc`, `jq` and a C reference, formatter idempotency
@@ -71,36 +116,6 @@ Not done, and why this is 0.2.x rather than 1.0.0:
 Read the status as: *you can hand a compiler to somebody else today, and you
 can see exactly which corners are unfinished.*
 
-## Quickstart
-
-Install the tarball and compile a program — the consumer path, no checkout
-([`docs/install.md`](docs/install.md)):
-
-```sh
-gh release download v0.2.1 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
-sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.1-x86_64-linux.tar.gz && cd logos-0.2.1-x86_64-linux
-cat > hello.logos <<'EOF'
-(mod hello)
-
-(fn main :void ()
-  (println "hello from logos"))
-EOF
-./bin/logosc build hello.logos -o hello && ./hello     # hello from logos
-```
-
-Or work from a checkout, on x86_64 Linux with clang:
-
-```sh
-./tools/logosc.sh version                       # builds the compiler on first use
-./tools/logosc.sh build hello.logos             # writes build/hello.ll and build/hello
-./build/hello                                   # hello from logos
-```
-
-The full path — including the error case, the cheap `check` loop, the corpus
-and the manifest — is [`docs/quickstart.md`](docs/quickstart.md), with every
-output copied from a real run.
-
 ## Requirements
 
 | Need | For |
@@ -121,7 +136,7 @@ Eight verbs. The reference is [`docs/reference/cli.md`](docs/reference/cli.md);
 these are the ones you will use:
 
 ```sh
-./tools/logosc.sh version                      # logos 0.2.1
+./tools/logosc.sh version                      # logos 0.2.2
 ./tools/logosc.sh build examples/hello.logos   # build/hello, and build/hello.ll
 ./build/hello                                  # hello
 ./tools/logosc.sh check FILE                   # the cheap validation call (hidden verb)
@@ -282,6 +297,26 @@ cell and the last cell. `examples/sample.json` is the JSON fixture the
 acceptance script feeds to both the program and jq; `examples/inputs/` holds
 the Unicode word-separator inputs and the duplicate-key and malformed JSON
 documents the script also compares.
+
+## Build something with it
+
+Write the program you were going to write in Python as one Logos file, with a
+`(test name (expect (out "…") (code 0) (leaks 0)) …)` node that states the
+output you expect. `logosc test` runs it at `-O0` and `-O2`: if it fails you have
+a code and a node path, and if it compiles you have a native binary with nothing
+to install at run time.
+
+- **Fork a working program.** [`examples/agent-gate/`](examples/agent-gate/README.md)
+  is a policy gate for an agent's tool calls in 174 lines, with nine tests, a
+  measured transcript, and a list of the rough edges it hit. Its "Remix this"
+  section names three extensions that fit in an afternoon.
+- **Enter the [Logos Agent Challenge](docs/challenge/01-summary/program.md)** —
+  three tracks: build a program, land a pull request, or port and teach. Round 1
+  opens 2026-12-01; the awards are a showcase page and a co-authored commit, not
+  money.
+- **Fix the compiler.** [`docs/reference/limits.md`](docs/reference/limits.md) is
+  the honest list of what is missing, and [`AGENTS.md`](AGENTS.md) is the route
+  in: a regress case that fails first, then the fix.
 
 ## Done means these six commands pass
 

@@ -1,0 +1,73 @@
+# Logos
+
+> Logos is a small compiled language for software an agent writes and a human
+> still has to trust. Allocation, fallible calls and release are visible in the
+> source; the compiler refuses the rest. A failure arrives as a stable code and a
+> node path, programs carry their own expectations, and the same source builds
+> the same bytes. MIT, x86_64 and arm64 Linux, pre-1.0.
+
+Repository: https://github.com/abaddon/logos (branch `main`, tag `v0.2.2`).
+Language: prefix-form, every construct is `(head arg …)`. The compiler `logosc`
+lowers Logos to LLVM IR text and `clang` links a C runtime, so a program is a
+native Linux ELF with no interpreter. `logosc version` prints `logos 0.2.2`.
+
+## Install and run
+
+x86_64 Linux, glibc 2.35+, `clang` 14+ (needed at build time of every program).
+Five commands, output pasted from a real run; full transcript in the quickstart.
+
+```sh
+gh release download v0.2.2 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
+cat > hello.logos <<'EOF'
+(mod hello)
+
+(fn main :void ()
+  (println "hello from logos"))
+EOF
+./bin/logosc build hello.logos -o hello && ./hello     # hello from logos
+```
+
+From a checkout instead: `git clone https://github.com/abaddon/logos && cd
+logos`, then `./tools/logosc.sh build examples/hello.logos` and
+`./build/hello` — the first call builds the compiler from `src/` (~50 s).
+
+## Start here
+
+- [docs/quickstart.md](https://github.com/abaddon/logos/blob/main/docs/quickstart.md): the canonical walkthrough — tarball, checkout, a diagnostic read as data, a test run, the corpus, the gates; every output verified.
+- [AGENTS.md](https://github.com/abaddon/logos/blob/main/AGENTS.md): the contributor contract — the six gates a change must pass, the four invariants, the regress rule, the bootstrap rule, pull-request rules.
+- [docs/reference/agent-contract.md](https://github.com/abaddon/logos/blob/main/docs/reference/agent-contract.md): the consumer contract — exit codes (0 success, 2 your source, 1 your machine), JSON shapes, determinism check, traps.
+- [docs/install.md](https://github.com/abaddon/logos/blob/main/docs/install.md): download, checksum, unpack, and how the compiler finds its runtime and standard library from any working directory.
+- [README.md](https://github.com/abaddon/logos/blob/main/README.md): what Logos is, the status of the release, requirements, examples, layout.
+
+## Language
+
+- [docs/LOGOS.md](https://github.com/abaddon/logos/blob/main/docs/LOGOS.md): the generated manual — cheat sheet, one executable chapter per feature, reference tables. Generated from the compiler's tables; never edited by hand.
+- [docs/reference/language.md](https://github.com/abaddon/logos/blob/main/docs/reference/language.md): one page — the model, ten rules each with the diagnostic code it raises, a verified idiom per feature, what v1 refuses.
+- [docs/reference/cli.md](https://github.com/abaddon/logos/blob/main/docs/reference/cli.md): eight verbs, flags, exit codes, `--json` documents, artefact paths.
+- [docs/reference/diagnostics.md](https://github.com/abaddon/logos/blob/main/docs/reference/diagnostics.md): the diagnostic shapes, node paths, all 36 codes, retry policy.
+- [docs/reference/stdlib.md](https://github.com/abaddon/logos/blob/main/docs/reference/stdlib.md): all 21 standard-library functions (`io`, `str`, `map`) with signatures and ownership rules.
+- [docs/reference/limits.md](https://github.com/abaddon/logos/blob/main/docs/reference/limits.md): every known limit in one page — read it before assuming a capability.
+- `logosc guide --json`: the language as data. 96 forms, 16 types, 17 operators, 2 builtins, 36 diagnostic codes, 8 test categories, all under `schema_version: 1`.
+- `logosc check FILE --json` and `logosc build FILE --json`: one JSON object per diagnostic, carrying `code` and `node_path`; hand the node path back to `logosc show FILE PATH` and the compiler prints that subtree.
+
+## Examples
+
+- [examples/agent-gate/](https://github.com/abaddon/logos/blob/main/examples/agent-gate/README.md): a policy gate for an agent's tool calls in one 174-line file with nine `(test …)` nodes — the project to copy when starting something new.
+- [examples/wc.logos](https://github.com/abaddon/logos/blob/main/examples/wc.logos): counts lines, words and bytes; matched against GNU `wc`.
+- [examples/json.logos](https://github.com/abaddon/logos/blob/main/examples/json.logos): a recursive-descent JSON parser and structural summary; matched against `jq`.
+- [examples/matrix.logos](https://github.com/abaddon/logos/blob/main/examples/matrix.logos): two 200x200 matrix multiplications on four threads; matched against a C reference.
+
+## Contribute
+
+- [CONTRIBUTING.md](https://github.com/abaddon/logos/blob/main/CONTRIBUTING.md): the short human route; every commit needs a `Signed-off-by` trailer matching its author.
+- [docs/00-index.md](https://github.com/abaddon/logos/blob/main/docs/00-index.md): the full documentation index, one row per question.
+- [docs/challenge/01-summary/program.md](https://github.com/abaddon/logos/blob/main/docs/challenge/01-summary/program.md): the Logos Agent Challenge — three tracks (build, land a pull request, port or teach), Round 1 opening 2026-12-01, no cash prizes.
+- `bash tools/pr_gate.sh`: the six gates a pull request must pass, one PASS/FAIL line each. Agents and humans are held to the same gates.
+
+## Optional
+
+- [docs/history/build-ledger.md](https://github.com/abaddon/logos/blob/main/docs/history/build-ledger.md): the rulings behind the design, in order — the "why" the language cannot carry, because it has no comments.
+- [docs/release.md](https://github.com/abaddon/logos/blob/main/docs/release.md): how a release is built, proved reproducible and published.
+- [CHANGELOG.md](https://github.com/abaddon/logos/blob/main/CHANGELOG.md): what each version changed.
