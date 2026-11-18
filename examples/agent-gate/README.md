@@ -27,7 +27,7 @@ git clone https://github.com/abaddon/logos && cd logos
 ```
 
 The first build also builds the compiler from `src/` with the stage-0 binary,
-which takes about 50 s on one 4-core box; every later build is a second. `logosc`
+which takes about 50 s on a six-core box; every later build is a second. `logosc`
 shells out to `clang` at every compile, so `clang` must be on `PATH`
 (`apt-get install clang-14 binutils`).
 
@@ -41,7 +41,7 @@ code is the number of denied calls, capped at 125.
 
 | Tool | Allowed when | Example |
 | --- | --- | --- |
-| `shell` | the command has no `rm -rf`, no `sudo`/`su `, no `>`, `|` or `;` | `shell ls -la` |
+| `shell` | the command has no `rm -rf`, no `sudo`/`su `, no `>`, `\|` or `;` | `shell ls -la` |
 | `http` | the method is `GET` and the URL starts with `https://` | `http GET https://example.com` |
 | `write` | the path starts with `./` | `write ./notes/todo.md buy milk` |
 | `read` | the path is not under `/etc` or `/root` | `read ./README.md` |
@@ -85,9 +85,10 @@ Three extensions that fit in an afternoon:
 ## Rough edges found while writing this
 
 The point of this directory is to be copied, so the frictions are listed rather
-than hidden. Items 1 and 2 are compiler errors that were actually hit while
-producing `gate.logos`; the rest are properties of the language and the library
-that were checked in the documentation while deciding how to write it.
+than hidden. Items 1, 2 and 7 were hit for real while producing `gate.logos` —
+two compiler errors and one failed gate; the rest are properties of the language
+and the library that were checked in the documentation while deciding how to
+write it.
 
 1. **Logos has no comments.** The first draft opened with a `;` header line and
    the compiler said `gate.logos:3:1: E0001: form outside parentheses` — a
@@ -95,10 +96,11 @@ that were checked in the documentation while deciding how to write it.
    ("Logos has no comments and no doc form"), but a newcomer learns it from the
    error.
 2. **A user type in a signature is spelled differently from a primitive.**
-   `(fn judge :i64 …)` but `(fn judge verdict …)`; writing `(fn judge :verdict …)`
-   is `agent-gate/judge: E0101: unknown type ':verdict'`, which names a type
-   containing a colon no one meant to write. The cheat sheet's signature
-   examples are all primitives, so the asymmetry is learned by error.
+   `(fn judge :i64 …)` but `(fn judge verdict …)`; the `:verdict` spelling is
+   `agent-gate/check-shell: E0101: unknown type ':verdict'` — a diagnostic that
+   names a type containing a colon no one meant to write. The cheat sheet's
+   signature examples are all primitives, so the asymmetry is learned by
+   error.
 3. **There is no string-to-integer parse anywhere in the stdlib** (a stated gap
    in `docs/reference/limits.md`), so a rule such as "allow `spend 100`, deny
    `spend 1000`" needs a digit parser written first. That rule is absent here.
@@ -116,3 +118,9 @@ that were checked in the documentation while deciding how to write it.
    build.** `docs/install.md` says so plainly, and this environment has it, so
    the failure was not hit here — on a container without `clang` the front end
    accepts the program and the build dies at the link step.
+7. **Adding a `.logos` file to the repository breaks two gates until
+   `tools/selfhost-manifest.txt` is regenerated.** `make test` and
+   `tools/selfhost.sh` both failed with `selfhost: manifest lists 402 files but
+   git tracks 403; regenerate tools/selfhost-manifest.txt`, which names the file
+   to change but not the command: it is `git ls-files '*.logos' | sort`. Nothing
+   in `CONTRIBUTING.md` or `AGENTS.md` mentions the manifest.
