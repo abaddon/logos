@@ -28,6 +28,7 @@ cannot do yet.
 | cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
 | know how v1 quality was measured | [`qa/00-index.md`](qa/00-index.md) — the gate, the coverage, the sign-off | 20 min |
 | know the gap history | [`01-summary/gap-register.md`](01-summary/gap-register.md) — 46 gaps, 18 release criteria, what closed | 30 min |
+| run the outreach launch, or see where it got to | [`launch/00-index.md`](launch/00-index.md) — channel status, paste-ready copy, the owner actions it waits on | 10 min |
 
 ## Reference — the v1 doc set
 
