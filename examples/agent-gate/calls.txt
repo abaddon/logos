@@ -1,0 +1,8 @@
+shell ls -la
+shell rm -rf /
+http GET https://example.com/docs
+http GET http://example.com
+write ./notes/todo.md buy milk
+write /etc/passwd root
+read /root/.ssh/id_rsa
+browser navigate x

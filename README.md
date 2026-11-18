@@ -260,6 +260,13 @@ A summary; the full list is
 | `examples/json.logos` | parses JSON and prints a structural summary | `jq` |
 | `examples/matrix.logos` | multiplies two 200x200 matrices on four threads | `examples/matrix_ref.c` |
 
+The directory to copy when starting something new is
+[`examples/agent-gate/`](examples/agent-gate/README.md): one 174-line program, a
+policy gate for an agent's tool calls, with a quickstart, nine `(test …)` nodes
+that check it, and a list of the rough edges found while writing it. The three
+programs above are the ones the acceptance gate compares against an independent
+implementation.
+
 `wc` reads through `(read-all)` and prints GNU wc's three seven-wide columns in
 GNU's order: lines, words, bytes. It splits words on the same set GNU does:
 ASCII space and the C-locale controls, then the UTF-8 space separators
@@ -330,7 +337,7 @@ commit must carry a `Signed-off-by` trailer that matches its author.
 | `bootstrap/logosc` | Stage-0 binary that builds the compiler; its SHA-256 is recorded |
 | `logos/runtime/rt.h` | Declarations of the C runtime reached through `extern` |
 | `logos/runtime/rt.c` | C runtime implementation, linked into every binary |
-| `examples/` | Three real programs, their input fixture and the matrix reference |
+| `examples/` | Three oracle-matched programs, the reference project to fork (`agent-gate/`) and their input fixtures |
 | `docs/00-index.md` | **The documentation index — start here** |
 | `docs/quickstart.md` | Checkout → running binary, verified end to end |
 | `docs/reference/` | CLI, diagnostics, language, stdlib and limits references |
