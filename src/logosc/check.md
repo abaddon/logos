@@ -332,7 +332,7 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 | `bn` | binding | the id of the node that declared it — the path E0107 prints |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | 1 for `letmut`, 2 for a parameter, 0 for a plain `let` |
-| `bv` | binding | moved (bit 0) and handled (bit 1) — a transfer sets moved, a `free` sets both, a write to a freed place clears both, and the moved bit is the one a branch snapshot restores |
+| `bv` | binding | moved (bit 0) and freed (bit 1) — a transfer sets moved, a `free` sets both, a **move clears the freed bit** because the source slot now holds a stale descriptor, a write to a freed place clears both, and a branch snapshot restores the moved bit while `body-union-moved` keeps the freed bit only when no arm was left stale |
 | `bu` | binding | used — set by a read, by a call argument, by a place write, and read by E0107 |
 | `bd` | binding | packed declaration scope: `depth * 1048576 + loops`, so both the duplicate test (block depth) and E0303 (loop depth) read the state at the declaration |
 | `br` | function | one entry: the declared return type |
@@ -937,7 +937,11 @@ value check, the type fit and the binding. So:
   descriptor, and refuses a place emptied by a move with E0300 `use after move`,
   because a move only copies the descriptor and leaves the source slot naming
   the buffer the destination owns. `body-take-init` is that re-arming: it clears
-  both bits together;
+  both bits together. `body-move-out` clears the freed bit, so a move after a
+  free (or after a branch that freed the place) is stale again, and
+  `body-union-moved` keeps the freed bit across a join only when no arm was left
+  stale — otherwise a free in one arm would mask a move in the other, which is
+  exactly the program that reallocates from a stale descriptor and double-frees;
 - a `match` consumes a move-only scrutinee before its arms, so a match on an
   owner empties the binding and a second use is E0300; an `if` or `match` whose
   *result* is move-only is E0402, `a vector cannot be selected by if or match`

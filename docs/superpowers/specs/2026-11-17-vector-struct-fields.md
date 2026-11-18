@@ -145,6 +145,11 @@ A write to a place emptied by a **free** is legal and initialises it:
   bounds check panics `R0003` exactly as it would on a fresh empty vector.
 - `set-field` / `arr-set` store a whole descriptor, clearing the consumed bit.
 
+At a branch join the freed bit survives only if no arm left the place stale: a
+move clears it, so a free in one arm cannot mask a move in the other, and a
+write after the join is refused when either path could still hold the stale
+descriptor.
+
 A place emptied by a **move** is dead, not empty, and a write to it is E0300
 `use after move of '<name>'` — `vec-push` and `vec-set` refuse it for the same
 reason `set` refuses a moved binding (`check.logos:3530`). The free is what makes

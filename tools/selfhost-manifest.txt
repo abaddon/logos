@@ -285,6 +285,8 @@ tests/regress/vec-field-read.logos
 tests/regress/vec-foreign-struct/program.logos
 tests/regress/vec-foreign-struct/shapes.logos
 tests/regress/vec-place-copy.logos
+tests/regress/vec-push-after-move-join-free-else.logos
+tests/regress/vec-push-after-move-join-free-then.logos
 tests/regress/vec-push-after-move.logos
 tests/regress/vec-push-after-set-field.logos
 tests/regress/vec-set-after-move.logos
