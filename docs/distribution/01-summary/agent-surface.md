@@ -94,7 +94,7 @@ Applied with `gh repo edit abaddon/logos` and read back with `gh repo view`:
 | Field | Value |
 |---|---|
 | description | `Logos: code an agent can read, write, and prove. A prefix-form language and a self-hosting compiler to native Linux binaries.` |
-| topics | `compiler`, `programming-language`, `self-hosting`, `llvm`, `ai-agents`, `llm`, `code-generation`, `language-design` |
+| topics | `agents`, `ai-agents`, `code-generation`, `compiler`, `language-design`, `llm`, `llvm`, `programming-language`, `self-hosting`, `system-programming` |
 | homepage | left empty: there is no site to point at, and a dead homepage is worse than none |
 
 `llms.txt` sits at the repository root, which is the only root GitHub gives a

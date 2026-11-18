@@ -4,7 +4,8 @@ Every command the agent-facing docs quote, run in order on this tree, with the
 output copied from the terminal. Run from
 `/root/ai-language-program/.worktrees/t_5b93c8fe` (branch `wt/t_5b93c8fe`,
 `logos 0.2.2`) unless a command says otherwise. Section 7 is the published
-release: the same commands, against the artifact GitHub serves.
+release: the same commands, against the artifact GitHub serves. Section 8
+re-fetches every URL `llms.txt` publishes.
 
 Page-by-page provenance — which command proves which claim — is in
 [`../00-index.md`](../00-index.md).
@@ -194,3 +195,120 @@ baseline tests/summary.txt: 0 regression(s)
 
 The full corpus is `./tools/logosc.sh test tests`: the same cases at `-O0` and
 `-O2`, compared with each other.
+
+## 7. The published release
+
+`v0.2.2` was published at 2026-11-18T22:42:57Z by the release workflow, which
+ran the six gates on the tag, built the tarball on two runners and required one
+SHA-256 for both:
+
+```console
+$ gh release view v0.2.2 --repo abaddon/logos --json url,assets --jq '.url, (.assets[] | "\(.name) \(.size) bytes")'
+https://github.com/abaddon/logos/releases/tag/v0.2.2
+logos-0.2.2-x86_64-linux.tar.gz 875863 bytes
+SHA256SUMS 98 bytes
+```
+
+...and the block from `README.md` then run verbatim, in an empty directory,
+against that artifact rather than a locally built one
+(`docs/distribution/03-dossiers/verify-published-release.sh` waits for the
+release and executes it):
+
+```console
+$ gh release download v0.2.2 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+[exit 0]
+$ ls -l
+-rw-r--r-- 1 root root     98 Nov 18 22:43 SHA256SUMS
+-rw-r--r-- 1 root root 875863 Nov 18 22:43 logos-0.2.2-x86_64-linux.tar.gz
+
+$ sha256sum -c SHA256SUMS
+logos-0.2.2-x86_64-linux.tar.gz: OK
+[exit 0]
+
+$ tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
+[exit 0]
+
+$ cat > hello.logos <<'EOF'          # the heredoc README.md prints
+(mod hello)
+
+(fn main :void ()
+  (println "hello from logos"))
+EOF
+[exit 0]
+
+$ ./bin/logosc build hello.logos -o hello && ./hello
+hello from logos
+[exit 0]
+
+$ ./bin/logosc version
+logos 0.2.2
+[exit 0]
+```
+
+The two files agree, and they are the same tarball the second runner built:
+
+```console
+$ sha256sum logos-0.2.2-x86_64-linux.tar.gz && cat SHA256SUMS
+77e4895dbd7aad01a74e45abad6a5c5778e0b239bd01755b361f498f85da0f7c  logos-0.2.2-x86_64-linux.tar.gz
+77e4895dbd7aad01a74e45abad6a5c5778e0b239bd01755b361f498f85da0f7c  logos-0.2.2-x86_64-linux.tar.gz
+```
+
+### 7.1 The pages the README and `llms.txt` link, inside the artifact
+
+A link into a directory the tarball does not carry is exactly the dead end
+`tools/verify_install.sh` exists to prevent, so the unpacked tree is checked for
+them by name:
+
+```console
+$ ls
+AGENTS.md  CHANGELOG.md  CONTRIBUTING.md  INSTALL.md  LICENSE  README.md
+VERSION  bin  build  docs  examples  hello  hello.logos  llms.txt  logos  src
+
+$ ls examples/agent-gate/
+EVIDENCE.md  README.md
+```
+
+`llms.txt` is at the root and the reference project's two pages are under
+`examples/agent-gate/` — the paths the repository URLs use, so every link an
+agent follows from the artifact also resolves on GitHub.
+
+### 7.2 The language, as the shipped compiler states it
+
+```console
+$ ./bin/logosc guide --json | jq -c '{schema_version, forms:(.forms|length), types:(.types|length), operators:(.operators|length), codes:(.codes|length)}'
+{"schema_version":1,"forms":96,"types":16,"operators":17,"codes":36}
+```
+
+## 8. Every URL `llms.txt` publishes
+
+The file an agent fetches first is only useful if its targets exist. All 21 were
+fetched from `raw`/`github.com` on `main` at 22:20Z — `200` for every one:
+
+```console
+$ for u in $(grep -oE '\(https://[^)]+\)' llms.txt | tr -d '()' | sort -u); do
+    printf '%s  %s\n' "$(curl -s -o /dev/null -w '%{http_code}' -m 25 "$u")" "$u"; done
+200  https://github.com/abaddon/logos/blob/main/AGENTS.md
+200  https://github.com/abaddon/logos/blob/main/CHANGELOG.md
+200  https://github.com/abaddon/logos/blob/main/CONTRIBUTING.md
+200  https://github.com/abaddon/logos/blob/main/README.md
+200  https://github.com/abaddon/logos/blob/main/docs/00-index.md
+200  https://github.com/abaddon/logos/blob/main/docs/LOGOS.md
+200  https://github.com/abaddon/logos/blob/main/docs/challenge/01-summary/program.md
+200  https://github.com/abaddon/logos/blob/main/docs/history/build-ledger.md
+200  https://github.com/abaddon/logos/blob/main/docs/install.md
+200  https://github.com/abaddon/logos/blob/main/docs/quickstart.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/agent-contract.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/cli.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/diagnostics.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/language.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/limits.md
+200  https://github.com/abaddon/logos/blob/main/docs/reference/stdlib.md
+200  https://github.com/abaddon/logos/blob/main/docs/release.md
+200  https://github.com/abaddon/logos/blob/main/examples/agent-gate/README.md
+200  https://github.com/abaddon/logos/blob/main/examples/json.logos
+200  https://github.com/abaddon/logos/blob/main/examples/matrix.logos
+200  https://github.com/abaddon/logos/blob/main/examples/wc.logos
+```
+
+`tools/check_doc_links.sh .` covers the relative links in the same pass: 278
+files, 557 links, 0 broken.
