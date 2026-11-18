@@ -8,6 +8,10 @@ source; the compiler refuses the rest. A failure arrives as a code and a node
 path, programs carry their own expectations, and the same source builds the same
 bytes. MIT, two targets, pre-1.0.
 
+The compiler is written in Logos and self-hosting: `src/logosc/` is the whole of
+it, and a gate builds it twice from `src/` and refuses to land the change unless
+the two binaries are byte-identical.
+
 - **Install it and compile something** — five commands below, every output
   pasted from a real run; the long form is
   [`docs/quickstart.md`](docs/quickstart.md).
