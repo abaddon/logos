@@ -1,0 +1,17 @@
+(mod vec-push-after-move-join-free-else)
+
+(fn main :void ()
+  (letmut c :bool true)
+  (letmut a
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push a 7)
+  (letmut b
+    (vec :i64)
+    (make (vec :i64)))
+  (if c
+    (set b a)
+    (vec-free a))
+  (vec-push a 3)
+  (vec-free b)
+  (vec-free a))

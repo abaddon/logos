@@ -126,7 +126,6 @@ multi-module fixtures needed the set instead of the name.
 | a struct field must be `(name type)` | E0002 | the field |
 | a field needs a name / duplicate field | E0002 / E0003 | the field |
 | owning fields are not supported yet | E0002 | the field |
-| vector fields are not supported yet | E0002 | the field |
 | result fields are not supported yet | E0002 | the field |
 | type variable in a field is unbound | E0501 | the field |
 | an enum needs at least one variant | E0002 | the enum |
@@ -333,7 +332,7 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 | `bn` | binding | the id of the node that declared it — the path E0107 prints |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | 1 for `letmut`, 2 for a parameter, 0 for a plain `let` |
-| `bv` | binding | moved — set by a transfer or a `free`, cleared only by a branch restore |
+| `bv` | binding | moved (bit 0) and freed (bit 1) — a transfer sets moved, a `free` sets both, a **move clears the freed bit** because the source slot now holds a stale descriptor, a write to a freed place clears both, and a branch snapshot restores the moved bit while `body-union-moved` keeps the freed bit only when no arm was left stale |
 | `bu` | binding | used — set by a read, by a call argument, by a place write, and read by E0107 |
 | `bd` | binding | packed declaration scope: `depth * 1048576 + loops`, so both the duplicate test (block depth) and E0303 (loop depth) read the state at the declaration |
 | `br` | function | one entry: the declared return type |
@@ -931,7 +930,18 @@ value check, the type fit and the binding. So:
   does **not** empty the binding, because it zeroes the descriptor and a second
   `vec-free` is released by `rt_free` as `free(NULL)`. `(vec-free v)` followed
   by `(vec-len v)` or a second `(vec-free v)` is accepted, exactly as Python
-  accepts it;
+  accepts it. The field-place change narrows this for places: a `vec-free` marks
+  the place consumed (E0300 on a read or a second free, `body-take-moved`) and
+  also handled (`body-take-handled`), and the handled bit is what a write
+  consults — `vec-push` re-arms a freed place because the free stored the empty
+  descriptor, and refuses a place emptied by a move with E0300 `use after move`,
+  because a move only copies the descriptor and leaves the source slot naming
+  the buffer the destination owns. `body-take-init` is that re-arming: it clears
+  both bits together. `body-move-out` clears the freed bit, so a move after a
+  free (or after a branch that freed the place) is stale again, and
+  `body-union-moved` keeps the freed bit across a join only when no arm was left
+  stale — otherwise a free in one arm would mask a move in the other, which is
+  exactly the program that reallocates from a stale descriptor and double-frees;
 - a `match` consumes a move-only scrutinee before its arms, so a match on an
   owner empties the binding and a second use is E0300; an `if` or `match` whose
   *result* is move-only is E0402, `a vector cannot be selected by if or match`

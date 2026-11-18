@@ -3,7 +3,7 @@
 (type point (struct (x :i64) (y :i64)))
 
 (test arrays
-  (expect (out "3\n9\n4\n")
+  (expect (out "3\n9\n4\n1\n")
     (code 0)
     (leaks 0))
   (letmut a
@@ -17,4 +17,13 @@
     (make (arr point 2)
       (make point 1 2)
       (make point 3 4)))
-  (println (get (arr-get ps 1) y)))
+  (println (get (arr-get ps 1) y))
+  (letmut vs
+    (arr (vec :i64) 2)
+    (make (arr (vec :i64) 2)
+      (make (vec :i64))
+      (make (vec :i64))))
+  (vec-push (arr-get vs 0) 8)
+  (println (vec-len (arr-get vs 0)))
+  (vec-free (arr-get vs 1))
+  (vec-free (arr-get vs 0)))

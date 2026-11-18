@@ -419,6 +419,8 @@
   (vec-push out "`_move_only` and `_consume`: binding it or passing it moves it, and a second use is E0300 or E0402.")
   (vec-push out "A value cannot be read out of a place when it owns memory.")
   (vec-push out "A struct field, an array or vector element and a dereference of an owning type are E0300/E0402 (`_OWNER_PLACE`, `_VEC_PLACE`).")
+  (vec-push out "A vector field is a place: `push`, `set`, `len`, `get` and `free` reach it, a free consumes it, and a record that owns one is moved, never copied.")
+  (vec-push out "`_VEC_PLACE` names the field or element; a free writes the empty descriptor there, and a second read of it is E0300 `_USE_AFTER_MOVE`.")
   (vec-push out "A release inside a loop is refused for a binding declared outside it.")
   (vec-push out "E0303 `LOOP_MOVE`: the body is checked once, so a second pass would read a slot the first emptied.")
   (vec-push out "A capturing closure cannot cross a call boundary.")

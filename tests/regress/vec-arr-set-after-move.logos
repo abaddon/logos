@@ -1,0 +1,13 @@
+(mod vec-arr-set-after-move)
+
+(fn main :void ()
+  (letmut a
+    (arr (vec :i64) 2)
+    (make (arr (vec :i64) 2)
+      (make (vec :i64))
+      (make (vec :i64))))
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (arr-set a 0 v)
+  (vec-free v))

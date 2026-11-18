@@ -290,7 +290,7 @@
   (dump-src "(type p (struct (x :i64) (x :i64 :i64)))"))
 
 (test field-vector
-  (expect (out "E0002\nm/p/0/0\nvector fields are not supported yet\n")
+  (expect (out "OK\n")
     (code 0)
     (leaks 0))
   (dump-src "(type p (struct (v (vec :i64))))"))
