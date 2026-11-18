@@ -332,7 +332,7 @@ One function's scope is parallel vectors the checker owns, plus the W3 map:
 | `bn` | binding | the id of the node that declared it — the path E0107 prints |
 | `bt` | binding | the binding's type id |
 | `bm` | binding | 1 for `letmut`, 2 for a parameter, 0 for a plain `let` |
-| `bv` | binding | moved — set by a transfer or a `free`, cleared only by a branch restore |
+| `bv` | binding | moved (bit 0) and handled (bit 1) — a transfer sets moved, a `free` sets both, a write to a freed place clears both, and the moved bit is the one a branch snapshot restores |
 | `bu` | binding | used — set by a read, by a call argument, by a place write, and read by E0107 |
 | `bd` | binding | packed declaration scope: `depth * 1048576 + loops`, so both the duplicate test (block depth) and E0303 (loop depth) read the state at the declaration |
 | `br` | function | one entry: the declared return type |
@@ -930,7 +930,14 @@ value check, the type fit and the binding. So:
   does **not** empty the binding, because it zeroes the descriptor and a second
   `vec-free` is released by `rt_free` as `free(NULL)`. `(vec-free v)` followed
   by `(vec-len v)` or a second `(vec-free v)` is accepted, exactly as Python
-  accepts it;
+  accepts it. The field-place change narrows this for places: a `vec-free` marks
+  the place consumed (E0300 on a read or a second free, `body-take-moved`) and
+  also handled (`body-take-handled`), and the handled bit is what a write
+  consults — `vec-push` re-arms a freed place because the free stored the empty
+  descriptor, and refuses a place emptied by a move with E0300 `use after move`,
+  because a move only copies the descriptor and leaves the source slot naming
+  the buffer the destination owns. `body-take-init` is that re-arming: it clears
+  both bits together;
 - a `match` consumes a move-only scrutinee before its arms, so a match on an
   owner empties the binding and a second use is E0300; an `if` or `match` whose
   *result* is move-only is E0402, `a vector cannot be selected by if or match`

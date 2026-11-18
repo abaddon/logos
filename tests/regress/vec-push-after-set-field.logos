@@ -1,0 +1,13 @@
+(mod vec-push-after-set-field)
+
+(type bucket (struct (items (vec :i64)) (label :i64)))
+
+(fn main :void ()
+  (letmut v
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push v 7)
+  (letmut b bucket (make bucket (make (vec :i64)) 0))
+  (set-field b items v)
+  (vec-push v 3)
+  (vec-free (get b items)))

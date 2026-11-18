@@ -5647,7 +5647,7 @@
 
 (fn body-take-init :void ((bv (ref (vec :i64))) (at :i64))
   (if (body-moved? bv at)
-    (vec-set bv at (- (vec-get bv at) 1))
+    (vec-set bv at 0)
     (check-nothing))
   (ret))
 
@@ -5869,6 +5869,14 @@
     (check-nothing))
   (if (= consume 1)
     (body-take-moved bv (vec-get prow 1))
+    (check-nothing))
+  (if (= consume 1)
+    (body-take-handled bv (vec-get prow 1))
+    (check-nothing))
+  (if (and (not (= consume 1))
+        (and (= (vec-get prow 3) 1)
+          (not (body-handled? bv (vec-get prow 1)))))
+    (ret (check-free-two-str-ids keys prow (check-fail-at nodes ntexts id 300 (str-concat "use after move of '" (str-concat (vec-get keys 0) "'")))))
     (check-nothing))
   (if (= consume 0)
     (body-take-init bv (vec-get prow 1))

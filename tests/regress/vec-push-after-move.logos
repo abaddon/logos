@@ -1,0 +1,14 @@
+(mod vec-push-after-move)
+
+(fn main :void ()
+  (letmut a
+    (vec :i64)
+    (make (vec :i64)))
+  (vec-push a 7)
+  (letmut b
+    (vec :i64)
+    (make (vec :i64)))
+  (set b a)
+  (vec-push a 3)
+  (vec-free b)
+  (vec-free a))
