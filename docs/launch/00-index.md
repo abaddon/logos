@@ -23,18 +23,22 @@ with copy written for each channel's own norms, and report what worked.
 
 ## Headline
 
-**Nothing is posted, and one thing had to be fixed before anything could be.** The
-launch was routed to this host with exactly one writable channel — GitHub — so the
-release was the only publishable surface, and the attempt to publish it uncovered
-the real blocker: the release workflow had been failing its acceptance gate on
-every tag since the aarch64 target landed two days earlier, so `v0.2.1` could not
-ship and the README's install command returned `release not found`. That is fixed
-in PR [#48](https://github.com/abaddon/logos/pull/48) — a one-line toolchain
-install — and the release re-runs on merge. Everything else on the shortlist needs
-what this machine does not have: a server that answers `tools/list`, an npm token,
-Docker, an HF token, or an HN or Reddit account. Those are handed back as
-instructions rather than faked as "done", which is why the kit below is complete
-and unposted.
+**One surface is public and verified; nothing is posted.** The launch was routed to
+this host with a single writable channel — GitHub — so the release was the only
+publishable surface, and publishing it turned up the real blocker: the release
+workflow had been failing its acceptance gate on **every** tag since the aarch64
+target landed two days earlier, so no version of Logos could ship and the README's
+own install command returned `release not found`. That is fixed (PR
+[#48](https://github.com/abaddon/logos/pull/48), one line, gate green in 29m), the
+version moved to 0.2.2 ([#49](https://github.com/abaddon/logos/pull/49)), and
+**`v0.2.2` published at 22:42Z** with the tagless install executed end to end —
+download, checksum `OK`, `logos 0.2.2`, hello world. `llms.txt` and the challenge
+page are live with it.
+
+Everything else on the shortlist needs what this machine does not have: a server
+that answers `tools/list`, an npm token, Docker, an HF token, or an HN or Reddit
+account. Those are handed back as instructions rather than faked as "done", which
+is why the kit below is complete and unposted.
 
 ## Pyramid map
 

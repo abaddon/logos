@@ -22,7 +22,7 @@ searches for "Logos"; they search for "compile a program" and "type-check".
   "name": "io.github.abaddon/logos",
   "title": "Logos",
   "description": "Type-check, compile, format and run Logos programs. Diagnostics come back as JSON with a code and a node path.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "websiteUrl": "https://github.com/abaddon/logos",
   "repository": {
     "url": "https://github.com/abaddon/logos",

@@ -176,11 +176,70 @@ clone and reproducible; that acceptance item is met.
 | Posting to Hacker News | No account credential on this host; also gated on the endpoint existing (see the checklist's wave gates) |
 | Posting to r/LocalLLaMA | Same, plus the subreddit's self-promotion rule requires an account with history — a fresh account posting a project is the pattern the rules exist to stop |
 | `npm publish logos-mcp` | `npm whoami` → ENEEDAUTH, and the shim cannot be honest until the endpoint exists: a Linux-only binary behind `npx` breaks on macOS, which is most of the audience |
-| `mcp-publisher publish` | Requires the server to exist and be deployed; there is no MCP server in this repository today (`git ls-tree -r main | grep -i mcp` → nothing) |
+| `mcp-publisher publish` | Requires the server to exist and be deployed; there is no MCP server in this repository today (`git ls-tree -r main \| grep -i mcp` → nothing) |
 | Docker catalog PR | Docker is not installed here, so no image can be built or tested, and a `server.yaml` with an untested image is a rejection |
 | Hugging Face Space | No token; a Docker Space also needs the image the previous line cannot build |
-| Merging the challenge and messaging branches | Not this task's commit to make, and each merge runs the full gate; flagged as a prerequisite instead |
+| Merging the challenge and messaging branches | Not this task's commit to make, and each merge runs the full gate; the challenge branch in fact merged with the docs task's #49, the messaging branch (`wt/t_c0360ffd`) is still unmerged |
 | Writing `llms.txt` | Collision: `t_5b93c8fe` is writing it in the same minute. I commented the 404 window on that card instead of racing it |
+
+## 8. The outcome: `v0.2.2` published, install verified end to end
+
+The fix from §3's diagnosis went in as PR
+[#48](https://github.com/abaddon/logos/pull/48) (gate.yml's cross-toolchain package
+list added to the release verify job). Its own gate passed in **29m17s**, it merged
+as `6dab172`, and the docs task's PR #49 merged on top as `c55a99f`, moving the
+version to **0.2.2** because 0.2.1's packaging claim had already been superseded by
+two days of merged compiler work. `v0.2.2` then published with every job green:
+
+```
+$ gh run view 44408697968 --repo abaddon/logos --json status,conclusion,jobs
+{"status":"completed","conclusion":"success",
+ "jobs":[{"name":"verify","conclusion":"success"},
+         {"name":"build","conclusion":"success"},
+         {"name":"reproduce","conclusion":"success"},
+         {"name":"publish","conclusion":"success"}]}
+
+$ gh release list --repo abaddon/logos
+Logos 0.2.2	Latest	v0.2.2	2026-11-18T22:42:57Z
+Logos 0.2.0		v0.2.0	2026-11-16T01:42:42Z
+```
+
+The tagless install block from the challenge program §10 — the one every outreach
+asset quotes — executed verbatim, on a machine that had never seen the artifact:
+
+```
+$ gh release download --repo abaddon/logos \
+    --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+$ sha256sum -c SHA256SUMS
+logos-0.2.2-x86_64-linux.tar.gz: OK
+$ tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
+$ ./bin/logosc version
+logos 0.2.2
+$ ./bin/logosc build hello.logos -o hello && ./hello
+hello from logos
+```
+
+Two loose ends, both recorded rather than tidied away:
+
+- **The `v0.2.1` tag still exists** (pointing at `546598a`) even though no release
+  was ever created from it, because the gate refused it. It is harmless — `gh
+  release download` resolves the tagless pattern against the latest *release*, not
+  the highest tag — and `CHANGELOG.md`'s 0.2.2 section explains it. Deleting it is
+  optional; the danger would be re-pushing it, which would start a second workflow
+  on a commit that cannot pass.
+- **`docs/messaging/01-summary/positioning-kit.md` is still 404 on `main`** (`wt/t_c0360ffd`
+  unmerged), so no launch asset may link it. This pyramid references it by local
+  path only.
+
+The agent-readable surface, re-fetched after #49 merged:
+
+```
+200  .../main/llms.txt
+200  .../main/AGENTS.md
+200  .../main/docs/challenge/01-summary/program.md
+200  .../main/examples/agent-gate/README.md
+404  .../main/docs/messaging/01-summary/positioning-kit.md
+```
 
 SOURCES (LAYER 3 — this file is a dossier; it has no deeper layer)
 /root/ai-language-program/.worktrees/t_1c7448cf/docs/challenge/01-summary/program.md

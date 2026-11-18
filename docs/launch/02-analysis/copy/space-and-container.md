@@ -25,7 +25,7 @@ WORKDIR /opt/logos
 # build logosc from the tag inside the image: the release tarball's binary is
 # glibc-bound to its build host, and building here keeps the image honest about
 # what it contains.
-ARG LOGOS_REF=v0.2.1
+ARG LOGOS_REF=v0.2.2
 RUN curl -sL "https://github.com/abaddon/logos/archive/refs/tags/${LOGOS_REF}.tar.gz" \
       | tar -xz --strip-components=1 \
  && ./tools/logosc.sh version \
@@ -94,7 +94,7 @@ files, and the `server.yaml` is the one that gets reviewed:
 
 ```yaml
 name: logos
-image: ghcr.io/abaddon/logos-mcp:0.2.1
+image: ghcr.io/abaddon/logos-mcp:0.2.2
 type: server
 meta:
   category: dev-tools

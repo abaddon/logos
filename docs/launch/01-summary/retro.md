@@ -1,13 +1,15 @@
 # Retro — what this launch actually produced, and the cadence to run it on
 
-**The short version.** Nothing went public. The one channel this host could
-publish to — the installable release — failed its own acceptance gate, and finding
-out why took the launch upstream of marketing into the release pipeline, where a
-two-day-old defect meant **no tag could have published at all**. Nothing was
-posted, because this host holds a credential for exactly one channel. There is
-therefore **no engagement data to retro on** — and the honest thing to do with
-that is say so, keep the baseline, and name the measurement that will answer the
-question at the first opportunity, instead of dressing a prediction as a result.
+**The short version.** One surface went public — the installable release — and it
+took a detour upstream of marketing to get there. The first tag was refused by the
+release workflow's own acceptance gate, and finding out why turned up a two-day-old
+defect: **no tag could have published at all** since the aarch64 target landed. The
+fix (PR #48) merged, the version moved to 0.2.2, and `v0.2.2` published with the
+tagless install verified end to end. Nothing else was posted, because this host
+holds a credential for exactly one channel. There is therefore **no engagement data
+to retro on** — and the honest thing to do with that is say so, keep the baseline,
+and name the measurement that will answer the question at the first opportunity,
+instead of dressing a prediction as a result.
 
 ## What was planned against what happened
 
@@ -15,7 +17,7 @@ question at the first opportunity, instead of dressing a prediction as a result.
 |---|---|
 | Checklist per channel from the shortlist | Yes — 21 rows, every one EXECUTED / READY / DEFERRED with a named gate ([`../02-analysis/launch-checklist.md`](../02-analysis/launch-checklist.md)) |
 | Channel-native copy, not copy-paste | Yes — four files, and the HN and Reddit posts are deliberately different arguments, not one block twice |
-| Agent-readable side live and linked | Partly: `AGENTS.md` live (200), topics correct, demo public and runnable from a cold clone; **`llms.txt` 404**, owned by the parallel docs task; **challenge page 404 on `main`** because its branch is unmerged |
+| Agent-readable side live and linked | **Yes, as of 22:42Z**: `AGENTS.md` (200), `llms.txt` (200), the challenge page (200, linked from the README), topics correct, and the demo runs from a cold clone. Two of those were 404 when this run started and landed with the docs task's #49 |
 | Post in waves, observe 48h, adjust | Not reached. Wave 1's gate — an MCP endpoint answering `tools/list` — is unmet: no MCP server exists in the repository |
 | Track per channel | Instrument built and run ([`channel-ledger.md`](channel-ledger.md)); only the baseline rows can be filled |
 | Retro naming the top two channels | Not answerable from data. Prediction below, labelled as a prediction, with the rule that confirms or kills it |

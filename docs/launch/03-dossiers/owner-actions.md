@@ -113,8 +113,8 @@ them in the same row of the ledger rather than as four channels.
 
 ```sh
 # on a host with docker:
-docker build -t ghcr.io/abaddon/logos-mcp:0.2.1 .
-docker push ghcr.io/abaddon/logos-mcp:0.2.1
+docker build -t ghcr.io/abaddon/logos-mcp:0.2.2 .
+docker push ghcr.io/abaddon/logos-mcp:0.2.2
 gh repo fork docker/mcp-registry --clone
 # add servers/abaddon-logos/{server.yaml,tools.json}, then open the PR
 ```
@@ -158,8 +158,8 @@ red before this run and one of them is now green:
 
 | Check | State at 21:30 on 2026-11-18 | Owner |
 |---|---|---|
-| 2 — v0.2.1 published | **cut by this run**, tag pushed 21:12; publish depends on the release workflow | this run, verified in [`../01-summary/launch-status.md`](../01-summary/launch-status.md) |
-| 3 — challenge page at a stable URL on `main` | red (`404`) — branch unmerged | merge `wt/t_1c7448cf` |
+| 2 — v0.2.1 published, or every page that claims it re-pointed | **green, as v0.2.2** — `v0.2.1` was refused by the release gate (missing aarch64 cross toolchain, fixed in PR #48), the version moved to 0.2.2 in PR #49, and `v0.2.2` published 2026-11-18 22:42:57Z with all four jobs green | this run + the docs task; verified in [`../01-summary/launch-status.md`](../01-summary/launch-status.md) |
+| 3 — challenge page at a stable URL on `main` | **green** — `docs/challenge/01-summary/program.md` returns 200 on `main` and the README links it (merged with #49) | — |
 | 4 — entry issue form merged and filing | red — form written, not submitted | challenge coordinator |
 | 5 — `docs/showcase/` with an empty ledger | red — does not exist on `main` | challenge coordinator |
 | 6 — ≥5 `good first issue`, ≥10 open total | red — 3 open, 0 `good first issue` | file the 11 issues listed in the challenge's `assets.md` §3 |

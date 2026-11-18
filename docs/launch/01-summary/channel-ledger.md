@@ -26,7 +26,7 @@ Column meanings:
 
 | Channel | Posted | Link | Reach | Responses | Inbound Qs | Attributable | Fill it with |
 |---|---|---|---|---|---|---|---|
-| GitHub release `v0.2.1` (the installable artifact) | **not posted — publish failed** (attempted 2026-11-18 21:12Z) | <https://github.com/abaddon/logos/actions/runs/44398996372> | — | — | — | — | `gh release list --repo abaddon/logos` (today it still says `v0.2.0`) |
+| GitHub release `v0.2.2` (the installable artifact) | 2026-11-18 22:42Z | <https://github.com/abaddon/logos/releases/tag/v0.2.2> | `downloads=0` at publish (one verification download by this run not yet counted) | 0 | 0 | 0 | `gh api repos/abaddon/logos/releases --jq '.[] \| .tag_name as $t \| .assets[] \| "\($t) \(.name) downloads=\(.download_count)"'` |
 
 ## Verified live, no posting action of this task's
 
