@@ -160,8 +160,10 @@ A vector field makes the record the owner of a buffer, so the field is reached
 through a **place**, and the five vector operations take that place:
 `(vec-push (get b items) x)`, `(vec-set (get b items) i x)`,
 `(vec-len (get b items))`, `(vec-get (get b items) i)` and
-`(vec-free (get b items))`. The record must be a `letmut` (or a `(ref …)`
-parameter) for the operations that write it to be legal.
+`(vec-free (get b items))`. The record must be a `letmut` for the operations
+that write to be legal (`E0104`): there is no `(ref rec)` form, because
+`(ref T)` may name a vector only (`E0100`), so a record that owns a buffer can
+be moved but never borrowed.
 
 ```logos
 (mod records)
@@ -193,10 +195,22 @@ freed. Reading a live vector field as a value (`(let c (get b items))`) is
 
 A struct that holds a vector, at any depth, is **moved, never copied**, exactly
 like a bare vector: `(let c b)` moves `b`, passing it by value moves it, and any
-attempt to copy it is `E0402`. `(ref b)` borrows the record instead, and a vector
-operation through `(get r items)` mutates the caller's record. A record that
-holds a vector is a `letmut`, because a `let` binding can be neither written nor
-freed (`E0104`) and its buffer would leak.
+attempt to copy it is `E0402`. It cannot be borrowed either: `(ref T)` may name
+a vector only (`E0100`), so `(ref rec)` is refused — for a record that owns a
+buffer, and for any other struct — and a function cannot reach the caller's
+record without moving it. A record that holds a vector is a `letmut`, because a
+`let` binding can be neither written nor freed (`E0104`) and its buffer would
+leak.
+
+An element is a narrower place than a field. The five vector operations do take
+an `(arr T n)` element — `(vec-push (get (arr-get a 0) items) x)` and
+`(vec-free (get (arr-get a 0) items))` are legal — but every `(get …)` through
+an element first reads that element as a value, and the read is `E0402` when the
+element holds a vector. So a scalar field of an `(arr rec n)` element cannot be
+read yet (`(get (arr-get a 0) label)` is `E0402`, a message that names a vector
+which is not there), and an element of a `(vec rec)` is no place at all: neither
+its scalar fields nor its vector field can be reached, so the inner vectors of a
+`(vec rec)` can never be freed, and they leak.
 
 ### Vectors — allocate, fill, free
 
@@ -231,7 +245,10 @@ is never implicitly copied.
 `(ref T)` is spelled **only in the signature**; the caller passes the binding
 itself (`(sum v)`, not `(sum (ref v))`), and it must be a `letmut`
 (`E0304` otherwise). Passing `v` to a plain `(vec :i64)` parameter would move
-it and make the later `vec-free` `E0300`.
+it and make the later `vec-free` `E0300`. A `(vec-free v)` inside the callee
+frees **through** the ref, so it empties the caller's binding as well: a second
+free is a free of an empty vector and does nothing, and a `vec-push` afterwards
+starts from length 0.
 
 ### Strings
 
