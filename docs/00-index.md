@@ -31,6 +31,7 @@ cannot do yet.
 | know the gap history | [`01-summary/gap-register.md`](01-summary/gap-register.md) — 46 gaps, 18 release criteria, what closed | 30 min |
 | cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
 | check the docs against the compiler | [`distribution/00-index.md`](distribution/00-index.md) — what was verified, by what command, and the result | 10 min |
+| run the outreach launch, or see where it got to | [`launch/00-index.md`](launch/00-index.md) — channel status, paste-ready copy, the owner actions it waits on | 10 min |
 
 ## Reference — the v1 doc set
 
