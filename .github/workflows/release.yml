@@ -38,6 +38,15 @@ jobs:
           fetch-tags: true
       - name: install toolchain
         run: |
+          # The six gates include tools/accept.sh section 8, which builds and runs
+          # an aarch64-unknown-linux-gnu ELF; it fails by name without the cross
+          # sysroot and qemu rather than skipping. tools/toolchain.sh --install
+          # pins clang and lld only, so these are the same packages gate.yml
+          # installs. Without them a tag runs 5/6 gates and never reaches the
+          # build job — which is how v0.2.1's first publish attempt failed.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
           bash tools/toolchain.sh --install
           bash tools/toolchain.sh --check
       # The formatting gate inside `pr_gate.sh` diffs against `main`, and a tag
