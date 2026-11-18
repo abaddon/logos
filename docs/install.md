@@ -62,10 +62,12 @@ logos/runtime/rt.c rt.h        the C runtime clang links into every program
 src/std/{io,map,str}.logos     the standard library source the loader reads
 INSTALL.md                     this page
 README.md                      the front page: what Logos is, and the route in
+llms.txt                       the one-file machine-readable index of the docs
 CHANGELOG.md                   what each version changed
 LICENSE                        MIT
 AGENTS.md, CONTRIBUTING.md     the contributor contract, and the short human route
 docs/                          the manual (docs/LOGOS.md) and every page the README links to
+examples/agent-gate/           the reference project's README and its measured transcript
 VERSION                        version, commit, and the toolchain it was built with
 ```
 

@@ -67,7 +67,8 @@ fail() {
 # links, the standard library the loader reads, and the documents it ships.
 for path in bin/logosc logos/runtime/rt.c logos/runtime/rt.h \
             src/std/io.logos src/std/map.logos src/std/str.logos VERSION INSTALL.md \
-            README.md CHANGELOG.md LICENSE AGENTS.md docs/00-index.md docs/LOGOS.md; do
+            README.md CHANGELOG.md LICENSE AGENTS.md llms.txt docs/00-index.md docs/LOGOS.md \
+            examples/agent-gate/README.md; do
     if [[ ! -e "$path" ]]; then
         fail "layout" "$path is missing from the tarball"
     fi

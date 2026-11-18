@@ -8,14 +8,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 the minor number carries features and the patch number carries fixes.
 
-## 0.2.1 — 2026-11-16
+## 0.2.1 — 2026-11-18
 
-A packaging fix. The compiler is unchanged; the tarball is not, which is why
-this is a patch release and not a rebuild of 0.2.0 under the digest that release
-already published.
+The first release whose tarball carries the documentation it links to. That
+packaging fix is why this is a patch release rather than a rebuild of 0.2.0
+under the digest that release already published — but 0.2.1 was cut from `main`
+after 0.2.0 and also carries the compiler work merged since, listed below. The
+version string is `logos 0.2.1`; the tag is `v0.2.1`.
+
+### Added
+
+- **An aarch64 target.** `build --target aarch64-unknown-linux-gnu` emits and
+  runs an arm64 Linux ELF, and `test --target` runs the corpus under qemu
+  (#39, #43).
+- **Every diagnostic prints the node it names**, on the line under the message,
+  and `show` prints the same text for any node path (#42).
+- **A helper function may be declared inside a `(test …)` node** and is lowered
+  like any other function (#40).
+- **A struct may own a vector**, and a field place is a move — the checker no
+  longer refuses the first and now checks the second (#45).
+- **The differential oracle covers twelve programs** against their hand-written
+  C twins, up from four (#38).
 
 ### Fixed
 
+- **The compiler finds its runtime and its standard library from the executable,
+  not from the working directory**, so an unpacked tarball compiles from any
+  directory without `LOGOS_ROOT` (#34).
+- **Two limits the reference stated wrongly are corrected**: `(ref rec)` borrows
+  rather than copies, and a scalar may be read through an element place (#46).
 - **The documentation in the tarball is self-contained.** 0.2.0 shipped
   `share/doc/README.md` — the repository's front page — while the `docs/` tree
   every one of its links pointed into was not in the artifact. Twelve `docs/…`
@@ -23,18 +44,18 @@ already published.
   them, resolved to nothing for anyone who unpacked it; `INSTALL.md` told the
   reader to consult `AGENTS.md` and `docs/release.md`, neither of which shipped.
   The documentation now ships where the links point: `README.md`,
-  `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `CONTRIBUTING.md` and the `docs/` tree
-  at the prefix root, with `INSTALL.md` beside them, so a page that links
-  `docs/reference/cli.md` finds it offline and without a checkout.
+  `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `CONTRIBUTING.md`, `llms.txt` and the
+  `docs/` tree at the prefix root, with `INSTALL.md` beside them, so a page that
+  links `docs/reference/cli.md` finds it offline and without a checkout.
 - **`tools/check_doc_links.sh`** walks every `*.md` in a tree, resolves each
   relative link against the page that holds it, and reports what does not
   resolve. `tools/dist.sh` runs it on the staging tree before writing the
   tarball and refuses to build on a broken link; `tools/verify_install.sh` runs
   it on the unpacked artifact, and now also requires the shipped pages
-  (`README.md`, `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `docs/00-index.md`,
-  `docs/LOGOS.md`) by name. The artifact stays byte-reproducible: the pages are
-  copied from the git index in a fixed order, and two builds of one commit still
-  produce one SHA-256.
+  (`README.md`, `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `llms.txt`,
+  `docs/00-index.md`, `docs/LOGOS.md`, `examples/agent-gate/README.md`) by name.
+  The artifact stays byte-reproducible: the pages are copied from the git index
+  in a fixed order, and two builds of one commit still produce one SHA-256.
 
 ## 0.2.0 — 2026-11-16
 
