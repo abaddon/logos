@@ -1,0 +1,174 @@
+(mod agent-gate)
+
+(type verdict (enum (allow) (deny :str)))
+
+(fn starts-with :bool ((s :str) (prefix :str))
+  (if (< (str-len s)
+        (str-len prefix))
+    (ret false)
+    (ret (str-eq (str-slice s 0 (str-len prefix)) prefix))))
+
+(fn contains :bool ((s :str) (needle :str))
+  (let n (str-len s))
+  (let m (str-len needle))
+  (letmut i :i64 0)
+  (letmut found false)
+  (while (and (not found)
+           (<= (+ i m) n))
+    (if (str-eq (str-slice s i (+ i m)) needle)
+      (set found true)
+      (set i (+ i 1))))
+  (ret found))
+
+(fn drop-first :str ((s :str) (k :i64))
+  (ret (str-slice s k (str-len s))))
+
+(fn trim-left :str ((s :str))
+  (let n (str-len s))
+  (letmut i :i64 0)
+  (while (and (< i n)
+           (= (str-slice s i (+ i 1)) " "))
+    (set i (+ i 1)))
+  (ret (drop-first s i)))
+
+(fn space-at :i64 ((s :str))
+  (let n (str-len s))
+  (letmut i :i64 0)
+  (letmut at :i64 -1)
+  (while (and (< at 0)
+           (< i n))
+    (if (= (str-slice s i (+ i 1)) " ")
+      (set at i)
+      (set i (+ i 1))))
+  (ret at))
+
+(fn check-shell verdict ((args :str))
+  (if (contains args "rm -rf")
+    (ret (deny "shell: recursive delete"))
+    (if (or (contains args "sudo")
+          (contains args "su "))
+      (ret (deny "shell: privilege escalation"))
+      (if (or (contains args ">")
+            (or (contains args "|")
+              (contains args ";")))
+        (ret (deny "shell: redirection, pipe or chaining"))
+        (ret allow)))))
+
+(fn check-url verdict ((url :str))
+  (if (starts-with url "https://")
+    (ret allow)
+    (ret (deny "http: only an https url is allowed"))))
+
+(fn check-http verdict ((args :str))
+  (if (starts-with args "GET ")
+    (ret (check-url (trim-left (drop-first args 4))))
+    (ret (deny "http: only GET is allowed"))))
+
+(fn check-write verdict ((args :str))
+  (if (starts-with args "./")
+    (ret allow)
+    (ret (deny "write: path must start with ./"))))
+
+(fn check-read verdict ((args :str))
+  (if (or (starts-with args "/etc")
+        (starts-with args "/root"))
+    (ret (deny "read: system and home paths are off limits"))
+    (ret allow)))
+
+(fn route verdict ((tool :str) (args :str))
+  (if (str-eq tool "shell")
+    (ret (check-shell args))
+    (if (str-eq tool "http")
+      (ret (check-http args))
+      (if (str-eq tool "write")
+        (ret (check-write args))
+        (if (str-eq tool "read")
+          (ret (check-read args))
+          (ret (deny "unknown tool")))))))
+
+(fn judge verdict ((line :str))
+  (let at (space-at line))
+  (if (< at 0)
+    (ret (deny "no arguments"))
+    (ret (route (str-slice line 0 at)
+           (trim-left (drop-first line (+ at 1)))))))
+
+(fn report :i64 ((line :str))
+  (ret (match (judge line)
+         (allow (print "ALLOW  ")
+           (println line) 0) ((deny why) (print "DENY   ") (print line) (print "  -- ") (println why) 1))))
+
+(fn line-end :i64 ((s :str) (start :i64))
+  (let n (str-len s))
+  (letmut i start)
+  (while (and (< i n)
+           (not (= (str-slice s i (+ i 1)) "\n")))
+    (set i (+ i 1)))
+  (ret i))
+
+(fn main :i64 ()
+  (let text (read-all))
+  (let n (str-len text))
+  (letmut start :i64 0)
+  (letmut denials :i64 0)
+  (while (< start n)
+    (let end (line-end text start))
+    (if (> end start)
+      (set denials (+ denials (report (str-slice text start end))))
+      (set denials denials))
+    (set start (+ end 1)))
+  (ret (if (> denials 125) 125 denials)))
+
+(test allows-a-listing
+  (expect (out "ALLOW  shell ls -la\n")
+    (code 0)
+    (leaks 0))
+  (report "shell ls -la"))
+
+(test denies-a-recursive-delete
+  (expect (out "DENY   shell rm -rf /  -- shell: recursive delete\n")
+    (code 0)
+    (leaks 0))
+  (report "shell rm -rf /"))
+
+(test denies-a-plaintext-url
+  (expect (out "DENY   http GET http://example.com  -- http: only an https url is allowed\n")
+    (code 0)
+    (leaks 0))
+  (report "http GET http://example.com"))
+
+(test allows-an-https-get
+  (expect (out "ALLOW  http GET https://example.com\n")
+    (code 0)
+    (leaks 0))
+  (report "http GET https://example.com"))
+
+(test denies-a-post
+  (expect (out "DENY   http POST https://example.com  -- http: only GET is allowed\n")
+    (code 0)
+    (leaks 0))
+  (report "http POST https://example.com"))
+
+(test denies-an-absolute-write
+  (expect (out "DENY   write /etc/passwd root  -- write: path must start with ./\n")
+    (code 0)
+    (leaks 0))
+  (report "write /etc/passwd root"))
+
+(test allows-a-relative-write
+  (expect (out "ALLOW  write ./notes/todo.md buy milk\n")
+    (code 0)
+    (leaks 0))
+  (report "write ./notes/todo.md buy milk"))
+
+(test denies-a-read-outside-the-workspace
+  (expect (out "DENY   read /root/.ssh/id_rsa  -- read: system and home paths are off limits\n")
+    (code 0)
+    (leaks 0))
+  (report "read /root/.ssh/id_rsa"))
+
+(test denies-an-unknown-tool
+  (expect (out "DENY   browser navigate x  -- unknown tool\n")
+    (code 0)
+    (leaks 0))
+  (report "browser navigate x"))

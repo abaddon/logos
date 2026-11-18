@@ -18,6 +18,7 @@ docs/manual/17-tests.logos
 docs/manual/18-ref-parameters.logos
 docs/manual/19-runtime-access.logos
 docs/manual/20-modules.logos
+examples/agent-gate/gate.logos
 examples/hello.logos
 examples/json.logos
 examples/matrix.logos

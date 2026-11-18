@@ -78,12 +78,19 @@ done
 # The pages go in at the paths they link to each other by. The file list is the
 # index's, not a `cp -R` of the working tree, so an untracked file cannot make
 # one build differ from the next.
-install -m 644 LICENSE README.md CHANGELOG.md AGENTS.md CONTRIBUTING.md "$STAGE/" ||
+install -m 644 LICENSE README.md CHANGELOG.md AGENTS.md CONTRIBUTING.md llms.txt "$STAGE/" ||
     { echo "dist: could not install the root documentation" >&2; exit 2; }
 while IFS= read -r -d '' page; do
     install -D -m 644 "$page" "$STAGE/$page" ||
         { echo "dist: could not install $page" >&2; exit 2; }
 done < <(git ls-files -z docs)
+# The README points at the reference project to fork, so its two pages ship too:
+# a link into a directory the package does not carry is the dead end this
+# packaging rule exists to prevent.
+for page in examples/agent-gate/README.md examples/agent-gate/EVIDENCE.md; do
+    install -D -m 644 "$page" "$STAGE/$page" ||
+        { echo "dist: could not install $page" >&2; exit 2; }
+done
 install -m 644 docs/install.md "$STAGE/INSTALL.md"
 
 if ! bash "$ROOT/tools/check_doc_links.sh" "$STAGE"; then

@@ -155,7 +155,7 @@
   (ret (main-cli-error prog "" (str-concat "argument command: invalid choice: '" (str-concat verb "' (choose from 'build', 'check', 'fmt', 'guide', 'resolve', 'show', 'test', 'version')")))))
 
 (fn main-semver :str ()
-  (ret "0.2.1"))
+  (ret "0.2.2"))
 
 (fn main-version-print :i64 ()
   (if (main-json-mode)
