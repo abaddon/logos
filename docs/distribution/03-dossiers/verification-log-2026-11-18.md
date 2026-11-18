@@ -3,7 +3,7 @@
 Every command the agent-facing docs quote, run in order on this tree, with the
 output copied from the terminal. Run from
 `/root/ai-language-program/.worktrees/t_5b93c8fe` (branch `wt/t_5b93c8fe`,
-`logos 0.2.1`) unless a command says otherwise. Section 7 is the published
+`logos 0.2.2`) unless a command says otherwise. Section 7 is the published
 release: the same commands, against the artifact GitHub serves.
 
 Page-by-page provenance — which command proves which claim — is in
@@ -13,7 +13,7 @@ Page-by-page provenance — which command proves which claim — is in
 
 ```console
 $ ./tools/logosc.sh version
-logos 0.2.1
+logos 0.2.2
 ```
 
 The first invocation built the compiler from `src/` with `bootstrap/logosc`:

@@ -2,7 +2,7 @@
 
 **This is the canonical quickstart.** Two routes in, five commands each: the
 release tarball (the consumer path) and a checkout (the compiler's own source).
-Everything below was executed on 2026-11-18 against `logos 0.2.1`, and the
+Everything below was executed on 2026-11-18 against `logos 0.2.2`, and the
 outputs are copied from that run. The transcript, command by command, is
 [`distribution/03-dossiers/verification-log-2026-11-18.md`](distribution/03-dossiers/verification-log-2026-11-18.md).
 
@@ -18,9 +18,9 @@ x86_64 Linux, glibc 2.35 or newer, `clang` 14 or newer, and `gh` for the
 download (the `curl` form is below the block).
 
 ```sh
-gh release download v0.2.1 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+gh release download v0.2.2 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.1-x86_64-linux.tar.gz && cd logos-0.2.1-x86_64-linux
+tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
 cat > hello.logos <<'EOF'
 (mod hello)
 
@@ -31,7 +31,7 @@ EOF
 ```
 
 ```
-logos-0.2.1-x86_64-linux.tar.gz: OK
+logos-0.2.2-x86_64-linux.tar.gz: OK
 hello from logos
 ```
 
@@ -42,8 +42,8 @@ release publishes — `OK`, or `FAILED` and exit 1 with nothing to install.
 Without `gh`, the same two files come from the release page:
 
 ```sh
-base=https://github.com/abaddon/logos/releases/download/v0.2.1
-curl -fsSLO "$base/logos-0.2.1-x86_64-linux.tar.gz" -O "$base/SHA256SUMS"
+base=https://github.com/abaddon/logos/releases/download/v0.2.2
+curl -fsSLO "$base/logos-0.2.2-x86_64-linux.tar.gz" -O "$base/SHA256SUMS"
 ```
 
 Unpacking *is* installing: one directory holding `bin/logosc`, the C runtime and
@@ -55,7 +55,7 @@ from any working directory — [`install.md`](install.md) has the lookup order,
 
 ```sh
 $ ./bin/logosc version
-logos 0.2.1
+logos 0.2.2
 ```
 
 ## Route 2 — from a checkout (the compiler's own source)
@@ -71,7 +71,7 @@ git clone https://github.com/abaddon/logos && cd logos
 ```
 
 ```text
-logos 0.2.1
+logos 0.2.2
 hello
 59 passed, 0 failed, 0 leaked
 ```
@@ -222,5 +222,5 @@ under `tests/regress/` that fails before the fix and passes after it.
 ## Cleaning up
 
 Route 1 wrote nothing outside one directory: `rm -rf
-logos-0.2.1-x86_64-linux`. Route 2 wrote `build/` (gitignored) plus the sources
+logos-0.2.2-x86_64-linux`. Route 2 wrote `build/` (gitignored) plus the sources
 you created. Nothing else was touched.

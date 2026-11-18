@@ -50,8 +50,8 @@ or take the tarball and `SHA256SUMS` from the release page with any HTTP client.
 
 ```sh
 sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.1-x86_64-linux.tar.gz
-cd logos-0.2.1-x86_64-linux
+tar -xzf logos-0.2.2-x86_64-linux.tar.gz
+cd logos-0.2.2-x86_64-linux
 ```
 
 The tarball unpacks to a single directory holding:
@@ -118,7 +118,7 @@ that holds `bin/logosc`**, not from the working directory. Unpack the tarball
 anywhere, call it from anywhere, and both work:
 
 ```sh
-$ cd /tmp && ~/logos-0.2.1-x86_64-linux/bin/logosc build ~/greet.logos -o greet
+$ cd /tmp && ~/logos-0.2.2-x86_64-linux/bin/logosc build ~/greet.logos -o greet
 $ ./greet
 std ok
 ```
@@ -140,7 +140,7 @@ Two environment variables override the prefix and extend the module path:
 
 ```sh
 # a compiler copied out of its prefix, pointed back at it
-LOGOS_ROOT=~/logos-0.2.1-x86_64-linux ~/bin/logosc build hello.logos -o hello
+LOGOS_ROOT=~/logos-0.2.2-x86_64-linux ~/bin/logosc build hello.logos -o hello
 
 # your own modules, from any directory
 LOGOS_PATH=~/logos-mods:./vendor/logos ./bin/logosc build app.logos -o app
@@ -183,7 +183,7 @@ cat VERSION                 # version, commit, the clang and ld recorded in the 
 ## Uninstall
 
 ```sh
-rm -rf logos-0.2.1-x86_64-linux
+rm -rf logos-0.2.2-x86_64-linux
 ```
 
 Nothing else was modified: no files outside the directory, no `PATH` entry, no

@@ -8,35 +8,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0 the minor number carries features and the patch number carries fixes.
 
-## 0.2.1 — 2026-11-18
+## 0.2.2 — 2026-11-18
 
-The first release whose tarball carries the documentation it links to. That
-packaging fix is why this is a patch release rather than a rebuild of 0.2.0
-under the digest that release already published — but 0.2.1 was cut from `main`
-after 0.2.0 and also carries the compiler work merged since, listed below. The
-version string is `logos 0.2.1`; the tag is `v0.2.1`.
-
-### Added
-
-- **An aarch64 target.** `build --target aarch64-unknown-linux-gnu` emits and
-  runs an arm64 Linux ELF, and `test --target` runs the corpus under qemu
-  (#39, #43).
-- **Every diagnostic prints the node it names**, on the line under the message,
-  and `show` prints the same text for any node path (#42).
-- **A helper function may be declared inside a `(test …)` node** and is lowered
-  like any other function (#40).
-- **A struct may own a vector**, and a field place is a move — the checker no
-  longer refuses the first and now checks the second (#45).
-- **The differential oracle covers twelve programs** against their hand-written
-  C twins, up from four (#38).
+The first release published since 0.2.0 — and the second tag cut for this work,
+because the release gate refused the first one. The compiler is 0.2.1's with one
+string changed (`logos 0.2.2`); everything else here is packaging, documentation
+and the compiler work merged since 0.2.0.
 
 ### Fixed
 
-- **The compiler finds its runtime and its standard library from the executable,
-  not from the working directory**, so an unpacked tarball compiles from any
-  directory without `LOGOS_ROOT` (#34).
-- **Two limits the reference stated wrongly are corrected**: `(ref rec)` borrows
-  rather than copies, and a scalar may be read through an element place (#46).
+- **The 0.2.1 tag was refused by the release gate, and this is the repair.**
+  `v0.2.1` was cut on `main` and its `verify` job failed the acceptance gate:
+  `tools/accept.sh` section 8 builds an aarch64 ELF and fails by name when
+  `/usr/aarch64-linux-gnu` is absent, and the release workflow did not install
+  the cross toolchain (#48 fixes that). Behind it, the tarball build would have
+  stopped on the shipped-page link check: `main`'s README links
+  `examples/agent-gate/README.md`, a page `tools/dist.sh` did not stage, so the
+  build refuses with `a shipped page links to something the package does not
+  contain`. This release ships the pages the README links to —
+  `examples/agent-gate/README.md` and its `EVIDENCE.md` — and
+  `tools/verify_install.sh` requires them by name. **No release was published
+  for `v0.2.1`; do not pin that tag.**
+- **`llms.txt` ships in the tarball** beside `README.md`, and the install check
+  requires it, so an agent that unpacks the artifact finds the same index an
+  agent that reads the repository does.
 - **The documentation in the tarball is self-contained.** 0.2.0 shipped
   `share/doc/README.md` — the repository's front page — while the `docs/` tree
   every one of its links pointed into was not in the artifact. Twelve `docs/…`
@@ -56,6 +51,37 @@ version string is `logos 0.2.1`; the tag is `v0.2.1`.
   `docs/00-index.md`, `docs/LOGOS.md`, `examples/agent-gate/README.md`) by name.
   The artifact stays byte-reproducible: the pages are copied from the git index
   in a fixed order, and two builds of one commit still produce one SHA-256.
+
+### Also in this release, merged since 0.2.0
+
+- **An aarch64 target.** `build --target aarch64-unknown-linux-gnu` emits and
+  runs an arm64 Linux ELF, and `test --target` runs the corpus under qemu
+  (#39, #43).
+- **The compiler finds its runtime and its standard library from the executable,
+  not from the working directory**, so an unpacked tarball compiles from any
+  directory without `LOGOS_ROOT` (#34).
+- **Every diagnostic prints the node it names**, on the line under the message,
+  and `show` prints the same text for any node path (#42).
+- **A helper function may be declared inside a `(test …)` node** and is lowered
+  like any other function (#40).
+- **A struct may own a vector**, and a field place is a move — the checker no
+  longer refuses the first and now checks the second (#45).
+- **The differential oracle covers twelve programs** against their hand-written
+  C twins, up from four (#38).
+- **Two limits the reference stated wrongly are corrected**: `(ref rec)` borrows
+  rather than copies, and a scalar may be read through an element place (#46).
+
+## 0.2.1 — tagged 2026-11-18, never released
+
+Tag `v0.2.1` was cut on `main` and its release gate refused it: the `verify`
+job failed the acceptance gate, because `tools/accept.sh` builds an aarch64 ELF
+and the runner had no aarch64 sysroot (the workflow now installs the cross
+toolchain, #48); and behind that the tarball build would have stopped on the
+shipped-page link check, because the README on that commit links
+`examples/agent-gate/README.md`, a page `tools/dist.sh` did not put in the
+tarball. Nothing was published. The fix — ship the pages the README links to,
+install the cross toolchain, then cut a new tag — is
+[0.2.2](#022--2026-11-18). Do not pin this tag.
 
 ## 0.2.0 — 2026-11-16
 

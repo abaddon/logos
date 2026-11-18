@@ -188,7 +188,7 @@ missing suite root is a run failure rather than an argument error.
 
 ## `version` and `show`
 
-`version` is one line, `logos 0.2.1`, and exit 0 — Python's
+`version` is one line, `logos 0.2.2`, and exit 0 — Python's
 `print(f"logos {__version__}")` (`cli.py:131`, `logos/__init__.py:3`). The
 string is a constant here rather than read from a package, because there is no
 package left to read it from; bumping the version means changing `main-version`
@@ -481,7 +481,7 @@ leaves nothing behind that could be mistaken for a success.
 | `main-join-vec items` | `:str` | the same join over a vector |
 | `main-verb a n prog` | `:i64` | dispatch on `argv[1]`, or the invalid-choice error |
 | `main-args a` | `:i64` | no argument is the help; otherwise `main-verb` |
-| `main-version a n prog` | `:i64` | `logos 0.2.1`, or the unrecognized words |
+| `main-version a n prog` | `:i64` | `logos 0.2.2`, or the unrecognized words |
 | `main-show a n prog` | `:i64` | `show`'s arity, then the file and its path |
 | `main-show-file path target` | `:i64` | check the file, parse it, print one node or the miss |
 | `main-show-nodes path nodes ntexts target` | `:i64` | address the path and print what it names |

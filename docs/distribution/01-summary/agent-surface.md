@@ -64,24 +64,28 @@ separately); the rules that bind these pages are:
 
 ## The release this depends on
 
-The quickstart's first route downloads `v0.2.1`, and until this task the only
-tag and release were `v0.2.0` while eight files said v0.2.1 was current. The
-release was published from `main` rather than re-pointing eight files at the
-older version. Two properties of that decision are worth keeping:
+The quickstart's first route downloads `v0.2.2`. How that version number came to
+be is worth keeping, because it is the release gate doing its job:
 
-- **The version string already was 0.2.1** in `src/logosc/main.logos` and in
-  `CHANGELOG.md`, so publishing 0.2.1 needed no compiler change and no bootstrap
-  rebuild — `bash tools/release.sh` rehearses the tag, proves the tarball is
-  reproducible inside one run, and proves it installs.
-- **The changelog entry had gone stale.** It was written at the commit that
-  bumped the version, when the compiler was still 0.2.0's; `main` then took nine
-  more merges (aarch64, executable-relative lookup, node-rendering diagnostics,
-  `(test …)` helpers, struct-owned vectors, the twelve-case oracle). The entry
-  now lists them, so the release notes describe what the tag contains. The
-  residual impurity: a patch number carries feature work, which the project's own
-  semver note says belongs to a minor. It is stated here rather than hidden; the
-  alternative was retagging eight files and a bootstrap binary days before a
-  launch.
+- **Two tags were cut.** `v0.2.1` was tagged on `main` and its release gate
+  refused it twice over: the `verify` job failed the acceptance gate because the
+  runner had no aarch64 sysroot (the release workflow now installs the cross
+  toolchain, #48), and the tarball build behind it would have stopped at the
+  shipped-page link check — `main`'s README links
+  `examples/agent-gate/README.md`, which `tools/dist.sh` did not stage. No
+  release exists for that tag.
+- **`v0.2.2` is that tag plus the fix.** The two reference-project pages and
+  `llms.txt` ship, `tools/verify_install.sh` requires them by name, and the only
+  source change is the version string in `src/logosc/main.logos` — with the
+  stage-0 binary rebuilt in the same commit, as the bootstrap rule requires.
+- **The changelog carries that story**, so the release notes are true rather
+  than reconstructed: the 0.2.1 entry says it was tagged and never released, and
+  0.2.2 lists what the compiler carries since 0.2.0.
+
+The residual impurity: a patch number carries feature work (aarch64, the
+executable-relative lookup), which the project's own semver note says belongs to
+a minor. It is stated here rather than hidden; the alternative was retagging
+eight files and a bootstrap binary days before a launch.
 
 ## Repository metadata
 

@@ -6,10 +6,10 @@
 > node path, programs carry their own expectations, and the same source builds
 > the same bytes. MIT, x86_64 and arm64 Linux, pre-1.0.
 
-Repository: https://github.com/abaddon/logos (branch `main`, tag `v0.2.1`).
+Repository: https://github.com/abaddon/logos (branch `main`, tag `v0.2.2`).
 Language: prefix-form, every construct is `(head arg …)`. The compiler `logosc`
 lowers Logos to LLVM IR text and `clang` links a C runtime, so a program is a
-native Linux ELF with no interpreter. `logosc version` prints `logos 0.2.1`.
+native Linux ELF with no interpreter. `logosc version` prints `logos 0.2.2`.
 
 ## Install and run
 
@@ -17,9 +17,9 @@ x86_64 Linux, glibc 2.35+, `clang` 14+ (needed at build time of every program).
 Five commands, output pasted from a real run; full transcript in the quickstart.
 
 ```sh
-gh release download v0.2.1 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+gh release download v0.2.2 --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf logos-0.2.1-x86_64-linux.tar.gz && cd logos-0.2.1-x86_64-linux
+tar -xzf logos-0.2.2-x86_64-linux.tar.gz && cd logos-0.2.2-x86_64-linux
 cat > hello.logos <<'EOF'
 (mod hello)
 

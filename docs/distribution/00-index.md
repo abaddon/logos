@@ -20,7 +20,7 @@ the loop, plus the person who points one at it.
 | `docs/quickstart.md` | **the canonical quickstart**: both routes in five commands each, then a diagnostic read as JSON, a test run, the language manifest, the gates, and the traps | every command and output in it appears in the verification log, in order |
 | `docs/install.md` | the consumer page: download, checksum, unpack, lookup order, environment variables, uninstall | the layout list now matches the artifact; the tarball run is in the log |
 | `docs/00-index.md` | the index grew rows for `llms.txt`, the challenge and this page; two stale counts were corrected (35 → 36 diagnostic codes) | `tools/check_doc_links.sh` |
-| `CHANGELOG.md` | the 0.2.1 entry now describes what the release actually carries (it was written when `main` was still 0.2.0 plus a packaging fix) | `git log v0.2.0..v0.2.1` |
+| `CHANGELOG.md` | the history now tells the truth about the tags: 0.2.1 was tagged and the release gate refused it (aarch64 sysroot in the acceptance gate, then a shipped-page link check), 0.2.2 is the published release and lists what the compiler carries since 0.2.0 | `gh release list`; `git log v0.2.1..v0.2.2` |
 | `tools/dist.sh`, `tools/verify_install.sh` | `llms.txt` and the reference project's two pages ship in the tarball, and the install check requires them | `bash tools/release.sh` |
 | repository topics and description | the GitHub-side metadata an agent's crawler sees before it opens a file | `gh repo view --json description,repositoryTopics` |
 
@@ -34,9 +34,10 @@ the loop, plus the person who points one at it.
   `docs/00-index.md` still records its one stale claim (the suites' optimisation
   levels) rather than leaving it for a reader to discover.
 - **The messaging kit's `v0.2.0` copy blocks** are deliberately left alone. The
-  kit's section 0 said the install command was broken until `v0.2.1` was
-  published; that is now done, and the release notes carry the reason. Re-running
-  the kit's blocks against `v0.2.1` is the outreach task's job, not this one's.
+  kit's section 0 said the install command was broken until the version it names
+  was published; `v0.2.2` is that release, and the changelog says why 0.2.1 was
+  not. Re-running the kit's blocks against `v0.2.2` is the outreach task's job,
+  not this one's.
 - **No JSON-LD.** GitHub serves markdown and renders no injected structured
   data, so the equivalent machine-readable surface is `llms.txt`, the repository
   topics and `logosc guide --json`.
