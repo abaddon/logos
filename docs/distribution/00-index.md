@@ -10,6 +10,7 @@ the loop, plus the person who points one at it.
 | the one-file index an agent reads first | [`../../llms.txt`](../../llms.txt) |
 | the decisions behind the wording and the structure | [`01-summary/agent-surface.md`](01-summary/agent-surface.md) |
 | the commands and their real output | [`03-dossiers/verification-log-2026-11-18.md`](03-dossiers/verification-log-2026-11-18.md) |
+| the one change this task could not land, and why | [`03-dossiers/agents-md-proposal.md`](03-dossiers/agents-md-proposal.md) |
 
 ## What shipped
 
@@ -33,6 +34,12 @@ the loop, plus the person who points one at it.
   [`../quickstart.md`](../quickstart.md), both linked from the README hero.
   `docs/00-index.md` still records its one stale claim (the suites' optimisation
   levels) rather than leaving it for a reader to discover.
+  **An unattended worker cannot rewrite it**: it is a protected
+  agent-instruction file, and the guard refuses the same edit routed around the
+  tool. The section worth adding — two verified commands and an `examples/`
+  pointer — is written out in
+  [`03-dossiers/agents-md-proposal.md`](03-dossiers/agents-md-proposal.md) for
+  the owner to apply in one edit.
 - **The messaging kit's `v0.2.0` copy blocks** are deliberately left alone. The
   kit's section 0 said the install command was broken until the version it names
   was published; `v0.2.2` is that release, and the changelog says why 0.2.1 was
@@ -57,3 +64,6 @@ Absolute paths on the working tree
 | `/root/ai-language-program/.worktrees/t_5b93c8fe/tools/dist.sh` | what the release tarball ships, and the link check it runs before writing it |
 | `/root/ai-language-program/.worktrees/t_5b93c8fe/tools/verify_install.sh` | the layout the unpacked artifact must have |
 | `/root/ai-language-program/.worktrees/t_5b93c8fe/docs/distribution/03-dossiers/verification-log-2026-11-18.md` | every command run for this page, with its output |
+| `/root/ai-language-program/.worktrees/t_5b93c8fe/docs/distribution/03-dossiers/verify-published-release.sh` | the script that waits for the `v0.2.2` release and runs the quickstart block against the published tarball, producing §7 of the log |
+| `/root/ai-language-program/.worktrees/t_5b93c8fe/docs/distribution/03-dossiers/agents-md-proposal.md` | the `AGENTS.md` section this task could not write, with its evidence |
+| `/root/ai-language-program/.worktrees/t_5b93c8fe/AGENTS.md` | the contributor contract, unchanged; the install path lives in `llms.txt` and the quickstart |

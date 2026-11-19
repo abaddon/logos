@@ -54,7 +54,7 @@ logos`, then `./tools/logosc.sh build examples/hello.logos` and
 
 ## Examples
 
-- [examples/agent-gate/](https://github.com/abaddon/logos/blob/main/examples/agent-gate/README.md): a policy gate for an agent's tool calls in one 174-line file with nine `(test …)` nodes — the project to copy when starting something new.
+- [examples/agent-gate/](https://github.com/abaddon/logos/blob/main/examples/agent-gate/README.md): a policy gate for an agent's tool calls in one 174-line file with nine `(test …)` nodes — the project to copy when starting something new. Run it from a checkout: `./tools/logosc.sh test examples/agent-gate/gate.logos` → `9 passed, 0 failed, 0 leaked`.
 - [examples/wc.logos](https://github.com/abaddon/logos/blob/main/examples/wc.logos): counts lines, words and bytes; matched against GNU `wc`.
 - [examples/json.logos](https://github.com/abaddon/logos/blob/main/examples/json.logos): a recursive-descent JSON parser and structural summary; matched against `jq`.
 - [examples/matrix.logos](https://github.com/abaddon/logos/blob/main/examples/matrix.logos): two 200x200 matrix multiplications on four threads; matched against a C reference.
