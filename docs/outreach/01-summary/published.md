@@ -12,9 +12,9 @@ commands and outputs are in
 | `good first issue` open | 0 | **6** | `gh issue list --label 'good first issue' --state open --json number --jq length` |
 | issues open in total | 3 | **12** | issues #52–#61 filed, #6 closed as `superseded` by #54–#57 |
 | `challenge-entry` label | absent | **present** | `gh label list \| grep challenge` |
-| entry form | absent | **`.github/ISSUE_TEMPLATE/challenge-entry.yml`** | PR [#62](https://github.com/abaddon/logos/pull/62) |
-| showcase + ledger | absent | **`docs/showcase/00-index.md`, `ledger.csv`** | PR [#62](https://github.com/abaddon/logos/pull/62) |
-| forkable starting point named | no | **`examples/agent-gate/`** named in Track A | PR [#62](https://github.com/abaddon/logos/pull/62) |
+| entry form | absent | **`.github/ISSUE_TEMPLATE/challenge-entry.yml`** | PR [#62](https://github.com/abaddon/logos/pull/62), merged as `4980394` |
+| showcase + ledger | absent | **`docs/showcase/00-index.md`, `ledger.csv`** | PR [#62](https://github.com/abaddon/logos/pull/62), merged as `4980394` |
+| forkable starting point named | no | **`examples/agent-gate/`** named in Track A | PR [#62](https://github.com/abaddon/logos/pull/62), merged as `4980394` |
 | repository topics | 10 | **12** — `good-first-issues` and `llms-txt` added | `gh api repos/abaddon/logos --jq .topics` |
 
 The spec in `docs/challenge/03-dossiers/assets.md` called for eight seeding items

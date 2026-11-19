@@ -75,6 +75,46 @@ Check 6 needs ≥5 `good first issue` and ≥10 open: 6 and 12. Check 7 needs bo
 labels: present. Check 8 needs a named forkable starting point:
 `examples/agent-gate/` is named in §2 of the program.
 
+### Check 4: the metric, exercised; the web form, not
+
+Check 4 has two halves. The metric half — "M1 returns 0 after the label is
+removed" — was exercised end to end:
+
+```
+$ gh issue create --repo abaddon/logos --title "[entry] label wiring test — do not score" \
+    --label challenge-entry --body "…"
+#64   labels: ["challenge-entry"]   (read back immediately)
+$ gh issue list --repo abaddon/logos --state all --label challenge-entry --json number --jq 'length'
+1
+$ gh issue edit 64 --remove-label challenge-entry && gh issue close 64 --reason "not planned"
+$ gh issue list --repo abaddon/logos --state all --label challenge-entry --json number --jq 'length'
+0
+open issues: 12
+```
+
+The first attempt at this returned `0` one second after creating the issue: the
+issue-list index lags writes by a few seconds. That matters for the coordinator —
+**run the metric queries against data older than a few seconds, or they undercount
+their own test.**
+
+The other half — GitHub applying `labels: ["challenge-entry"]` when the issue
+form is submitted in a browser — **was not executed**: this host has no signed-in
+browser session, and `gh` cannot submit a template form. What was verified
+instead is that the file is well-formed YAML and uses exactly the mechanism
+`bug.yml` already uses on this repository:
+
+```
+$ uvx yamllint -d '{extends: default, rules: {line-length: disable}}' \
+    .github/ISSUE_TEMPLATE/challenge-entry.yml
+(no output, exit 0)
+```
+
+Two issues (#63, #64) were created and closed for this; both carry no
+`challenge-entry` label and both are closed as not planned, so the entry count is
+clean. **The remaining action is one browser session before 2026-11-27:** open
+`https://github.com/abaddon/logos/issues/new?template=challenge-entry.yml`,
+confirm the label is applied without touching it, close as not planned.
+
 ### The spec's item 1 was already fixed
 
 The spec says to file "the docs index says 35 diagnostic codes, the compiler

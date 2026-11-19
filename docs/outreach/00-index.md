@@ -20,7 +20,7 @@ The two facts that make the rest of it make sense:
    were red: no entry form, no showcase, no `challenge-entry` label, and 3 open
    issues with none labelled `good first issue`. Publishing a language nobody can
    contribute to is a bounce, not outreach. Those five checks are now green
-   (PR [#62](https://github.com/abaddon/logos/pull/62), issues #52–#61).
+   (PR [#62](https://github.com/abaddon/logos/pull/62), merged as `4980394`, issues #52–#61).
 2. **The surfaces agents actually read are instruction catalogs, not forum
    posts.** A coding agent loads `*.instructions.md` files and `AGENTS.md`; it
    does not read Hacker News. The publication with the highest expected reach in
