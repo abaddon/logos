@@ -54,9 +54,9 @@ server package**. The registry schema accepts `npm`, `pypi`, `oci`, `nuget` and
 - no Docker or Podman daemon → no OCI image to push to `ghcr.io`, despite the
   GitHub token carrying `write:packages`
 - no PyPI token, so no `uv publish`
-- no public endpoint, so a *remote* server — the shape 68% of listed servers now
-  use, and the only shape that works when the compiler is Linux-only — cannot be
-  hosted from here regardless of packaging
+- no public endpoint, so a *remote* server — the shape 68% of listed servers use
+  (45,784 of 66,812, channel map 2026-11-18), and the only shape that works when
+  the compiler is Linux-only — cannot be hosted from here regardless of packaging
 
 That is the whole reason this batch stops where it does. The build spec exists
 (owner-actions §A1 of `docs/launch/`), the tools list exists, and the copy exists;

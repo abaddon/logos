@@ -60,7 +60,7 @@ as a trap for the next person to file.
 
 | Metric | Value on 2026-11-19 (baseline) | Read it with |
 |---|---|---|
-| repository stars / forks | 0 / 2 | `gh api repos/abaddon/logos --jq '.stargazers_count, .forks_count'` |
+| repository stars / forks | 1 / 2 | `gh api repos/abaddon/logos --jq '.stargazers_count, .forks_count'` |
 | open issues | 12 | `gh issue list --state open --json number --jq length` |
 | `good first issue` open | 6 | same, `--label 'good first issue'` |
 | challenge entries | 0 — Round 1 opens 2026-12-01 | `gh issue list --label challenge-entry --json number --jq length` |
