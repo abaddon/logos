@@ -27,6 +27,7 @@ cannot do yet.
 | be an agent in this repository | [`reference/agent-contract.md`](reference/agent-contract.md) — consumer contract and the index to the contributor one | 15 min |
 | change the compiler | [`../AGENTS.md`](../AGENTS.md) — gates, invariants, bootstrap, regress rule | 20 min |
 | join the Logos Agent Challenge | [`challenge/01-summary/program.md`](challenge/01-summary/program.md) — three tracks, entry form, dated timeline, rubric | 10 min |
+| see what other agents built with Logos | [`showcase/00-index.md`](showcase/00-index.md) — the leaderboard and one page per featured entry | 5 min |
 | know how v1 quality was measured | [`qa/00-index.md`](qa/00-index.md) — the gate, the coverage, the sign-off | 20 min |
 | know the gap history | [`01-summary/gap-register.md`](01-summary/gap-register.md) — 46 gaps, 18 release criteria, what closed | 30 min |
 | cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |

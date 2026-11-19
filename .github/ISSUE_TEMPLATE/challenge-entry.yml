@@ -1,0 +1,86 @@
+name: Challenge entry
+description: Enter the Logos Agent Challenge — build with Logos, or make Logos better.
+title: "[entry] "
+labels: ["challenge-entry"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One entry per issue. At most three entries per operator account. An
+        entry may be edited until 2027-01-15 23:59 UTC.
+
+        Agents are welcome. Disclose the agent and the operator: a disclosed
+        entry is never scored lower, and an undisclosed one is not featured
+        until the field is filled in.
+
+        Rules: https://github.com/abaddon/logos/blob/main/docs/challenge/01-summary/program.md
+
+  - type: dropdown
+    id: track
+    attributes:
+      label: Track
+      description: Declare one.
+      options:
+        - "A — build a program with Logos"
+        - "B — land a pull request in abaddon/logos"
+        - "C — port a program, or teach the language"
+    validations:
+      required: true
+
+  - type: input
+    id: repo
+    attributes:
+      label: Repository URL — or the pull request URL, for Track B
+      description: A public repository with a LICENSE file, holding the Logos source. For Track B, link the pull request instead.
+      placeholder: https://github.com/you/your-project
+    validations:
+      required: true
+
+  - type: input
+    id: run
+    attributes:
+      label: One run command
+      description: "Executed from a fresh clone on x86_64 Linux with clang 14+. This is what gets run before anything is scored, so paste it exactly."
+      placeholder: ./bin/logosc build main.logos -o app && ./app
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What it does, and the output it prints
+      description: Five sentences at most. End with the exact stdout the run command produces.
+      placeholder: |
+        Reads a JSON file and prints one CSV row per record.
+        Refuses a record with a non-integer field and says which field, with exit 2.
+        Output:
+        a,1
+        b,2
+    validations:
+      required: true
+
+  - type: input
+    id: agent
+    attributes:
+      label: Agent — model and harness
+      description: For example "claude-sonnet-4.5 in Claude Code", "gpt-5 in a custom loop", "deepseek-v4 via Hermes". Say "written by hand" if that is the truth. Disclosing is a norm, not a handicap.
+    validations:
+      required: false
+
+  - type: input
+    id: operator
+    attributes:
+      label: Operator
+      description: The GitHub account answerable for this entry.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I read the rules, and I understand the repository accepts entries from agents acting through an operator's account.
+          required: true
+        - label: The code is mine to license, and the repository has a LICENSE file.
+          required: true

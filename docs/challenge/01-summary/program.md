@@ -59,6 +59,11 @@ analyser for `.logos` files. The compiler's own `examples/` directory is the
 calibration and its spread is wide: `matrix.logos` is 73 lines, `wc.logos` 94,
 `json.logos` 487. A 70-line program that does one thing well is a real entry.
 
+The forkable starting point is [`examples/agent-gate/`](../../../examples/agent-gate/README.md) —
+174 lines, one file, nine in-source `(test …)` nodes, a five-command quickstart
+and a list of rough edges it ran into. Copy it, change what it decides, keep the
+shape.
+
 Not eligible: a program that only prints a string; a program whose interesting
 part is not in Logos; anything that needs the network at run time.
 
@@ -388,10 +393,10 @@ the slip rule. Commands are in
 | 2 | One version is published and every page names it | hard | `gh release list --repo abaddon/logos` shows `v0.2.2` as Latest and `grep -rn '0\.2\.1' README.md CHANGELOG.md docs/ src/logosc/main.logos` returns only the CHANGELOG's record that `v0.2.1` was tagged and refused by the release gate. **Resolved 2026-11-18:** `v0.2.1` was tagged and its packaging gate stopped the release (the README linked a page the tarball did not carry); `v0.2.2` publishes with the fix, and the README, install page, quickstart and `logosc version` all name it |
 | 3 | This document merged, at a stable URL | hard | `curl -sI https://raw.githubusercontent.com/abaddon/logos/main/docs/challenge/01-summary/program.md` returns 200 |
 | 4 | `challenge-entry.yml` merged and filing an issue | hard | open the form URL, submit a test entry, **remove its `challenge-entry` label**, close it, then `M1` returns 0 |
-| 5 | `docs/showcase/` exists with an empty ledger table and the `ledger.csv` header | hard | `docs/showcase/00-index.md` renders with 0 rows and `docs/showcase/ledger.csv` exists with its header line |
-| 6 | At least 5 `good first issue` open, and at least 10 scoped issues open in total | hard | `gh issue list --repo abaddon/logos --label 'good first issue' --state open --json number --jq 'length'` ≥ 5 and `gh issue list --repo abaddon/logos --state open --json number --jq 'length'` ≥ 10. **Today: 3 open, 0 of them `good first issue`.** The eight seeding items (eleven issues) are in [`../03-dossiers/assets.md`](../03-dossiers/assets.md#3-seeded-issues--the-good-first-issue-pathway) |
-| 7 | Labels created: `challenge-entry`, `challenge-findings` | hard | `gh label list --repo abaddon/logos \| grep challenge` lists both |
-| 8 | A forkable starting point exists and the challenge page names it | hard | if the reference demo has not merged, `examples/wc.logos`, `examples/json.logos` and `examples/matrix.logos` are named instead — they build and run, and `tools/accept.sh` compares them against external references |
+| 5 | `docs/showcase/` exists with an empty ledger table and the `ledger.csv` header | hard | `docs/showcase/00-index.md` renders with 0 rows and `docs/showcase/ledger.csv` exists with its header line. **Done 2026-11-19:** both files are in the tree, the table carries one placeholder row and the CSV carries the header only. |
+| 6 | At least 5 `good first issue` open, and at least 10 scoped issues open in total | hard | `gh issue list --repo abaddon/logos --label 'good first issue' --state open --json number --jq 'length'` ≥ 5 and `gh issue list --repo abaddon/logos --state open --json number --jq 'length'` ≥ 10. **Done 2026-11-19: 12 open, 6 of them `good first issue`** — issues #52–#61, filed by [`tools/seed-challenge-backlog.sh`](../../../tools/seed-challenge-backlog.sh) from [`../03-dossiers/assets.md`](../03-dossiers/assets.md#3-seeded-issues--the-good-first-issue-pathway). The spec's item 1 was already fixed before seeding and is not filed; **#6 was closed as `superseded`** and replaced by #54–#57. |
+| 7 | Labels created: `challenge-entry`, `challenge-findings` | hard | `gh label list --repo abaddon/logos \| grep challenge` lists both. **Done 2026-11-19.** |
+| 8 | A forkable starting point exists and the challenge page names it | hard | **Done 2026-11-19:** `examples/agent-gate/` merged as #47 (174 lines, nine `(test …)` nodes, five-command quickstart) and §2 Track A names it as the thing to copy. |
 | 9 | `llms.txt`, repo topics, README hero | soft | the docs task's own checklist |
 | 10 | MCP endpoint live | soft | the endpoint's own checklist |
 

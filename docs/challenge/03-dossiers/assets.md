@@ -136,6 +136,12 @@ labelled `help wanted`.** Rows 2 and 3 touch the compiler itself, so they need a
 bootstrap rebuild and the six gates — a week's work for a newcomer, not a sitting.
 Row 8 converts existing issue #6 into four.
 
+**Filed 2026-11-19 as #52–#61 by [`../../../tools/seed-challenge-backlog.sh`](../../../tools/seed-challenge-backlog.sh):
+ten issues, 6 `good first issue` and 4 `help wanted`, 12 open in total.** Row 1
+was already fixed before seeding (`grep -n '35' docs/00-index.md` returns
+nothing; every page says 36) so it was not filed, and row 8's issue #6 was closed
+as `superseded` in favour of its four (#54–#57).
+
 | # | Title | Label | Size | Done when |
 |---|---|---|---|---|
 | 1 | docs: the docs index says 35 diagnostic codes, the compiler emits 36 | `good first issue`, `docs` | tiny | `docs/00-index.md` says 36 in both places, matching `./tools/logosc.sh guide --json` (`codes: 36`). Two lines. |
