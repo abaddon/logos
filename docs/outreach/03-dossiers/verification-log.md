@@ -150,7 +150,28 @@ $ ./tools/logosc.sh check --json d.logos
 {"schema_version":1,"diagnostics":[{"severity":"error","code":"E0001","message":"form outside parentheses","node_path":"","file":"d.logos","line":2,"col":1}]}
 ```
 
-## 5. The two third-party pull requests
+## 5. The install block an agent runs first
+
+The instruction file opens with four commands. Executed from an empty directory,
+exactly as written:
+
+```
+$ gh release download --repo abaddon/logos --pattern 'logos-*-x86_64-linux.tar.gz' --pattern SHA256SUMS
+$ sha256sum -c SHA256SUMS
+logos-0.2.2-x86_64-linux.tar.gz: OK
+$ tar -xzf logos-*-x86_64-linux.tar.gz && cd logos-*-x86_64-linux
+$ ./bin/logosc version
+logos 0.2.2
+
+$ printf '(mod hello)\n\n(fn main :void ()\n  (println "hello from logos"))\n' > hello.logos
+$ ./bin/logosc build hello.logos -o hello && ./hello
+hello from logos
+```
+
+No version number is pinned in the `--pattern`, so the block cannot rot when the
+next release ships, and no prerequisite is assumed beyond `clang` at build time.
+
+## 6. The two third-party pull requests
 
 ```
 $ gh pr view 6516 --repo github/awesome-copilot --json title,state,url
@@ -181,7 +202,7 @@ Project Changes        pass   17s
 netlify deploy-preview pass   0s   ready
 ```
 
-## 6. The baseline these publications are measured against
+## 7. The baseline these publications are measured against
 
 Read on 2026-11-19, before any of them can have an effect:
 
@@ -213,7 +234,7 @@ One merged pull request from an account other than the owner's, in the
 repository's entire history. That, not the star count, is the number the
 challenge is supposed to move.
 
-## 7. The local gate, and what it could not measure
+## 8. The local gate, and what it could not measure
 
 `bash tools/pr_gate.sh` stops at its DCO precondition on this worktree:
 
