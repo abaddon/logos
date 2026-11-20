@@ -231,10 +231,14 @@ issues it blocks — is **not** umbrella: that is the calibration the threshold 
 
 The next hour, with `#10` and `#52` in state, picks `#53` (`examples`) and `#54`
 (`docs`/manual) — still independent, still two. `--include-backlog` does not
-disable the cap or the pair test; it only ignores `backlog_cutoff` for that run,
-and it does **not** rewrite `backlog_cutoff`, so the following runs continue
-from the drained position at 2/hour. Draining 38 issues therefore takes about 19
-hours of hourly runs.
+disable the cap or the pair test; for that run it ignores `backlog_cutoff`
+**and** waives the `seeded` outcome the bootstrap wrote (without that waiver a
+drained state is indistinguishable from a settled one: every issue is `seeded`,
+so the drain picks nothing, forever). It does **not** rewrite `backlog_cutoff`,
+so the following runs continue from the drained position at 2/hour. The seeded
+entries the drain considers are rewritten as `picked` or `skipped` with their
+`skip_reason`, which is the ledger above. Draining 38 issues therefore takes
+about 19 hours of hourly runs.
 
 ---
 

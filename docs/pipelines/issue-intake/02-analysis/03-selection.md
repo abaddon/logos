@@ -12,7 +12,7 @@ of at most `MAX_PICKS` (default 2) issues, or fewer, or none.
 
 | Term | Definition (evaluated, not paraphrased) |
 |---|---|
-| **new** | open, not a pull request, no state entry with `outcome` in {`picked`,`seeded`}, and `created_at > backlog_cutoff` unless `--include-backlog` |
+| **new** | open, not a pull request, no state entry with `outcome` `picked`, no `seeded` entry unless `--include-backlog`, and `created_at > backlog_cutoff` unless `--include-backlog` |
 | **refs(x)** | the set of integers captured by `#(\d+)` in `x.title + "\n" + (x.body or "")`, minus `x.number` |
 | **structural_refs(x)** | for each line of `body`, if the line matches `(?i)(blocked by\|depends on\|sequenced after\|part of\|sub-?issue of\|parent:\|follow-?up to\|tracking issue for)`, add every `#(\d+)` on **that line**; minus `x.number` |
 | **blocked(x)** | `structural_refs(x) ∩ open_numbers` is non-empty. `open_numbers` is the set of numbers fetched this run. A reference to a number that is not open is history, not a blocker |

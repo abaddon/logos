@@ -183,6 +183,6 @@ SOURCES (LAYER 2 NAVIGATION)
 docs/pipelines/issue-intake/02-analysis/03-selection.md
  -> the rules this table was produced by, clause by clause
 docs/pipelines/issue-intake/03-dossiers/04-selection-fixtures.json
- -> the same behaviours as executable cases (13)
+ -> the same behaviours as executable cases (14)
 docs/pipelines/issue-intake/03-dossiers/01-github-evidence.md
  -> the request/response facts behind the 38-item set

@@ -56,15 +56,18 @@ An issue is **new** in this run iff all three hold:
 1. `issue.state == "open"` — guaranteed by the query, asserted anyway;
 2. `"pull_request" not in issue`;
 3. it is not already **picked** in the state file — that is,
-   `state.issues[str(number)].outcome` is absent or is not `"picked"`, and
-   `state.issues[str(number)].outcome != "seeded"` (see `02-state.md`);
+   `state.issues[str(number)].outcome` is absent or is not `"picked"` — and it is
+   not `"seeded"` either, **unless** `--include-backlog` was passed (see
+   `02-state.md`);
 4. `issue.created_at > state.backlog_cutoff`, or `--include-backlog` was passed
    on the command line.
 
 Rule 4 is the bootstrap guard: the run that creates the state file sets
 `backlog_cutoff` to its own start time, so the 38 issues that already exist are
-not "new". `--include-backlog` ignores the cutoff for one run (operator choice,
-see `07-scenarios.md` §8).
+not "new". Rule 3's `seeded` clause is the sticky half of the same guard, and
+the same flag waives it: `--include-backlog` is the operator's drain, so for one
+run it ignores the cutoff **and** the `seeded` entries the bootstrap wrote
+(operator choice, see `07-scenarios.md` §8).
 
 `updated_at` is **not** part of the newness test. One issue number yields at
 most one task, ever (see `02-state.md` §"Identity").

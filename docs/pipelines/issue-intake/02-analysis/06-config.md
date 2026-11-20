@@ -75,7 +75,7 @@ typo cannot turn the board into a firehose.
 ```sh
 python3 tools/issue_intake.py --once            # one run, the cron path
 python3 tools/issue_intake.py --once --dry-run  # decide and report, write nothing
-python3 tools/issue_intake.py --once --include-backlog   # ignore backlog_cutoff once
+python3 tools/issue_intake.py --once --include-backlog   # drain: ignore backlog_cutoff and seeded once
 python3 tools/issue_intake.py --forget 52       # drop state entry for #52, exit
 ```
 

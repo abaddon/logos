@@ -195,6 +195,22 @@
       ],
       "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 2, "ready": 2, "picked": [150],
                  "skipped": {"151": "cap"}}
+    },
+    {
+      "name": "include-backlog-drains-a-bootstrapped-state",
+      "why": "07-scenarios.md §8: after a bootstrap every issue is `seeded`, so `--include-backlog` waives the seeded outcome as well as the cutoff — four seeded entries older than the cutoff become unseen, the oldest two are picked, and the umbrella and the capped candidate are recorded as skips. Without the flag this same state is a silent no-op",
+      "backlog_cutoff": "2026-11-20T13:00:00Z",
+      "state": {"10": {"outcome": "seeded"}, "41": {"outcome": "seeded"},
+                "52": {"outcome": "seeded"}, "53": {"outcome": "seeded"}},
+      "include_backlog": true,
+      "issues": [
+        {"number": 10, "state": "open", "created_at": "2026-11-10T09:00:00Z", "title": "target: the aarch64 cross build does not set the sysroot", "labels": ["target", "hard"], "body": "**Done when:** `make install` cross-builds."},
+        {"number": 41, "state": "open", "created_at": "2026-11-17T01:33:09Z", "title": "Compiler label sweep 2026-11-17: end state of all eight issues, and the one human action", "labels": [], "body": "Tracking issue for the `compiler` label sweep run on 2026-11-17.\n\nSee #10, #12, #16 for the three that are still open."},
+        {"number": 52, "state": "open", "created_at": "2026-11-19T00:38:20Z", "title": "docs: `limits.md` says a non-finite float literal prints `inf`; the compiler refuses it", "labels": ["good first issue", "docs"], "body": "**Done when:** both rows state what the compiler does."},
+        {"number": 53, "state": "open", "created_at": "2026-11-19T01:10:00Z", "title": "examples: the fizzbuzz example does not build under `-O2`", "labels": ["examples"], "body": "**Done when:** the example builds at both levels."}
+      ],
+      "expect": {"fetched": 4, "prs_skipped": 0, "unseen": 4, "ready": 3, "picked": [10, 52],
+                 "skipped": {"41": "umbrella", "53": "cap"}}
     }
   ]
 }

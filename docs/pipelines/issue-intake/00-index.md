@@ -34,13 +34,14 @@ and the repair for each failure.
 | L3 | [`03-dossiers/01-github-evidence.md`](03-dossiers/01-github-evidence.md) | measured API headers, the label inventory, the board metadata |
 | L3 | [`03-dossiers/02-issue-corpus-evidence.md`](03-dossiers/02-issue-corpus-evidence.md) | the dependency/wording conventions the rules are calibrated to, and a verdict table for all 38 open issues |
 | L3 | [`03-dossiers/03-hermes-cli-evidence.md`](03-dossiers/03-hermes-cli-evidence.md) | the installed `kanban create` / `cron create` surfaces the pipeline calls |
-| L3 | [`03-dossiers/04-selection-fixtures.json`](03-dossiers/04-selection-fixtures.json) | 13 machine-readable cases with expected picks — the selection function's test data |
+| L3 | [`03-dossiers/04-selection-fixtures.json`](03-dossiers/04-selection-fixtures.json) | 14 machine-readable cases with expected picks — the selection function's test data |
 
 ## The four sentences that decide everything
 
 1. **New** = open, not a pull request, no `picked`/`seeded` state entry, created
    after `backlog_cutoff` — the first run seeds the existing backlog and picks
-   nothing.
+   nothing. `--include-backlog` waives both halves of that guard for one
+   operator-run drain (`07-scenarios.md` §8).
 2. **Ready** = new, no excluded label (`question`, `needs-info`, `invalid`,
    `wontfix`, `duplicate`, `superseded`, `in-progress`), not blocked by an open
    issue on a `Blocked by`/`Sequenced after` line, not an index/tracking issue.

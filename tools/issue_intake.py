@@ -181,7 +181,11 @@ def is_new(issue, state_issues, backlog_cutoff, include_backlog):
     if issue.get("state") != "open" or "pull_request" in issue:
         return False
     entry = state_issues.get(str(issue["number"])) or {}
-    if entry.get("outcome") in ("picked", "seeded"):
+    if entry.get("outcome") == "picked":
+        return False
+    # `seeded` is the bootstrap's audit record, not a permanent veto: the
+    # operator's --include-backlog drain waives it (03-selection.md §3.1).
+    if entry.get("outcome") == "seeded" and not include_backlog:
         return False
     if include_backlog or not backlog_cutoff:
         return True
@@ -703,7 +707,12 @@ def run_locked(state, state_path, run_start, args):
 
         for key, reason in selection["skipped"].items():
             entry = entries.get(key) or {}
-            if entry.get("outcome") in ("picked", "seeded"):
+            outcome = entry.get("outcome")
+            # A drain run records why each seeded issue still waits; a normal run
+            # must not overwrite the bootstrap's audit trail (03-selection §3.3).
+            if outcome == "picked":
+                continue
+            if outcome == "seeded" and not args.include_backlog:
                 continue
             entry.setdefault("first_seen_at", iso(run_start))
             entry["outcome"] = "skipped"

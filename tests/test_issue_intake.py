@@ -1,7 +1,7 @@
 """Tests for tools/issue_intake.py — no network, no live GitHub calls, no board writes.
 
 The selection rules are pinned by docs/pipelines/issue-intake/03-dossiers/
-04-selection-fixtures.json, which is loaded verbatim: its 13 cases are the
+04-selection-fixtures.json, which is loaded verbatim: its 14 cases are the
 acceptance data the spec was calibrated against, and a rule change that breaks
 one of them fails here. The run-level tests swap ``fetch_issues`` for a canned
 list and ``HERMES_BIN`` for a shim on disk, so the create-then-write ordering,
@@ -10,7 +10,9 @@ logos board.
 
 The one live-repository trace (scenario 8: 22 ready, picks #10+#52) is not
 asserted here on purpose — it needs HTTP. ``--once --dry-run`` against the live
-repo is the manual check for it, and the numbers are recorded in the spec.
+repo is the manual check for it, and the numbers are recorded in the spec. The
+shape of that drain — a bootstrapped state, the flag, #10+#52 — is pinned
+offline by the ``include-backlog-drains-a-bootstrapped-state`` fixture.
 """
 
 import contextlib
@@ -159,6 +161,27 @@ class SelectionRuleTest(unittest.TestCase):
         self.assertEqual([], result["picked_numbers"])
         self.assertEqual({"cap"}, set(result["skipped"].values()))
 
+    def test_include_backlog_waives_the_seeded_outcome(self):
+        # After a bootstrap every entry is `seeded`, so the flag must waive the
+        # outcome as well as the cutoff or the drain of 07-scenarios.md §8 is
+        # unreachable (QA D1).
+        issues = [issue(10, "target: cross build", labels=["target"],
+                        created="2026-11-10T00:00:00Z"),
+                  issue(52, "docs: limits row", labels=["docs"],
+                        created="2026-11-19T00:00:00Z")]
+        state = {"10": {"outcome": "seeded"}, "52": {"outcome": "seeded"}}
+        cutoff = "2026-11-20T13:00:00Z"
+        inert = intake.select(issues, state, cutoff)
+        self.assertEqual((0, []), (inert["unseen"], inert["picked_numbers"]))
+        result = intake.select(issues, state, cutoff, include_backlog=True)
+        self.assertEqual(2, result["unseen"])
+        self.assertEqual([10, 52], result["picked_numbers"])
+        # `picked` is still forever: the flag never resurrects a created task.
+        picked = {"10": {"outcome": "picked", "task_id": "t_x"},
+                  "52": {"outcome": "picked", "task_id": "t_y"}}
+        self.assertEqual([], intake.select(issues, picked, cutoff,
+                                           include_backlog=True)["picked_numbers"])
+
 
 # --- the task card ------------------------------------------------------------
 
@@ -300,6 +323,32 @@ class RunTest(unittest.TestCase):
         self.assertEqual({"seeded"}, {e["outcome"] for e in state["issues"].values()})
         self.assertEqual(state["backlog_cutoff"], state["last_run_at"])
         self.assertEqual(0o600, os.stat(self.state_path).st_mode & 0o777)
+
+    def test_include_backlog_drains_a_bootstrapped_board(self):
+        # QA D1: a bootstrapped state is 100% `seeded`, so the flag is the only
+        # way out of it, and the drain leaves a skip ledger behind.
+        self.write_state({"102": {"outcome": "seeded"}, "103": {"outcome": "seeded"},
+                          "104": {"outcome": "seeded"}}, cutoff="2026-11-20T13:00:00Z")
+        self.canned(self.sample())
+        code, out = self.run_main("--once")
+        self.assertEqual((0, ""), (code, out))
+        self.assertEqual([], self.calls())
+
+        code, out = self.run_main("--once", "--include-backlog")
+        self.assertEqual(0, code)
+        self.assertEqual(2, len(self.calls()))
+        self.assertIn("unseen=3 ready=3", out)
+        self.assertIn("picks=#102,#103", out)
+        self.assertIn("skipped=#104:cap", out)
+        state = self.read_state()
+        self.assertEqual("picked", state["issues"]["102"]["outcome"])
+        self.assertEqual("skipped", state["issues"]["104"]["outcome"])
+        self.assertEqual("cap", state["issues"]["104"]["skip_reason"])
+
+        # The flag is per-run: the hour after the drain is inert again.
+        code, out = self.run_main("--once")
+        self.assertEqual((0, ""), (code, out))
+        self.assertEqual(2, len(self.calls()))
 
     # the happy path --------------------------------------------------------
     def test_creates_one_task_per_pick_with_the_specified_argv(self):

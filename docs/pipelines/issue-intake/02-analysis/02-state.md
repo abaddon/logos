@@ -62,13 +62,20 @@ cast, do not key by int).
 | value | meaning | sticky? |
 |---|---|---|
 | `picked` | a board task was created (or already existed under the same idempotency key) | **yes, forever** |
-| `seeded` | existed before the bootstrap cutoff; deliberately not picked | **yes**, unless `--forget <n>` |
+| `seeded` | existed before the bootstrap cutoff; deliberately not picked | **yes**, until a `--include-backlog` run drains it, or `--forget <n>` clears it |
 | `skipped` | seen this run and not eligible | no — rewritten every run |
 
 `skipped` is a ledger entry for the operator, not a fact about the issue. It is
 overwritten by the next run, so an issue skipped today because its blocker was
 open is reconsidered automatically the hour that blocker closes. If `skipped`
 were sticky, the pipeline would silently stop working on a fix.
+
+`seeded` is sticky on the default path — the hourly run never reconsiders it,
+which is what makes the first run inert — but it is not a permanent veto.
+`--include-backlog` waives it for that one run, and the run rewrites every
+seeded entry it considered as `picked` or `skipped` with its `skip_reason`, so
+the state file explains the drain instead of reporting 38 untouched seeds
+(`07-scenarios.md` §8).
 
 ### `skip_reason` vocabulary
 
@@ -86,7 +93,8 @@ worker re-does work the first already did, against a branch that already exists.
 
 The spec therefore defines:
 
-- **new** — no `picked`/`seeded` entry (see `01-polling.md`);
+- **new** — no `picked` entry and no `seeded` entry unless `--include-backlog`
+  (see `01-polling.md`);
 - **edited after pick** — `state.issues[n].github_updated_at != issue.updated_at`
   and `outcome == "picked"` → append `edited-after-pick` to that run's log line
   and update the stored `github_updated_at`. No task, no state outcome change;
