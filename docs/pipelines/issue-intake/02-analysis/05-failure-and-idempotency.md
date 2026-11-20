@@ -47,6 +47,21 @@ Stopping after the first create failure is deliberate. A run that fails to talk
 to the board once will usually fail twice, and two half-created attempts leave
 the operator with a log that is harder to read than one honest failure.
 
+**Reading a create failure.** `ERROR create failed issue=#n rc=<rc>` carries the
+exit code and nothing else: the pipeline discards the CLI's stderr, so the line
+does not say *why* the create failed. An expired token, a bad `--workspace` and a
+delegate-context refusal all read `rc=1`. Do not treat that line as a diagnosis.
+Re-run the create by hand with the same key to get the CLI's reason:
+
+```sh
+hermes kanban --board logos create "<the title from the issue>" \
+  --branch wt/gh-<n> --idempotency-key logos-issue-<n> --json
+```
+
+§5.1 makes that safe: if the first attempt did land, the key returns the existing
+task instead of creating a second one. Until the pipeline logs the reason itself,
+the log line tells you *that* a create failed, not which kind of failure it was.
+
 ## 5.3 What "partial run" means, precisely
 
 There is no transaction across the two picks. The contract is per-issue:

@@ -8,7 +8,7 @@ library (`urllib.request`, `json`, `os`, `subprocess`, `re`, `argparse`).
 ```
 tools/issue_intake.py           # the whole pipeline, ~350 lines
 tests/test_issue_intake.py      # unittest; uses the fixtures in 03-dossiers/04-selection-fixtures.json
-~/.hermes/scripts/logos-issue-intake.sh   # 5-line cron shim (outside the repo)
+~/.hermes/profiles/<profile>/scripts/logos-issue-intake.sh   # cron shim (outside the repo)
 ```
 
 `tests.test_issue_intake` is added to `CONTRACT_TESTS` in the `Makefile` (one
@@ -114,13 +114,39 @@ four of them have a permission that matters:
 ```sh
 bash tools/install_issue_intake_schedule.sh                  # this checkout
 bash tools/install_issue_intake_schedule.sh --repo-root PATH  # another one
+bash tools/install_issue_intake_schedule.sh \
+  --hermes-home ~/.hermes/profiles/platform-engineer          # the owning profile
 ```
 
 It is idempotent: it keeps an existing `GITHUB_TOKEN`, rewrites
 `/etc/logos-issue-intake/env` at `0600`, installs the runner as
 `$HERMES_HOME/scripts/logos-issue-intake.sh`, and edits the job in place if a job
-named `logos-issue-intake` already exists, so run history survives. The job it
-leaves behind is the one §6.5 always specified:
+named `logos-issue-intake` already exists, so run history survives.
+
+`$HERMES_HOME` there is the **profile that owns the cron job**, not the shared
+`~/.hermes`. `hermes cron create --script` resolves a bare filename against
+`<profile>/scripts/`, so the deployed job's runner is
+`/root/.hermes/profiles/platform-engineer/scripts/logos-issue-intake.sh`. A copy
+in `~/.hermes/scripts/` is never looked at; the create is refused instead:
+
+```
+$ hermes cron create "0 * * * *" --name logos-issue-intake-qa \
+    --no-agent --script logos-issue-intake-qa.sh --deliver local
+Failed to create job: Script file not found: /root/.hermes/profiles/qa-engineer/scripts/logos-issue-intake-qa.sh.
+Create it in /root/.hermes/profiles/qa-engineer/scripts/ first.
+```
+
+The directory named in that error is always the owning profile's (the line above
+is from a QA run in the `qa-engineer` profile). Note that `hermes cron create
+--help` still says "Path to a script under `~/.hermes/scripts/`": that is the
+installed help text, and it is what this section used to say. The resolver uses
+`$HERMES_HOME/scripts`, so trust the directory in the error, not the help. So run
+the installer from the owning profile's session, or pass
+`--hermes-home ~/.hermes/profiles/platform-engineer`, and the runner lands where
+the job looks for it. `--script` takes the bare filename only: an absolute or
+`~`-relative path is rejected with `Script path must be relative to …`.
+
+The job it leaves behind is the one §6.5 always specified:
 
 ```
 hermes cron create "0 * * * *" --name logos-issue-intake --no-agent \
@@ -143,7 +169,13 @@ failure ladder, overlap behaviour, and how to remove it.
 
 Do **not** run this from a dispatched kanban worker (see `04-task-creation.md`
 §4.1): the CLI refuses board mutations from a delegate child, and the failure is
-invisible because the worker's stdout is its own report, not the pipeline's.
+invisible because the worker's stdout is its own report, not the pipeline's. A
+`hermes cron run logos-issue-intake` issued from inside a worker inherits
+`HERMES_DELEGATED_CHILD_CONTEXT`, so the job itself runs and the shim logs
+normally while every create it attempts fails `rc=1` — that is how the scheduling
+task's 12:40 probe ended with `ERROR create failed issue=#101 rc=1` and no card
+on the board. Trigger the job from a normal shell (or let the hour arrive) and
+read `hermes cron runs --name logos-issue-intake`.
 
 ## 6.6 What is deliberately not configurable
 
