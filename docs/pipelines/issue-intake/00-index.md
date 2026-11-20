@@ -14,12 +14,15 @@ host — a `hermes cron` script job running
 `tools/issue_intake_schedule.sh` — documented in
 [`02-analysis/08-operations.md`](02-analysis/08-operations.md) and evidenced in
 [`03-dossiers/05-installed-schedule.md`](03-dossiers/05-installed-schedule.md).
+Operators start at [`RUNBOOK.md`](RUNBOOK.md): health, manual runs, pause/resume,
+and the repair for each failure.
 
 ## Read in this order
 
 | Layer | File | Answers |
 |---|---|---|
 | L1 | [`01-summary/spec.md`](01-summary/spec.md) | what is being built, the six decisions that matter, and the acceptance criteria for the implementation — one page |
+| Ops | [`RUNBOOK.md`](RUNBOOK.md) | one page: is it healthy, run it by hand, pause it, and repair a 401, a rate limit, duplicates, a create failure or a corrupt state |
 | L2 | [`02-analysis/01-polling.md`](02-analysis/01-polling.md) | which endpoint, which headers, which issues count as new, pagination, rate limits |
 | L2 | [`02-analysis/02-state.md`](02-analysis/02-state.md) | the state file's schema, its atomic write, the lock, and what `picked`/`seeded`/`skipped` mean |
 | L2 | [`02-analysis/03-selection.md`](02-analysis/03-selection.md) | **the core**: testable definitions of `new`, `ready`, `independent`, `umbrella`, `subsystem`, and the 20-line algorithm |
