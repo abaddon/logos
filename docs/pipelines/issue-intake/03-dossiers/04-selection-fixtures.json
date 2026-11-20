@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "note": "Machine-readable acceptance cases for tools/issue_intake.py. Load this file in tests/test_issue_intake.py, build the fetch result from each case's `issues` array, apply the constant config (MAX_PICKS from the case, default 2), and assert `picked` and `skipped` exactly. Bodies are abridged from the live repository; the structural lines are verbatim. `state` maps issue number (string) to the state-file entry that already exists.",
+  "config": {
+    "max_picks": 2,
+    "umbrella_max_refs": 8,
+    "excluded_labels": ["question", "needs-info", "invalid", "wontfix", "duplicate", "superseded", "in-progress"],
+    "subsystem_labels": ["compiler", "runtime", "docs", "documentation", "target", "accessibility", "tooling"],
+    "subsystem_prefix": {
+      "docs": "docs", "documentation": "docs", "manual": "docs",
+      "compiler": "compiler", "language": "compiler",
+      "stdlib": "stdlib", "tooling": "tooling",
+      "examples": "examples", "target": "target"
+    },
+    "structural_phrases": ["blocked by", "depends on", "sequenced after", "part of", "sub-issue of", "subissue of", "parent:", "follow-up to", "followup to", "tracking issue for"]
+  },
+  "cases": [
+    {
+      "name": "steady-state-nothing-new",
+      "why": "every open issue is already picked or seeded; the run must create nothing and stay silent",
+      "backlog_cutoff": "2026-11-20T13:00:00Z",
+      "state": {
+        "86": {"outcome": "picked", "task_id": "t_aaaa1111"},
+        "52": {"outcome": "seeded"}
+      },
+      "issues": [
+        {"number": 86, "state": "open", "created_at": "2026-11-19T08:35:06Z", "title": "docs: `(run prog args ms)` exists — the budget is a parameter, and three documents deny it", "labels": ["docs"], "body": "**Done when:** both rows state what the compiler does."},
+        {"number": 52, "state": "open", "created_at": "2026-11-19T00:38:20Z", "title": "docs: `limits.md` says a non-finite float literal prints `inf`; the compiler refuses it", "labels": ["good first issue", "docs"], "body": "**Done when:** both rows state what the compiler does."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 0, "ready": 0, "picked": [], "skipped": {}}
+    },
+    {
+      "name": "one-new-issue",
+      "why": "a single new docs issue is picked alone; independence is vacuous with one pick",
+      "backlog_cutoff": "2026-11-20T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 101, "state": "open", "created_at": "2026-11-20T12:41:00Z", "title": "docs: limits.md links the wrong anchor", "labels": ["docs"], "body": "**Done when:** the anchor resolves in `bash tools/check_doc_links.sh .`."}
+      ],
+      "expect": {"fetched": 1, "prs_skipped": 0, "unseen": 1, "ready": 1, "picked": [101],
+                 "skipped": {}, "assignee": {"101": "oss-contributor"}}
+    },
+    {
+      "name": "three-independent-picks-two",
+      "why": "the brief's headline case: three independent issues, cap 2, third left for the next hour",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 102, "state": "open", "created_at": "2026-11-20T12:10:00Z", "title": "compiler: generic arity is not checked across module boundaries", "labels": ["compiler"], "body": "**Done when:** a corpus case fails before the fix and passes after."},
+        {"number": 103, "state": "open", "created_at": "2026-11-20T12:20:00Z", "title": "runtime: vec-free on a zero-length buffer reads the header", "labels": ["bug", "runtime"], "body": "**Done when:** the ASAN corpus run is clean."},
+        {"number": 104, "state": "open", "created_at": "2026-11-20T12:30:00Z", "title": "docs: the stdlib page lists 21 functions, the compiler exports 22", "labels": ["docs"], "body": "**Done when:** `grep -c` on both pages agrees."}
+      ],
+      "expect": {"fetched": 3, "prs_skipped": 0, "unseen": 3, "ready": 3, "picked": [102, 103],
+                 "skipped": {"104": "cap"}, "assignee": {"102": "backend-engineer", "103": "backend-engineer"}}
+    },
+    {
+      "name": "real-burst-same-subsystem",
+      "why": "the 2026-11-19 08:35Z burst: five actionable docs issues in 45 seconds. One pick; the rest are collisions, a real blocker, and an excluded label. Issue 86's body contains the words 'depends on' with no issue number on the line — it must NOT count as a structural reference.",
+      "backlog_cutoff": "2026-11-19T00:00:00Z",
+      "state": {"78": {"outcome": "seeded"}, "82": {"outcome": "seeded"}, "52": {"outcome": "seeded"}},
+      "issues": [
+        {"number": 86, "state": "open", "created_at": "2026-11-19T08:35:06Z", "title": "docs: `(run prog args ms)` exists — the budget is a parameter, and three documents deny it", "labels": ["docs"],
+         "body": "**Impact.** Worst direction of staleness: a parameter exists and three documents say it does not. A consumer who needs a per-call budget concludes it is unavailable and hand-rolls supervision, and the `-1`-versus-`R0006` contract that depends on passing a budget is documented nowhere.\n\n**Done when:** both rows state what the compiler does."},
+        {"number": 87, "state": "open", "created_at": "2026-11-19T08:35:10Z", "title": "docs: `fmt`'s path rule reads as a defect; it is caller-expanded paths plus always-descend directories", "labels": ["good first issue", "docs"], "body": "**Done when:** the rule is stated in `docs/reference/cli.md`."},
+        {"number": 90, "state": "open", "created_at": "2026-11-19T08:35:21Z", "title": "docs: per-verb `-h` works and `cli.md` documents it — delete the stale limits row", "labels": ["good first issue", "docs"], "body": "**Done when:** the row is gone and `bash tools/check_doc_links.sh .` reports 0 broken."},
+        {"number": 96, "state": "open", "created_at": "2026-11-19T08:35:42Z", "title": "docs: link `docs/reference/limits.md` from `AGENTS.md` — V1-16's second half", "labels": ["good first issue", "docs"],
+         "body": "**Dependencies**\n\n- **Sequenced after:** the page corrections, so the link points at a page that is true: #52, #78, #82, #86, #90\n\n**Done when:**\n\n- `grep -in limit AGENTS.md` returns the line."},
+        {"number": 97, "state": "open", "created_at": "2026-11-19T08:35:46Z", "title": "docs: add closure confinement (`E0502`) to the limits page — a V1-16 row that is missing", "labels": ["good first issue", "docs"], "body": "See the index #100.\n\n**Done when:** the row exists and the guide check passes."},
+        {"number": 98, "state": "open", "created_at": "2026-11-19T08:35:50Z", "title": "docs: say what `test --json` actually does — it parses and changes nothing", "labels": ["docs", "needs-info"], "body": "**Done when:** the page says it."}
+      ],
+      "expect": {"fetched": 6, "prs_skipped": 0, "unseen": 6, "ready": 4, "picked": [86],
+                 "skipped": {"87": "subsystem-collision", "90": "subsystem-collision", "96": "blocked", "97": "subsystem-collision", "98": "excluded-label"}}
+    },
+    {
+      "name": "blocked-candidate-skipped",
+      "why": "an open blocker removes an issue before the pair test, so it cannot consume the second slot",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 110, "state": "open", "created_at": "2026-11-20T09:00:00Z", "title": "tooling: add `logosc fmt --check`", "labels": ["help wanted"], "body": "**Done when:** the verb exits non-zero on a rewrite."},
+        {"number": 111, "state": "open", "created_at": "2026-11-20T09:05:00Z", "title": "tooling: `fmt --check` exit codes and `--json`", "labels": ["help wanted"], "body": "**Blocked by:** #110 — one contract, two flags."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 2, "ready": 1, "picked": [110],
+                 "skipped": {"111": "blocked"}, "assignee": {"110": "backend-engineer"}}
+    },
+    {
+      "name": "cross-reference-rejects-pair",
+      "why": "a ready issue that cites the first pick loses the slot; the scan continues to the next candidate",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 105, "state": "open", "created_at": "2026-11-20T10:00:00Z", "title": "compiler: unify generic aggregates", "labels": ["compiler"], "body": "**Done when:** the unification corpus passes."},
+        {"number": 106, "state": "open", "created_at": "2026-11-20T10:05:00Z", "title": "compiler: unify generic parameters — same scheme as #105", "labels": ["compiler"], "body": "Same scheme as #105.\n\n**Done when:** both corpora pass."},
+        {"number": 107, "state": "open", "created_at": "2026-11-20T10:10:00Z", "title": "docs: write the unification ruling down", "labels": ["docs"], "body": "**Done when:** the ruling is a chapter."}
+      ],
+      "expect": {"fetched": 3, "prs_skipped": 0, "unseen": 3, "ready": 3, "picked": [105, 107],
+                 "skipped": {"106": "cross-reference"}, "assignee": {"105": "backend-engineer", "107": "oss-contributor"}}
+    },
+    {
+      "name": "umbrella-by-title",
+      "why": "the live 37-gap index issue (#100) matches the umbrella title test, so it is never a card even though it is open, unlabelled-for-exclusion and cites nothing structural",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "include_backlog": true,
+      "issues": [
+        {"number": 100, "state": "open", "created_at": "2026-11-20T08:00:00Z", "title": "docs: limits audit — index of the 37 gap issues for `docs/reference/limits.md`", "labels": ["docs"], "body": "Every gap row, its issue and its state.\n\n| LIMIT-010 | #74 | FIX | XL |\n| LIMIT-017 | #80 | FIX | M |"},
+        {"number": 152, "state": "open", "created_at": "2026-11-20T08:10:00Z", "title": "compiler: generic arity", "labels": ["compiler"], "body": "**Done when:** the corpus case passes."},
+        {"number": 153, "state": "open", "created_at": "2026-11-20T08:20:00Z", "title": "runtime: vec-free on a zero-length buffer", "labels": ["runtime"], "body": "**Done when:** ASAN is clean."}
+      ],
+      "expect": {"fetched": 3, "prs_skipped": 0, "unseen": 3, "ready": 2, "picked": [152, 153],
+                 "skipped": {"100": "umbrella"}, "assignee": {"152": "backend-engineer", "153": "backend-engineer"}}
+    },
+    {
+      "name": "tracking-issue-by-header",
+      "why": "the live tracking issue (#41) has no umbrella-shaped title and cites mostly *closed* issues; it is caught by its opening line 'Tracking issue for ...'. The issues it cites remain pickable, and the pair test still applies to them",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "include_backlog": true,
+      "issues": [
+        {"number": 41, "state": "open", "created_at": "2026-11-17T01:33:09Z", "title": "Compiler label sweep 2026-11-17: end state of all eight issues, and the one human action", "labels": [],
+         "body": "Tracking issue for the `compiler` label sweep run on 2026-11-17.\n\nSee #10, #12, #16 for the three that are still open."},
+        {"number": 10, "state": "open", "created_at": "2026-11-17T02:00:00Z", "title": "compiler: names are global", "labels": ["compiler"], "body": "**Done when:** qualification works."},
+        {"number": 12, "state": "open", "created_at": "2026-11-17T02:10:00Z", "title": "compiler: patch writes through node paths", "labels": ["compiler"], "body": "**Done when:** `patch` round-trips."},
+        {"number": 16, "state": "open", "created_at": "2026-11-17T02:20:00Z", "title": "compiler: fmt is not a fixed point on nested forms", "labels": ["compiler"], "body": "**Done when:** two `fmt` runs agree."},
+        {"number": 154, "state": "open", "created_at": "2026-11-17T03:00:00Z", "title": "docs: write the sweep's outcome down", "labels": ["docs"], "body": "**Done when:** the page states the outcome."}
+      ],
+      "expect": {"fetched": 5, "prs_skipped": 0, "unseen": 5, "ready": 4, "picked": [10, 154],
+                 "skipped": {"41": "umbrella", "12": "subsystem-collision", "16": "subsystem-collision"}}
+    },
+    {
+      "name": "umbrella-by-refs-count",
+      "why": "an index with a neutral title and opening line is still an index when it cites 8 open issues. A work issue citing several issues (the live corpus tops out at #80 with 7) must NOT be caught by this arm — that is why the threshold is 8, not 3",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "include_backlog": true,
+      "issues": [
+        {"number": 160, "state": "open", "created_at": "2026-11-17T01:00:00Z", "title": "compiler: sweep follow-ups", "labels": ["compiler"],
+         "body": "| row | issue |\n|---|---|\n| 1 | #10 |\n| 2 | #11 |\n| 3 | #12 |\n| 4 | #13 |\n| 5 | #14 |\n| 6 | #15 |\n| 7 | #16 |\n| 8 | #17 |"},
+        {"number": 10, "state": "open", "created_at": "2026-11-17T02:00:00Z", "title": "docs: one", "labels": ["docs"], "body": "**Done when:** a."},
+        {"number": 11, "state": "open", "created_at": "2026-11-17T02:01:00Z", "title": "docs: two", "labels": ["docs"], "body": "**Done when:** b."},
+        {"number": 12, "state": "open", "created_at": "2026-11-17T02:02:00Z", "title": "docs: three", "labels": ["docs"], "body": "**Done when:** c."},
+        {"number": 13, "state": "open", "created_at": "2026-11-17T02:03:00Z", "title": "docs: four", "labels": ["docs"], "body": "**Done when:** d."},
+        {"number": 14, "state": "open", "created_at": "2026-11-17T02:04:00Z", "title": "docs: five", "labels": ["docs"], "body": "**Done when:** e."},
+        {"number": 15, "state": "open", "created_at": "2026-11-17T02:05:00Z", "title": "docs: six", "labels": ["docs"], "body": "**Done when:** f."},
+        {"number": 16, "state": "open", "created_at": "2026-11-17T02:06:00Z", "title": "docs: seven", "labels": ["docs"], "body": "**Done when:** g."},
+        {"number": 17, "state": "open", "created_at": "2026-11-17T02:07:00Z", "title": "docs: eight", "labels": ["docs"], "body": "**Done when:** h."}
+      ],
+      "expect": {"fetched": 9, "prs_skipped": 0, "unseen": 9, "ready": 8, "picked": [10],
+                 "skipped": {"160": "umbrella", "11": "subsystem-collision", "12": "subsystem-collision", "13": "subsystem-collision",
+                             "14": "subsystem-collision", "15": "subsystem-collision", "16": "subsystem-collision", "17": "subsystem-collision"}}
+    },
+    {
+      "name": "pull-request-dropped",
+      "why": "GET /issues returns pull requests; they are dropped before any other test and never consume a pick",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 120, "state": "open", "created_at": "2026-11-20T11:00:00Z", "title": "fix: vec-get place", "labels": ["compiler"], "body": "PR body.", "pull_request": {"url": "https://api.github.com/repos/abaddon/logos/pulls/120"}},
+        {"number": 121, "state": "open", "created_at": "2026-11-20T11:10:00Z", "title": "docs: a real issue", "labels": ["docs"], "body": "**Done when:** the page is true."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 1, "unseen": 1, "ready": 1, "picked": [121], "skipped": {}}
+    },
+    {
+      "name": "unclassified-collides-with-unclassified",
+      "why": "two issues with no title prefix and no subsystem label are assumed to be the same area, so only one is picked",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 130, "state": "open", "created_at": "2026-11-20T11:20:00Z", "title": "add a container image or devcontainer", "labels": ["enhancement"], "body": "**Done when:** the image builds in CI."},
+        {"number": 131, "state": "open", "created_at": "2026-11-20T11:25:00Z", "title": "changelog entries for 0.3.0", "labels": ["enhancement"], "body": "**Done when:** the file lists every merged change."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 2, "ready": 2, "picked": [130],
+                 "skipped": {"131": "subsystem-collision"}, "assignee": {"130": "backend-engineer"}}
+    },
+    {
+      "name": "backlog-cutoff-ignores-existing",
+      "why": "an issue created before backlog_cutoff is not new even though state has no entry for it (the bootstrap guard), unless include_backlog",
+      "backlog_cutoff": "2026-11-20T13:00:00Z",
+      "state": {},
+      "issues": [
+        {"number": 140, "state": "open", "created_at": "2026-11-19T07:00:00Z", "title": "docs: older than the cutoff", "labels": ["docs"], "body": "**Done when:** the page is true."},
+        {"number": 141, "state": "open", "created_at": "2026-11-20T13:00:05Z", "title": "docs: newer than the cutoff", "labels": ["docs"], "body": "**Done when:** the page is true."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 1, "ready": 1, "picked": [141], "skipped": {}}
+    },
+    {
+      "name": "max-picks-one",
+      "why": "LOGOS_INTAKE_MAX_PICKS=1 must be honoured without touching any other rule",
+      "backlog_cutoff": "2026-11-01T00:00:00Z",
+      "max_picks": 1,
+      "state": {},
+      "issues": [
+        {"number": 150, "state": "open", "created_at": "2026-11-20T09:00:00Z", "title": "compiler: one", "labels": ["compiler"], "body": "**Done when:** x."},
+        {"number": 151, "state": "open", "created_at": "2026-11-20T09:10:00Z", "title": "runtime: two", "labels": ["runtime"], "body": "**Done when:** y."}
+      ],
+      "expect": {"fetched": 2, "prs_skipped": 0, "unseen": 2, "ready": 2, "picked": [150],
+                 "skipped": {"151": "cap"}}
+    }
+  ]
+}
