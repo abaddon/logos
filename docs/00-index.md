@@ -33,6 +33,7 @@ cannot do yet.
 | cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
 | check the docs against the compiler | [`distribution/00-index.md`](distribution/00-index.md) — what was verified, by what command, and the result | 10 min |
 | run the outreach launch, or see where it got to | [`launch/00-index.md`](launch/00-index.md) — channel status, paste-ready copy, the owner actions it waits on | 10 min |
+| see where Logos was published, and what each place returned | [`outreach/00-index.md`](outreach/00-index.md) — the two third-party publications, the baseline they are measured against, and the one missing artifact that blocks six channels | 5 min |
 
 ## Reference — the v1 doc set
 
