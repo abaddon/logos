@@ -6,10 +6,14 @@ restricted to issues that can be worked independently. This directory is the
 specification: it is implementable as written, and every ambiguity in the brief
 (`new`, `independent`) is replaced here by a test a machine evaluates.
 
-Status: **implemented.** The implementation is `tools/issue_intake.py` plus
-`tests/test_issue_intake.py`, built against
+Status: **implemented and installed.** The implementation is
+`tools/issue_intake.py` plus `tests/test_issue_intake.py`, built against
 `../03-dossiers/04-selection-fixtures.json`, and it is listed in
-`CONTRACT_TESTS` so `make test` runs it.
+`CONTRACT_TESTS` so `make test` runs it. The hourly schedule is live on this
+host — a `hermes cron` script job running
+`tools/issue_intake_schedule.sh` — documented in
+[`02-analysis/08-operations.md`](02-analysis/08-operations.md) and evidenced in
+[`03-dossiers/05-installed-schedule.md`](03-dossiers/05-installed-schedule.md).
 
 ## Read in this order
 
@@ -23,6 +27,7 @@ Status: **implemented.** The implementation is `tools/issue_intake.py` plus
 | L2 | [`02-analysis/05-failure-and-idempotency.md`](02-analysis/05-failure-and-idempotency.md) | the failure table, partial runs, and the six things the pipeline must never do |
 | L2 | [`02-analysis/06-config.md`](02-analysis/06-config.md) | the config block, entrypoint flags, exit codes, the cron install |
 | L2 | [`02-analysis/07-scenarios.md`](02-analysis/07-scenarios.md) | eight end-to-end traces, including the three the brief names (0 new, 1 new, 3 new → 2 picked) |
+| L2 | [`02-analysis/08-operations.md`](02-analysis/08-operations.md) | the installed hourly schedule: log, failure ladder, alert marker, overlap, manual trigger, removal |
 | L3 | [`03-dossiers/01-github-evidence.md`](03-dossiers/01-github-evidence.md) | measured API headers, the label inventory, the board metadata |
 | L3 | [`03-dossiers/02-issue-corpus-evidence.md`](03-dossiers/02-issue-corpus-evidence.md) | the dependency/wording conventions the rules are calibrated to, and a verdict table for all 38 open issues |
 | L3 | [`03-dossiers/03-hermes-cli-evidence.md`](03-dossiers/03-hermes-cli-evidence.md) | the installed `kanban create` / `cron create` surfaces the pipeline calls |

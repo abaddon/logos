@@ -107,33 +107,39 @@ The poller is a script job, not an agent job: `--no-agent` runs the script on
 schedule and delivers its stdout verbatim, with no model in the loop. Empty
 stdout is silent, which is exactly the "nothing new" case.
 
-`~/.hermes/scripts/logos-issue-intake.sh`:
+The install is a script, not a hand-typed command, because there are five things
+to write (env file, log rotation, failure markers, the runner copy, the job) and
+four of them have a permission that matters:
 
 ```sh
-#!/bin/sh
-# logos-issue-intake: hourly GitHub -> Kanban pickup for abaddon/logos
-set -eu
-cd /root/ai-language-program
-exec python3 tools/issue_intake.py --once
+bash tools/install_issue_intake_schedule.sh                  # this checkout
+bash tools/install_issue_intake_schedule.sh --repo-root PATH  # another one
 ```
 
-```sh
-hermes cron create "0 * * * *" \
-  --name logos-issue-intake \
-  --no-agent \
-  --script logos-issue-intake.sh \
-  --deliver local
+It is idempotent: it keeps an existing `GITHUB_TOKEN`, rewrites
+`/etc/logos-issue-intake/env` at `0600`, installs the runner as
+`$HERMES_HOME/scripts/logos-issue-intake.sh`, and edits the job in place if a job
+named `logos-issue-intake` already exists, so run history survives. The job it
+leaves behind is the one §6.5 always specified:
+
+```
+hermes cron create "0 * * * *" --name logos-issue-intake --no-agent \
+  --script logos-issue-intake.sh --deliver local --workdir /root/ai-language-program
 ```
 
 `--deliver local` keeps the run's one-line output in `hermes cron runs` instead
 of messaging the operator every hour; raise it to `origin` (or a chat target) if
-the operator wants the created-task lines pushed. `hermes cron runs --name
-logos-issue-intake` is then the run history, and the state file is the ledger.
+the operator wants the created-task lines pushed, or set `--failure-deliver` to
+push only failures. `hermes cron runs --name logos-issue-intake` is then the run
+history, and the state file is the ledger.
 
 `0 * * * *` is on the hour. The gateway dispatcher ticks every 60 s, so a task
 created at `HH:00:03` is claimed within a minute. Do not schedule at `*/60` in
 minutes-of-hour form and do not add a minute offset — an on-the-hour run keeps
 the log timestamps aligned with the operator's mental model.
+
+`08-operations.md` is the operational chapter: what is installed, the log, the
+failure ladder, overlap behaviour, and how to remove it.
 
 Do **not** run this from a dispatched kanban worker (see `04-task-creation.md`
 §4.1): the CLI refuses board mutations from a delegate child, and the failure is
