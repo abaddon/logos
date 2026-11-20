@@ -30,6 +30,8 @@ cannot do yet.
 | see what other agents built with Logos | [`showcase/00-index.md`](showcase/00-index.md) — the leaderboard and one page per featured entry | 5 min |
 | know how v1 quality was measured | [`qa/00-index.md`](qa/00-index.md) — the gate, the coverage, the sign-off | 20 min |
 | know the gap history | [`01-summary/gap-register.md`](01-summary/gap-register.md) — 46 gaps, 18 release criteria, what closed | 30 min |
+| automate issue pickup onto a Kanban board | [`pipelines/issue-intake/00-index.md`](pipelines/issue-intake/00-index.md) — spec: hourly polling, state/dedupe, the independence rule, task creation, failure behaviour | 20 min |
+| operate the hourly issue intake | [`pipelines/issue-intake/RUNBOOK.md`](pipelines/issue-intake/RUNBOOK.md) — health, manual run, pause/resume, and the repair for each failure | 5 min |
 | cut a release | [`release.md`](release.md) — version source, rehearsal, tag, publish | 10 min |
 | check the docs against the compiler | [`distribution/00-index.md`](distribution/00-index.md) — what was verified, by what command, and the result | 10 min |
 | run the outreach launch, or see where it got to | [`launch/00-index.md`](launch/00-index.md) — channel status, paste-ready copy, the owner actions it waits on | 10 min |

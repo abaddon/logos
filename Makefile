@@ -8,7 +8,8 @@ LOGOSC ?= ./tools/logosc.sh
 # would fail on them. Everything else that judged the compiler is a Logos suite
 # below, or the corpus.
 CONTRACT_TESTS = tests.test_contributing tests.test_runtime tests.test_cli \
-	tests.test_qa tests.test_selfhost tests.test_docs tests.test_install
+	tests.test_qa tests.test_selfhost tests.test_docs tests.test_install \
+	tests.test_issue_intake tests.test_issue_intake_schedule
 
 # The seconds-scale loop: everything that judges a change without building the
 # compiler twice or running a corpus. `make test` is the gate; this is what an
