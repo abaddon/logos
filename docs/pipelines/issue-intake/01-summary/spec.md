@@ -6,9 +6,11 @@ Kanban tasks per run — one per picked issue — on the `logos` board, restrict
 to issues that can be worked **independently of each other**. It runs
 unattended, forever, with no model in the loop.
 
-Status: implementable as written. The normative detail lives in six files under
-`../02-analysis/`; every ambiguous word is defined as a test in
-`03-selection.md` §3.1, and eight end-to-end traces are in `07-scenarios.md`.
+Status: implemented in `tools/issue_intake.py`. The normative detail lives in six
+files under `../02-analysis/`; every ambiguous word is defined as a test in
+`03-selection.md` §3.1, eight end-to-end traces are in `07-scenarios.md`, and the
+13 cases in `../03-dossiers/04-selection-fixtures.json` are the test data
+`tests/test_issue_intake.py` loads verbatim.
 
 ## The contract in one page
 

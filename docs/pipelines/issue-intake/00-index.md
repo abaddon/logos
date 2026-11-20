@@ -6,9 +6,10 @@ restricted to issues that can be worked independently. This directory is the
 specification: it is implementable as written, and every ambiguity in the brief
 (`new`, `independent`) is replaced here by a test a machine evaluates.
 
-Status: **specified, not implemented.** The implementation is
-`../02-analysis/06-config.md`'s entrypoint (`tools/issue_intake.py`) plus its
-tests, built against `../03-dossiers/04-selection-fixtures.json`.
+Status: **implemented.** The implementation is `tools/issue_intake.py` plus
+`tests/test_issue_intake.py`, built against
+`../03-dossiers/04-selection-fixtures.json`, and it is listed in
+`CONTRACT_TESTS` so `make test` runs it.
 
 ## Read in this order
 
