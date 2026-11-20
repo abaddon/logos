@@ -178,7 +178,7 @@ task id for `#102`; for `#103` it exits 1 with `Error: database is locked`.
 **Decision / output.**
 
 ```
-ERROR create failed issue=#103 rc=1
+ERROR create failed issue=#103 rc=1 err=Error: database is locked
 logos-issue-intake 2026-11-20T13:00:05Z fetched=41 prs=0 unseen=3 ready=3 picked=2 created=1 failed=1 picks=#102,#103
 ```
 

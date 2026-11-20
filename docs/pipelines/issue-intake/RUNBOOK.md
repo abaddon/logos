@@ -150,9 +150,10 @@ hermes kanban --board logos archive --rm <task-id>   # permanent, after archivin
 ```
 
 **Board / create failure.** `ERROR create failed issue=#N rc=1`, exit 75. The
-run stops at the first failure and writes no `picked` entry. If the line has no
-`err=`, the CLI's reason was dropped (a known defect); reproduce it from a plain
-shell: `hermes kanban --board logos list` (is the board reachable?) and check
+run stops at the first failure and writes no `picked` entry. The line carries the
+CLI's own first stderr line as `err=…`; with no `err=`, the CLI printed nothing
+(or the create timed out), so reproduce it from a plain shell:
+`hermes kanban --board logos list` (is the board reachable?) and check
 that `env | grep HERMES_DELEGATED_CHILD_CONTEXT` is empty. A failed run still
 saves the ETag, so the next hour answers 304 and does not retry until the repo
 changes; to retry now, drop the ETag and run again:

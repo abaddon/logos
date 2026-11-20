@@ -39,7 +39,7 @@ accidentally. Recorded, not defended.
 | state file unparsable | `json.JSONDecodeError` | rename to `state.json.corrupt-<ts>`, log `ERROR state-corrupt path=…`, stop (do **not** reseed: reseeding would silently forget every pick) | no | 65 |
 | lock held, fresh | `.lock` mtime | log `ERROR locked pid=…`, stop | no | 0 |
 | lock held, stale | `.lock` mtime > 10 min | log `WARN stale-lock reclaimed`, proceed | — | — |
-| `hermes kanban create` non-zero / no JSON / no `"id"` | subprocess result | log `ERROR create failed issue=#n rc=<rc>`, **stop the run** (do not attempt the second pick) | for the picks already created | 75 |
+| `hermes kanban create` non-zero / no JSON / no `"id"` | subprocess result | log `ERROR create failed issue=#n rc=<rc> [err=<first stderr line>]`, **stop the run** (do not attempt the second pick) | for the picks already created | 75 |
 | create timed out (60 s) | subprocess timeout | as above — the key makes the retry safe even if the task was actually created | as above | 75 |
 | task existed under the same key | JSON `"id"` returned | treat as success, store the returned id, do not count it as `created` (`created` counts new rows; log `existing=#n`) | yes | 0 |
 
@@ -47,11 +47,16 @@ Stopping after the first create failure is deliberate. A run that fails to talk
 to the board once will usually fail twice, and two half-created attempts leave
 the operator with a log that is harder to read than one honest failure.
 
-**Reading a create failure.** `ERROR create failed issue=#n rc=<rc>` carries the
-exit code and nothing else: the pipeline discards the CLI's stderr, so the line
-does not say *why* the create failed. An expired token, a bad `--workspace` and a
-delegate-context refusal all read `rc=1`. Do not treat that line as a diagnosis.
-Re-run the create by hand with the same key to get the CLI's reason:
+**Reading a create failure.** `ERROR create failed issue=#n rc=<rc> err=<line>`
+carries the exit code and the CLI's own first stderr line, truncated to 200
+characters. That line is the diagnosis: an expired token, a bad `--workspace`
+and a delegate-context refusal all exit `rc=1` but name different causes. It is
+a single CLI line, so it can carry neither the token, nor an API response body,
+nor an issue body (§5.4). `err=` is omitted when the CLI printed nothing on
+stderr, and the timeout and `rc=0 no-task-id` forms carry no `err=` at all —
+there is no stderr to quote on a timeout, and the no-id form has stdout, which
+§5.4 forbids quoting. When the field is missing, re-run the create by hand with
+the same key to get the CLI's reason:
 
 ```sh
 hermes kanban --board logos create "<the title from the issue>" \
@@ -59,8 +64,7 @@ hermes kanban --board logos create "<the title from the issue>" \
 ```
 
 §5.1 makes that safe: if the first attempt did land, the key returns the existing
-task instead of creating a second one. Until the pipeline logs the reason itself,
-the log line tells you *that* a create failed, not which kind of failure it was.
+task instead of creating a second one, and the duplicate is impossible.
 
 ## 5.3 What "partial run" means, precisely
 
@@ -86,7 +90,8 @@ There is no transaction across the two picks. The contract is per-issue:
 - Never write `picked` for an issue whose create did not return an id.
 - Never retry a create with a *different* key. One issue, one key, forever.
 - Never print the token, the full API response, or an issue body on a failure
-  path (exit-75 lines carry status codes and URLs, nothing else).
+  path (exit-75 lines carry status codes, URLs and the CLI's own first stderr
+  line, nothing else).
 - Never create a task for an issue that is not `ready` because "the board looks
   empty this hour".
 
