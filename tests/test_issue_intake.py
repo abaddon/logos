@@ -242,6 +242,7 @@ seen += 1
 with open(counter, "w", encoding="utf-8") as handle:
     handle.write(str(seen))
 if seen == int(os.environ.get("SHIM_FAIL_AT", "0")):
+    sys.stderr.write(os.environ.get("SHIM_STDERR", ""))
     sys.exit(1)
 created = int(os.environ.get("SHIM_CREATED_AT", time.time()))
 print(json.dumps({{"id": "t_shim_" + str(created), "created_at": created}}))
@@ -263,6 +264,7 @@ class RunTest(unittest.TestCase):
         self.addCleanup(os.environ.pop, "SHIM_LOG", None)
         self.addCleanup(os.environ.pop, "SHIM_COUNT", None)
         self.addCleanup(os.environ.pop, "SHIM_FAIL_AT", None)
+        self.addCleanup(os.environ.pop, "SHIM_STDERR", None)
         self.addCleanup(os.environ.pop, "SHIM_CREATED_AT", None)
 
         self.saved = (intake.STATE_PATH, intake.HERMES_BIN)
@@ -452,6 +454,29 @@ class RunTest(unittest.TestCase):
         self.assertEqual(1, state["last_run"]["failed"])
         self.assertIn("failed=1", out)
         self.assertEqual(2, len(self.calls()))     # the run stopped; #104 untouched
+
+    def test_create_failure_reports_the_cli_one_line_diagnosis(self):
+        self.write_state({})
+        os.environ["SHIM_FAIL_AT"] = "1"
+        os.environ["SHIM_STDERR"] = (
+            "kanban: delegate_task child contexts cannot mutate Kanban tasks via the CLI\n"
+            "Traceback (most recent call last):\n")
+        self.canned(self.sample()[:1])
+        code, out = self.run_main("--once")
+        self.assertEqual(75, code)
+        self.assertIn("ERROR create failed issue=#102 rc=1 "
+                      "err=kanban: delegate_task child contexts cannot mutate "
+                      "Kanban tasks via the CLI", out)
+        self.assertNotIn("Traceback", out)         # first line only
+
+    def test_create_failure_with_silent_stderr_is_unchanged(self):
+        self.write_state({})
+        os.environ["SHIM_FAIL_AT"] = "1"
+        self.canned(self.sample()[:1])
+        code, out = self.run_main("--once")
+        self.assertEqual(75, code)
+        self.assertIn("ERROR create failed issue=#102 rc=1\n", out.replace("\r\n", "\n"))
+        self.assertNotIn("err=", out)
 
     def test_the_failed_pick_is_retried_the_next_hour(self):
         self.write_state({})

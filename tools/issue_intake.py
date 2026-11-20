@@ -534,7 +534,11 @@ def create_task(issue, body_path, run_start_ts):
     except subprocess.TimeoutExpired:
         raise Fatal(75, f"create failed issue=#{number} rc=timeout")
     if proc.returncode != 0:
-        raise Fatal(75, f"create failed issue=#{number} rc={proc.returncode}")
+        # The CLI's first stderr line is the whole diagnosis; the rest may be a
+        # traceback. Bound it so a runaway line cannot flood the log.
+        diagnosis = (proc.stderr or "").strip().splitlines()[:1]
+        raise Fatal(75, f"create failed issue=#{number} rc={proc.returncode}"
+                        + (f" err={diagnosis[0][:200]}" if diagnosis else ""))
     try:
         payload = json.loads(proc.stdout)
         task_id = payload["id"]
